@@ -17,7 +17,7 @@ import {
     shouldOmitTemperatureForReasoning,
 } from '../reasoning-capabilities.js';
 import { isReasoningOutputVisible } from '../reasoning-config.js';
-import { normalizeGeminiToolSchema } from './gemini-tool-schema.js';
+import { prepareGeminiRelayRequest } from './gemini-relay.js';
 import {
     scanAssistantText,
     decodeTextToolCalls,
@@ -1143,12 +1143,9 @@ export class OpenAICompatibleAdapter {
         const reasoning = effectiveReasoning;
         const toolMode = this.config.toolMode || 'native';
         const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
+        const modelFamily = resolveModelFamily(this.config.model);
         const nativeTools = !isTaggedMode && Array.isArray(task.tools) && task.tools.length
-            ? (resolveModelFamily(this.config.model) === 'gemini'
-                ? task.tools.map(tool => tool.type === 'function' && tool.function?.parameters
-                    ? { ...tool, function: { ...tool.function, parameters: normalizeGeminiToolSchema(tool.function.parameters) } }
-                    : tool)
-                : task.tools)
+            ? task.tools
             : null;
         const deepSeekThinkingWithTools = shouldPreserveHistoricalReasoning(
             { ...this.config, provider: 'openai-compatible' }, nativeTools, reasoning,
@@ -1157,10 +1154,11 @@ export class OpenAICompatibleAdapter {
         const messages = isTaggedMode ? buildTaggedMessages(task, this.config.model) : buildNativeMessages(task, this.config.model, {
             preserveReasoningContent: deepSeekThinkingWithTools,
         });
+        const prepared = prepareGeminiRelayRequest(this.config.model, nativeTools, messages, isTaggedMode);
         const body = {
             model: this.config.model,
-            messages: resolveModelFamily(this.config.model) === 'claude' ? applyClaudePromptCaching(messages) : messages,
-            ...(nativeTools ? { tools: nativeTools, tool_choice: task.toolChoice || 'auto' } : {}),
+            messages: modelFamily === 'claude' ? applyClaudePromptCaching(prepared.messages) : prepared.messages,
+            ...(prepared.tools ? { tools: prepared.tools, tool_choice: task.toolChoice || 'auto' } : {}),
             ...(task.maxTokens
                 ? (usesMaxCompletionTokens(this.config.model)
                     ? { max_completion_tokens: task.maxTokens }

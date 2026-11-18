@@ -10,6 +10,8 @@ import {
 import { resolveTaskReasoning } from '../reasoning-capabilities.js';
 import { isReasoningOutputVisible } from '../reasoning-config.js';
 import { stripToolProtocolMarker } from './tool-protocol-marker.js';
+import { encodeGeminiToolResponse } from './gemini-tool-result.js';
+import { prepareGoogleToolParameters } from './google-tool-schema.js';
 
 function parseArguments(text) {
     try {
@@ -322,7 +324,7 @@ function buildToolResponseMessage(toolResponses = []) {
                     functionResponse: {
                         ...(responseId ? { id: responseId } : {}),
                         name: item.name,
-                        response: item.response || {},
+                        response: encodeGeminiToolResponse(item.response || {}),
                     },
                 };
             }),
@@ -461,7 +463,7 @@ function buildConversation(messages) {
                         name: String(toolMessage.toolName || toolMessage.tool_name || '').trim()
                             || toolNameById.get(internalId)
                             || 'tool_result',
-                        response: parseArguments(toolMessage.content),
+                        response: encodeGeminiToolResponse(parseArguments(toolMessage.content), toolMessage.content),
                     },
                 });
                 cursor += 1;
@@ -610,7 +612,8 @@ export class GoogleAdapter {
                 functionDeclarations: tools.map((tool) => ({
                     name: tool.function.name,
                     description: tool.function.description,
-                    parameters: tool.function.parameters,
+                    // parametersJsonSchema keeps the complete JSON Schema; `parameters` is an OpenAPI subset.
+                    parametersJsonSchema: prepareGoogleToolParameters(tool.function.parameters),
                 })),
             }];
         }

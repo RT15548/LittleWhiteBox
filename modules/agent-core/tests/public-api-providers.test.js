@@ -195,12 +195,12 @@ function assertRequest(provider, streaming, request, wires, round) {
     assert.equal(parameters[protocol === 'google' && !hosted ? 'maxOutputTokens' : protocol === 'openai-responses' ? 'max_output_tokens' : 'max_tokens'], 177);
     assert.equal(parameters[protocol === 'google' && !hosted ? 'topP' : 'top_p'], 0.83);
     if (!(protocol === 'google' && !hosted)) assert.equal(body.model, 'fixture-model');
-    const expectedTools = hosted || protocol === 'openai-compatible' ? tools
+    const expectedTools = protocol === 'google' && hosted
+        ? [{ type: 'function', function: { name: tools[0].function.name, parametersJsonSchema: tools[0].function.parameters } }]
+        : hosted || protocol === 'openai-compatible' ? tools
         : protocol === 'openai-responses' ? [{ type: 'function', name: tools[0].function.name, parameters: tools[0].function.parameters }]
             : protocol === 'anthropic' ? [{ name: tools[0].function.name, input_schema: tools[0].function.parameters }]
-                : [{ functionDeclarations: [{ name: tools[0].function.name, parameters: {
-                    type: 'OBJECT', properties: { slot: { type: 'INTEGER' } }, required: ['slot'],
-                } }] }];
+                : [{ functionDeclarations: [{ name: tools[0].function.name, parametersJsonSchema: tools[0].function.parameters }] }];
     assert.deepEqual(body.tools, expectedTools);
 }
 

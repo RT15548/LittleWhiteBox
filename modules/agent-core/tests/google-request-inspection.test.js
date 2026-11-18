@@ -31,9 +31,8 @@ for (const streaming of [false, true]) {
             assert.equal(session.config.systemInstruction, opening);
             assert.deepEqual(sent[index].systemInstruction.parts, [{ text: opening }]);
             assert.deepEqual(sent[index].contents.slice(0, -1), session.history);
-            assert.deepEqual(sent[index].tools, [{ functionDeclarations: session.config.tools[0].functionDeclarations.map(tool => ({
-                ...tool, parameters: { ...tool.parameters, type: 'OBJECT' },
-            })) }]);
+            // The inspected declarations are the bytes sent; JSON Schema is not rewritten.
+            assert.deepEqual(sent[index].tools, session.config.tools);
             assert.equal(JSON.stringify(result.requestInspection).includes('offline-secret'), false);
         }
         const continuation = sent[1].contents.at(-1);

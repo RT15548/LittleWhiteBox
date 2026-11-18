@@ -682,10 +682,31 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/gemini-relay.js",
+      "relativePath": "modules/agent-core/adapters/gemini-relay.js",
+      "extension": ".js",
+      "sizeBytes": 779
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/gemini-tool-result.js",
+      "relativePath": "modules/agent-core/adapters/gemini-tool-result.js",
+      "extension": ".js",
+      "sizeBytes": 915
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/gemini-tool-schema.js",
       "relativePath": "modules/agent-core/adapters/gemini-tool-schema.js",
       "extension": ".js",
-      "sizeBytes": 2506
+      "sizeBytes": 8358
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/google-tool-schema.js",
+      "relativePath": "modules/agent-core/adapters/google-tool-schema.js",
+      "extension": ".js",
+      "sizeBytes": 2071
     },
     {
       "source": "littlewhitebox",
@@ -699,7 +720,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/google.js",
       "relativePath": "modules/agent-core/adapters/google.js",
       "extension": ".js",
-      "sizeBytes": 35781
+      "sizeBytes": 36143
     },
     {
       "source": "littlewhitebox",
@@ -713,7 +734,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/openai-compatible.js",
       "relativePath": "modules/agent-core/adapters/openai-compatible.js",
       "extension": ".js",
-      "sizeBytes": 61639
+      "sizeBytes": 61481
     },
     {
       "source": "littlewhitebox",
@@ -741,14 +762,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/sillytavern-google.js",
       "relativePath": "modules/agent-core/adapters/sillytavern-google.js",
       "extension": ".js",
-      "sizeBytes": 13879
+      "sizeBytes": 14495
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/sillytavern-openai-compatible.js",
       "relativePath": "modules/agent-core/adapters/sillytavern-openai-compatible.js",
       "extension": ".js",
-      "sizeBytes": 12860
+      "sizeBytes": 13072
     },
     {
       "source": "littlewhitebox",
@@ -783,7 +804,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/vertex-transport.js",
       "relativePath": "modules/agent-core/adapters/vertex-transport.js",
       "extension": ".js",
-      "sizeBytes": 5805
+      "sizeBytes": 5578
     },
     {
       "source": "littlewhitebox",
@@ -1067,10 +1088,17 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/tests/gemini-schema-regressions.test.js",
+      "relativePath": "modules/agent-core/tests/gemini-schema-regressions.test.js",
+      "extension": ".js",
+      "sizeBytes": 3673
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/tests/gemini-tool-schema.test.js",
       "relativePath": "modules/agent-core/tests/gemini-tool-schema.test.js",
       "extension": ".js",
-      "sizeBytes": 4326
+      "sizeBytes": 8316
     },
     {
       "source": "littlewhitebox",
@@ -1084,7 +1112,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/tests/google-request-inspection.test.js",
       "relativePath": "modules/agent-core/tests/google-request-inspection.test.js",
       "extension": ".js",
-      "sizeBytes": 2997
+      "sizeBytes": 2929
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/tests/google-tool-result-ref.test.js",
+      "relativePath": "modules/agent-core/tests/google-tool-result-ref.test.js",
+      "extension": ".js",
+      "sizeBytes": 5584
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/tests/google-tool-schema.test.js",
+      "relativePath": "modules/agent-core/tests/google-tool-schema.test.js",
+      "extension": ".js",
+      "sizeBytes": 1771
     },
     {
       "source": "littlewhitebox",
@@ -1154,7 +1196,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/tests/public-api-providers.test.js",
       "relativePath": "modules/agent-core/tests/public-api-providers.test.js",
       "extension": ".js",
-      "sizeBytes": 19259
+      "sizeBytes": 19350
     },
     {
       "source": "littlewhitebox",
@@ -11217,10 +11259,17 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/model/tool-schema.ts",
+      "relativePath": "modules/variables/state3/model/tool-schema.ts",
+      "extension": ".ts",
+      "sizeBytes": 969
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/model/tools.ts",
       "relativePath": "modules/variables/state3/model/tools.ts",
       "extension": ".ts",
-      "sizeBytes": 3861
+      "sizeBytes": 2705
     },
     {
       "source": "littlewhitebox",
@@ -11353,7 +11402,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/SKILL.md",
       "relativePath": "modules/variables/state3/skill/SKILL.md",
       "extension": ".md",
-      "sizeBytes": 33431
+      "sizeBytes": 35660
     },
     {
       "source": "littlewhitebox",
@@ -12075,6 +12124,13 @@
       "relativePath": "modules/variables/state3/tests/submission-feedback.test.ts",
       "extension": ".ts",
       "sizeBytes": 9923
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/tests/tool-schema.test.ts",
+      "relativePath": "modules/variables/state3/tests/tool-schema.test.ts",
+      "extension": ".ts",
+      "sizeBytes": 5411
     },
     {
       "source": "littlewhitebox",
@@ -21665,6 +21721,13 @@
       "relativePath": "shared/host-request-headers.js",
       "extension": ".js",
       "sizeBytes": 461
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/shared/json-schema-resources.js",
+      "relativePath": "shared/json-schema-resources.js",
+      "extension": ".js",
+      "sizeBytes": 3373
     },
     {
       "source": "littlewhitebox",

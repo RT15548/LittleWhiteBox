@@ -157,9 +157,20 @@ For a complete ordinary-chat route, read [雾港证物审理](<references/exampl
 3. Connect the RP views through worldbook macros, using the card-files skill for worldbook layout, activation and ordering. A 3.0 definition initializes its own state; a loop task is only needed for actual host automation or a persistent custom UI. Match each greeting to its starting values with [the opening workflow](<references/state-design.md#alternate-openings>).
 4. Trial each mechanic with `checkDraft`: success, rejection, boundary values, repeated rewards and changed prerequisites. Inspect every changed field and its explanation. Verify failed batches leave the starting state unchanged. Repair the same draft and rerun the failing input.
 5. Play routes from the initial state through consecutive `checkDraft` calls, passing each result's state to the next. Verify the intended goals and recovery paths are reachable; isolated hand-set test states cannot establish that.
-6. Save the complete rule package and changed worldbook files; inspect each save result. In an authorized isolated chat, inspect `previewRequest` for actual state, descriptions and tool declarations. Play a key turn and compare prose with the settled result.
+6. Save the complete rule package and changed worldbook files; inspect each save result. In an authorized isolated chat, inspect `previewRequest` for actual state, descriptions and tool declarations. Play a key turn using the [story-to-state checks](#check-the-story-to-state-handoff) below.
 7. Test the actual panel's submission/refresh journey and each alternate opening. Save/reopen and undo/swipe must restore state without repeating gameplay or host effects.
 8. With before/after enabled, verify each stage's actions and direct fields by passing `stage` to the trials, regenerate and reopen to check reuse of the recorded before outcome, and edit/recompute to check replacement. After bookkeeping must not repeat events already settled before prose.
+
+### Check the story-to-state handoff
+
+For each managed fact affected by this work, trace what the RP model receives → what can happen in this passage → what evidence permits the updater to submit a change in its stage → what the engine actually settles → what the next RP request presents as current fact. Compare the relevant greeting, worldbook instructions, output format and variable definition along this route.
+
+- **Timing:** If a person enters state only after their first appearance in prose, the output format must allow that appearance while their state entry is still absent. Check that introductions and their recording can occur in the declared order.
+- **Meaning:** Identify the evidence that moves a proposal into an accepted agreement, an intention into a completed action, or an attempt into a successful outcome. Collection names, field descriptions, opening values and update instructions must use the same distinction; record only the transition supported by this passage or an already settled result.
+- **Knowledge:** For required information that the passage leaves unknown, define a representation allowed by the schema and consistent with the field's meaning. Initial values need an author-defined basis. Keep the author's known setting facts distinct from what each character has learned, following the [card's knowledge scope](<../../../card-workspace/skill/references/prompt-organization.md#give-rules-and-knowledge-an-explicit-scope>).
+- **Rule coverage:** Identify which conditions the definition enforces and which judgements depend on the updater reading the passage correctly. Compare the submitted evidence with the actual state difference; a structurally valid submission can still record the wrong story fact.
+
+Review these relationships in the card text before live trials. During the isolated turn, inspect the actual model inputs, reply, submission and settled state, then the next RP request. For a transition the card uses, compare the passage that establishes it with one that leaves it pending or unknown; after correcting a mismatch, repeat the affected route. Keep text review, rule trials and observed model behaviour distinct in the report.
 
 ## When a custom function is useful
 

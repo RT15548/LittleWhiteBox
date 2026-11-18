@@ -14,9 +14,7 @@ export function buildVertexBody(history, message, config) {
         contents: [...history, vertexInputContent(message)],
         ...(systemInstruction ? { systemInstruction: typeof systemInstruction === 'string'
             ? { parts: [{ text: systemInstruction }] } : systemInstruction } : {}),
-        ...(tools ? { tools: tools.map(tool => ({ ...tool, functionDeclarations: tool.functionDeclarations.map(({ parameters, ...declaration }) => ({
-            ...declaration, ...(parameters ? { parametersJsonSchema: parameters } : {}),
-        })) })) } : {}),
+        ...(tools ? { tools } : {}),
         ...(toolConfig ? { toolConfig } : {}),
         generationConfig,
     };

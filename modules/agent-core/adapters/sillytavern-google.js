@@ -12,6 +12,7 @@ import {
 import { resolveTaskReasoning } from '../reasoning-capabilities.js';
 import { isReasoningOutputVisible } from '../reasoning-config.js';
 import { stripToolProtocolMarker } from './tool-protocol-marker.js';
+import { prepareGoogleToolParameters } from './google-tool-schema.js';
 
 function cloneJson(value) {
     if (value === undefined) return undefined;
@@ -307,6 +308,15 @@ export class SillyTavernGoogleAdapter {
         const stream = true;
         const messages = this.buildMessages(task);
         const payload = buildHostGoogleGeneratePayload(this.config, task, messages, stream);
+        // SillyTavern forwards each tool.function as a Google function declaration;
+        // parametersJsonSchema keeps the complete JSON Schema.
+        if (payload.tools) {
+            payload.tools = payload.tools.map(tool => {
+                if (tool.type !== 'function') return tool;
+                const { parameters, ...declaration } = tool.function;
+                return { ...tool, function: { ...declaration, ...(parameters ? { parametersJsonSchema: prepareGoogleToolParameters(parameters) } : {}) } };
+            });
+        }
         if (reasoning.mode === 'on') {
             payload.reasoning_effort = reasoning.effort;
             payload.include_reasoning = isReasoningOutputVisible(reasoning);

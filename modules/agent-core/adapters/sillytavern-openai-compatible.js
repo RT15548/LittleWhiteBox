@@ -14,6 +14,7 @@ import {
     shouldOmitTemperatureForReasoning,
 } from '../reasoning-capabilities.js';
 import { isReasoningOutputVisible } from '../reasoning-config.js';
+import { prepareGeminiRelayRequest } from './gemini-relay.js';
 import {
     accumulateStreamedAssistantSnapshot,
     applyOpenAICompatibleReasoningControls,
@@ -89,8 +90,10 @@ export class SillyTavernOpenAICompatibleAdapter {
         const messages = taggedMode
             ? buildTaggedMessages(task, this.config.model)
             : buildNativeMessages(task, this.config.model);
+        const prepared = prepareGeminiRelayRequest(this.config.model, task.tools, messages, taggedMode);
         const effectiveTask = {
             ...task,
+            tools: prepared.tools,
             temperature: shouldOmitTemperatureForReasoning(
                 { ...this.config, provider: 'sillytavern-openai-compatible' },
                 reasoning,
@@ -106,7 +109,7 @@ export class SillyTavernOpenAICompatibleAdapter {
                     toolChoice: undefined,
                 }
                 : effectiveTask,
-            messages,
+            prepared.messages,
             typeof task.onStreamProgress === 'function',
         );
         Object.assign(payload, samplingParams);
