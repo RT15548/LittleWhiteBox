@@ -158,7 +158,7 @@ export function parseSummaryJson(raw) {
 
 export async function generateSummary({
     existingSummary, existingFacts, newHistoryText, historyRange, existingEventCount = 0,
-    timeout = 180000, signal = null,
+    signal = null,
 }) {
     if (signal?.aborted) throw createSummaryGenerationCancelledError();
     if (!newHistoryText?.trim()) throw new Error('新对话内容为空');
@@ -166,7 +166,7 @@ export async function generateSummary({
     try {
         const result = await generateFeatureText('summary', {
             messages: [...promptData.topMessages, ...promptData.bottomMessages],
-            signal, timeoutMs: timeout,
+            signal,
         });
         return result.text;
     } catch (error) {
