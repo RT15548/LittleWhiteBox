@@ -3,7 +3,7 @@ import { drawNotify } from './draw-toast.js';
 // 画廊和缓存管理模块
 
 import { getContext } from "../../../../../../extensions.js";
-import { hasPreviewImage, DRAW_SLOT_COPY, PreviewStatus, PUBLIC_DRAW_SOURCE } from './image-record.js';
+import { hasPreviewImage, DRAW_SLOT_COPY, DRAW_SLOT_ERRORS, PreviewStatus, PUBLIC_DRAW_SOURCE } from './image-record.js';
 
 import { getSharedDrawSettings } from './draw-settings.js';
 import { DRAW_LAYERS } from './draw-visuals.js';
@@ -16,6 +16,7 @@ import { GALLERY_METADATA_INDEX, withGalleryMetadata, galleryMetadataFromKey } f
 import { createGalleryImageWindow } from './gallery-image-window.js';
 import { getSafeViewportStyles, observeViewport } from '../../../shared/common/viewport.js';
 import { getImageChatIdentity } from './chat-image-persistence.js';
+import { isSceneSlotAlive } from './scene-placement.js';
 import { observeAsyncCallback } from '../../../shared/common/async-errors.js';
 
 const useCurrentGalleryImageEvent = observeAsyncCallback(useCurrentGalleryImage, { source: import.meta.url, operation: "useCurrentGalleryImage" });
@@ -950,6 +951,19 @@ export async function deletePreview(imgId) {
     });
 }
 
+// 删除一个图位的最后一张图时不删记录：只去掉图片本体（base64 / savedUrl），把它转成“失败”记录。
+// 场景、角色（characterPrompts）、负向、追加位、画幅、标题和角色记忆快照全部保留，
+// 占位卡的编辑 TAG 与重新生成都读这条记录；删除前的图不再参与服装记忆（记忆只读成功的图）。
+export async function retirePreviewToFailed(imgId) {
+    const record = await updatePreviewRecord(imgId, {
+        base64: null, savedUrl: null, status: PreviewStatus.FAILED,
+        errorType: DRAW_SLOT_ERRORS.deleted.label, errorMessage: DRAW_SLOT_ERRORS.deleted.desc,
+        timestamp: Date.now(),
+    });
+    revokePreviewObjectUrl(imgId);
+    return record;
+}
+
 export async function deleteFailedRecordsForSlot(slotId) {
     const previews = await getPreviewsBySlot(slotId);
     const failedRecords = previews.filter(p => p.status === 'failed' || (!p.base64 && !p.savedUrl));
@@ -1522,7 +1536,7 @@ export async function openGallery(slotId, messageId, callbacks = {}, initialImgI
         if (idx >= 0) startIndex = idx;
     }
 
-    currentGalleryData = { slotId, messageId, previews: validPreviews, currentIndex: startIndex, callbacks,
+    currentGalleryData = { slotId, messageId, message, previews: validPreviews, currentIndex: startIndex, callbacks,
         imageWindow: createGalleryImageWindow({ load: getPreview }),
         stopViewport: observeViewport(() => {
             Object.assign(document.getElementById('nd-gallery-overlay').style, getSafeViewportStyles());
@@ -1672,7 +1686,7 @@ async function saveCurrentGalleryImage() {
 async function deleteCurrentGalleryImage() {
     if (!currentGalleryData) return;
 
-    const { slotId, messageId, previews, currentIndex, callbacks } = currentGalleryData;
+    const { slotId, messageId, message, previews, currentIndex, callbacks } = currentGalleryData;
     const view = currentGalleryData;
     const current = await getPreview(previews[currentIndex]?.imgId);
     if (!current || currentGalleryData !== view) return;
@@ -1681,7 +1695,16 @@ async function deleteCurrentGalleryImage() {
     if (!confirm(msg)) return;
 
     try {
-        await deletePreview(current.imgId);
+        // 聊天楼层里仍存在的图位删光最后一张：保留输入记录（见 retirePreviewToFailed）；
+        // 文本配图、公共 API、快速测试等没有楼层可放占位卡的图照旧删除。
+        const keepInput = previews.length === 1 && !current.source && !!message
+            && isSceneSlotAlive(message.mes, slotId);
+        if (keepInput) {
+            await retirePreviewToFailed(current.imgId);
+            // 保存条目不清，下次渲染会把失败图位又显示成图；清失败按删除失败报告。
+            const { clearDrawSavedEntry } = await import('./draw-common.js');
+            await clearDrawSavedEntry(Number(messageId), slotId);
+        } else await deletePreview(current.imgId);
 
         const selectedId = await getSlotSelection(slotId);
         if (selectedId === current.imgId) {
@@ -1693,7 +1716,7 @@ async function deleteCurrentGalleryImage() {
         if (previews.length === 0) {
             if (currentGalleryData === view) closeGallery();
             if (callbacks.onBecameEmpty) {
-                callbacks.onBecameEmpty(slotId, messageId, { tags: current.tags || '', title: current.title || '', positive: current.positive || '' });
+                callbacks.onBecameEmpty(slotId, messageId, { imgId: keepInput ? current.imgId : '', tags: current.tags || '', title: current.title || '', positive: current.positive || '' });
             }
             drawNotify.success('图片已删除，可点击重试重新生成', undefined, { timeOut: 2500 });
         } else {

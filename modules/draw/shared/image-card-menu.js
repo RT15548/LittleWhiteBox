@@ -9,9 +9,11 @@ const DOTS = '<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><cir
 const EDIT_TAGS = { action: 'edit-tags', label: DRAW_SLOT_COPY.editTagsAction };
 const REMOVE = { action: 'remove-placeholder', label: DRAW_SLOT_COPY.remove, danger: true };
 
-// 危险项（移除）前自动补一条分隔线。
+const REMOVE_FLOOR = { action: 'remove-floor-failed', label: DRAW_SLOT_COPY.removeFloor, title: DRAW_SLOT_COPY.removeFloorHint, danger: true };
+
+// 危险项（移除）组前自动补一条分隔线（连续的危险项只在第一项前分隔）。
 function menuHtml(items) {
-    return items.map(({ action, label, title, danger }) => `${danger ? '<div class="xb-nd-more-sep" role="separator"></div>' : ''}
+    return items.map(({ action, label, title, danger }, index) => `${danger && !items[index - 1]?.danger ? '<div class="xb-nd-more-sep" role="separator"></div>' : ''}
             <button type="button" class="xb-nd-more-item${danger ? ' is-danger' : ''}" role="menuitem" data-action="${action}"${title ? ` title="${title}"` : ''}>${label}</button>`).join('');
 }
 
@@ -24,13 +26,13 @@ export function buildCardMoreMenuHtml(items) {
     </span>`;
 }
 
-/** 失败卡的操作行：重新生成（主）、恢复上一版（有历史图时）、更多（编辑 TAG / 重画本楼失败图 / 移除）。 */
+/** 失败卡的操作行：重新生成（主）、恢复上一版（有历史图时）、更多（编辑 TAG / 重画本楼失败图 / 移除 / 移除同层）。 */
 export function buildFailedActionsHtml({ historyCount = 0 } = {}) {
     return `<div class="xb-nd-failed-btns">
     <button type="button" class="xb-nd-retry-btn" data-action="retry-image">${DRAW_SLOT_COPY.regenerate}</button>
     ${historyCount > 0 ? `<button type="button" class="xb-nd-edit-btn" data-action="restore-image">${DRAW_SLOT_COPY.restoreImage}</button>` : ''}
     ${buildCardMoreMenuHtml([EDIT_TAGS,
-        { action: 'retry-floor-failed', label: DRAW_SLOT_COPY.regenerateFloor, title: DRAW_SLOT_COPY.regenerateFloorHint }, REMOVE])}
+        { action: 'retry-floor-failed', label: DRAW_SLOT_COPY.regenerateFloor, title: DRAW_SLOT_COPY.regenerateFloorHint }, REMOVE, REMOVE_FLOOR])}
 </div>`;
 }
 

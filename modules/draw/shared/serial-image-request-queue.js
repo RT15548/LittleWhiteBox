@@ -83,20 +83,19 @@ export function createSerialImageRequestQueue({
     }
 
     function notifyQueued() {
+        // 冷却中的请求已经结束，队列前面其实没有在跑的任务。这时不管是不是同一批，
+        // 都应该告诉用户“还在等限速”，而不是把它显示成“排队第 2 位”。
+        const cooling = active?.phase === 'cooldown' ? active : null;
+        const remaining = cooling ? cooling.cooldownUntil - now() : 0;
         pending.forEach((item, index) => {
-            const ahead = (active ? 1 : 0) + index;
-            const waitingForOwnCooldown = index === 0
-                && active?.phase === 'cooldown'
-                && item.batchKey !== undefined
-                && item.batchKey === active.batchKey;
-            if (waitingForOwnCooldown) {
-                const remaining = active.cooldownUntil - now();
-                if (item.queuePhase === 'queued' && remaining > 0) {
+            if (index === 0 && remaining > 0) {
+                if (item.queuePhase !== 'cooldown') {
                     item.queuePhase = 'cooldown';
                     notify(item.onCooldown, { duration: remaining });
                 }
                 return;
             }
+            const ahead = (active ? 1 : 0) + index;
             if (ahead > 0) {
                 item.queuePhase = 'queued';
                 notify(item.onQueued, { ahead, position: ahead + 1 });
@@ -155,6 +154,17 @@ export function createSerialImageRequestQueue({
         })(), { source: import.meta.url, operation: "pump" });
     }
 
+    // 同一批（batchKey）的请求连续执行：一个楼层的图画完，才轮到后提交的楼层。
+    // 调用方把整批任务一次性入队，队列按批分组排队，所以层内连续、层间按提交顺序。
+    // 没有 batchKey 的请求（公共 API 等）按到达顺序排。
+    function insertionIndex(item) {
+        if (item.batchKey === undefined) return pending.length;
+        for (let index = pending.length - 1; index >= 0; index--) {
+            if (pending[index].batchKey === item.batchKey) return index + 1;
+        }
+        return active?.batchKey === item.batchKey ? 0 : pending.length;
+    }
+
     function enqueue(run, { signal, batchKey, scope = 'default', cooldownMs, onQueued, onStart, onCooldown } = {}) {
         return new Promise((resolve, reject) => {
             if (signal?.aborted) {
@@ -193,7 +203,7 @@ export function createSerialImageRequestQueue({
             };
             signal?.addEventListener('abort', item.abortHandler, { once: true });
 
-            pending.push(item);
+            pending.splice(insertionIndex(item), 0, item);
             notifyQueued();
             pump();
         });

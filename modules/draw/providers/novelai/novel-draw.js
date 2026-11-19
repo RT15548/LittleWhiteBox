@@ -233,12 +233,12 @@ import { acquireFloorImageJob, getFloorImageJob, getFloorImageJobs, getFloorImag
 import { createImageRequestAttempt, imageHttpFailure, withImageRequestOutcome, ImageRequestOutcome } from '../../shared/image-request-outcome.js';
 import { requestNovelImageWithRetry } from './novel-request-retry.js';
 import { createImageCardRedrawProvider } from "../../shared/image-card-redraw-provider.js";
-import { redrawImageCard, removeChatImageSlot, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
+import { deleteCardImageVersion, redrawImageCard, removeChatImageSlot, removeFloorFailedImageCards, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
 import { toggleImageCardControls } from '../../shared/image-card-controls.js';
 import { withDrawActionFeedback } from "../../shared/draw-action-feedback.js";
 import { getCharacterTagEditGroups, persistCardTagEdits, readCardTagEditor } from "../../shared/card-tag-editor.js";
 import { getCurrentUserHandle } from "../../../../../../../user.js";
-import { hasPreviewImage, DRAW_SLOT_COPY } from "../../shared/image-record.js";
+import { hasPreviewImage, DRAW_SLOT_COPY, DRAW_SLOT_ERRORS } from "../../shared/image-record.js";
 import { installHostPanelEscape } from "../../shared/panel-escape.js";
 import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 
@@ -2162,48 +2162,61 @@ async function runNovelImageBatch({
         onStateChange?.('backend_legacy', { message });
     }
 
-    for (let index = 0; index < prepared.length; index++) {
-        if (signal?.aborted) {
-            for (let pending = index; pending < prepared.length; pending++) {
-                const error = new NovelDrawError('已取消', ErrorType.ABORTED);
-                outcomes[pending] = { state: 'cancelled', error };
-                await onItemSettled?.({ index: pending, state: 'cancelled', error, source: 'frontend' });
+    // 整批一次性入队：同一楼层的所有图在提交时就占好队列位置，队列按批连续执行，
+    // 前一层画完才轮到下一层。逐张入队会让层与层按“谁先交付”交错。
+    const queued = prepared.map((_, index) => enqueueImageRequest(
+        () => requestNovelImageWithRetry({
+            request: () => executePreparedNovelRequest(prepared[index], requestConfig, signal),
+            sendMode: requestConfig.sendMode,
+            signal,
+            // 429 是限速：等一个请求间隔再试，别把队列抖动直接报成失败。
+            retryDelayMs: getNovelImageRequestDelay(),
+            beforeRequest: () => onItemStarting?.({ index }),
+        }),
+        {
+            signal,
+            batchKey: queueBatch,
+            onQueued: data => onStateChange?.('queued', { current: index + 1, total: prepared.length, ...data }),
+            onStart: () => onStateChange?.('progress', { current: index + 1, total: prepared.length }),
+            onCooldown: data => {
+                if (index + 1 >= prepared.length) return;
+                onStateChange?.('cooldown', {
+                    duration: data.duration,
+                    cooldownUntil: Date.now() + data.duration,
+                    nextIndex: index + 2,
+                    total: prepared.length,
+                });
+            },
+        },
+    ));
+    // 未消费的排队项在取消时会被 reject，统一收割，避免未处理的拒绝。
+    let consumed = 0;
+    try {
+        for (let index = 0; index < prepared.length; index++) {
+            if (signal?.aborted) {
+                for (let pending = index; pending < prepared.length; pending++) {
+                    const error = new NovelDrawError('已取消', ErrorType.ABORTED);
+                    outcomes[pending] = { state: 'cancelled', error };
+                    await onItemSettled?.({ index: pending, state: 'cancelled', error, source: 'frontend' });
+                }
+                break;
             }
-            break;
+            try {
+                const base64 = await queued[index];
+                consumed = index + 1;
+                if (base64 === null) continue;
+                await onItemReady?.({ index, base64 });
+                outcomes[index] = { state: 'ready', base64 };
+            } catch (error) {
+                consumed = index + 1;
+                const normalized = handleFetchError(error);
+                const state = signal?.aborted ? 'cancelled' : 'failed';
+                outcomes[index] = { state, error: normalized };
+                await onItemSettled?.({ index, state, error: normalized, source: 'frontend' });
+            }
         }
-        try {
-            const base64 = await enqueueImageRequest(
-                () => requestNovelImageWithRetry({
-                    request: () => executePreparedNovelRequest(prepared[index], requestConfig, signal),
-                    sendMode: requestConfig.sendMode,
-                    signal,
-                    beforeRequest: () => onItemStarting?.({ index }),
-                }),
-                {
-                    signal,
-                    batchKey: queueBatch,
-                    onQueued: data => onStateChange?.('queued', { current: index + 1, total: prepared.length, ...data }),
-                    onStart: () => onStateChange?.('progress', { current: index + 1, total: prepared.length }),
-                    onCooldown: data => {
-                        if (index + 1 >= prepared.length) return;
-                        onStateChange?.('cooldown', {
-                            duration: data.duration,
-                            cooldownUntil: Date.now() + data.duration,
-                            nextIndex: index + 2,
-                            total: prepared.length,
-                        });
-                    },
-                },
-            );
-            if (base64 === null) continue;
-            await onItemReady?.({ index, base64 });
-            outcomes[index] = { state: 'ready', base64 };
-        } catch (error) {
-            const normalized = handleFetchError(error);
-            const state = signal?.aborted ? 'cancelled' : 'failed';
-            outcomes[index] = { state, error: normalized };
-            await onItemSettled?.({ index, state, error: normalized, source: 'frontend' });
-        }
+    } finally {
+        await Promise.allSettled(queued.slice(consumed));
     }
     return { mode: requestConfig.sendMode, outcomes, aborted: signal?.aborted === true };
 }
@@ -2582,6 +2595,9 @@ async function handleDelegatedClick(e) {
         case 'remove-placeholder':
             await removePlaceholder(container);
             break;
+        case 'remove-floor-failed':
+            await removeFloorFailedImageCards(container);
+            break;
         case 'delete-image':
             container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
             await deleteCurrentImage(container);
@@ -2667,11 +2683,12 @@ async function handleImageClick(container) {
             if (!cont) return;
             const failedHtml = buildFailedPlaceholderHtml({
                 slotId: sid,
+                imgId: lastImageInfo.imgId || '',
                 messageId: msgId,
                 tags: lastImageInfo.tags || '',
                 positive: lastImageInfo.positive || '',
-                errorType: '图片已删除',
-                errorMessage: '点击重试可重新生成'
+                errorType: DRAW_SLOT_ERRORS.deleted.label,
+                errorMessage: DRAW_SLOT_ERRORS.deleted.desc,
             });
             // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup built locally.
             cont.outerHTML = failedHtml;
@@ -2799,9 +2816,7 @@ async function deleteCurrentImage(container) {
     if (!confirm('确定删除这张图片吗？')) return;
 
     try {
-        await deletePreview(imgId);
-        const previews = await getPreviewsBySlot(slotId);
-        const successPreviews = previews.filter(hasPreviewImage);
+        const { retained, remaining: successPreviews } = await deleteCardImageVersion(container);
 
         if (successPreviews.length > 0) {
             const latest = successPreviews[0];
@@ -2823,11 +2838,12 @@ async function deleteCurrentImage(container) {
             await clearNovelDrawSavedEntry(messageId, slotId);
             const failedHtml = buildFailedPlaceholderHtml({
                 slotId,
+                imgId: retained?.imgId || '',
                 messageId,
                 tags,
                 positive,
-                errorType: '图片已删除',
-                errorMessage: '点击重试可重新生成'
+                errorType: DRAW_SLOT_ERRORS.deleted.label,
+                errorMessage: DRAW_SLOT_ERRORS.deleted.desc,
             });
             // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup built locally.
             container.outerHTML = failedHtml;
