@@ -20,6 +20,10 @@ export const DRAW_SLOT_COPY = Object.freeze({
     regenerateFloorHint: '重新生成本楼层所有失败或结果未知的图片，已成功的不受影响',
     editTagsAction: '编辑 TAG',
     remove: '移除',
+    removeFloor: '移除同层',
+    removeFloorHint: '移除本楼层所有失败或不可用的图位及其图片记录，正在绘制和已成功的图不受影响',
+    removeFloorNone: '本楼层没有可移除的失败图片',
+    removeFloorBusy: '另有正在处理中的图片已跳过',
     generationFailed: '生成失败',
     unclaimed: '尚未绘图',
     manualWaiting: '待手动生成',
@@ -70,6 +74,7 @@ export const DRAW_SLOT_ERRORS = Object.freeze({
     placement: { code: 'image_placement_unconfirmed', label: '图位保存未确认', desc: '聊天保存未确认，本次未提交绘图。TAG 已保留，请稍后重试。' },
     interrupted: { code: 'image_interrupted', label: '绘图已中断', desc: '未找到可接回的任务，可编辑 TAG 后重新生成。' },
     unknown: { code: 'image_submission_unknown', label: '绘图未完成', desc: '没拿到图，可以重新生成。' },
+    deleted: { code: 'image_deleted', label: '图片已删除', desc: '点击重新生成，沿用这张图保存的场景、角色和负向。' },
     unavailable: { code: 'image_unavailable', label: '图片不可用', desc: '未找到可显示的图片记录。' },
     legacy: { code: 'legacy_image_unresolved', label: '旧图无法恢复', desc: '未找到可确认的旧图片，保留了原 TAG；重新生成将发起绘图请求。' },
 });

@@ -1,16 +1,16 @@
 import { drawNotify } from './draw-toast.js';
 import { getContext } from '../../../../../../extensions.js';
-import { getCardPreview, getPreviewsBySlot, deletePreview, clearSlotSelection, setSlotSelection } from './gallery-cache.js';
+import { getCardPreview, getPreview, getPreviewsBySlot, deletePreview, retirePreviewToFailed, clearSlotSelection, setSlotSelection } from './gallery-cache.js';
 import { captureImageCardTarget, readImageCardTarget } from './image-card-target.js';
 import { generatePreparedChatImages } from './prepared-chat-images.js';
 import { getSlotActivity } from './slot-activity.js';
 import { getPendingImageJobSlots, discardPendingImageSlot } from './pending-image-jobs.js';
 import { discardChatImagePlacement, commitChatImageRemoval } from './chat-image-placement.js';
-import { isMessageBeingEdited, renderPreviewsForMessage, removeDrawSavedEntry, clearDrawSavedEntry, syncDrawSavedFromPreview, getDrawSavedPreview } from './draw-common.js';
+import { isMessageBeingEdited, renderPreviewsForMessage, removeDrawSavedEntry, clearDrawSavedEntry, getDrawSavedEntry, syncDrawSavedFromPreview, getDrawSavedPreview, materializeDrawSavedPreview } from './draw-common.js';
 import { withdrawEditedImagePlacements } from './chat-image-tag-migration.js';
 import { getImageChatIdentity } from './chat-image-persistence.js';
 import { isSceneSlotAlive } from './scene-placement.js';
-import { DRAW_SLOT_COPY, hasPreviewImage } from './image-record.js';
+import { DRAW_SLOT_COPY, DRAW_SLOT_ERRORS, hasPreviewImage } from './image-record.js';
 import { withDrawActionFeedback } from './draw-action-feedback.js';
 import { drawMessageViewport } from './draw-message-viewport.js';
 
@@ -209,6 +209,115 @@ async function redraw(provider, container) {
     }
 }
 
+// 删除卡片当前显示的这一版图。还有别的成功版本时照常删除；这是该图位最后一张时，
+// 不删记录而是转成失败记录（见 retirePreviewToFailed），场景、角色、负向都留着，重试和编辑 TAG 都读得到。
+// 缓存里没有这条记录（浏览器缓存被清、图只在聊天里的保存条目中）时，先按聊天条目还原出记录再处理。
+export async function deleteCardImageVersion(container) {
+    const target = captureImageCardTarget(container);
+    const { slotId, messageId, ctx, message, imgId } = target;
+    let record = imgId ? await getPreview(imgId) : null;
+    if (!record && imgId) {
+        // 只有“记录不存在”才当作没有记录；原文或分支变了必须上抛，不能对别的目标继续删除。
+        record = await materializeDrawSavedPreview(message, slotId, { messageId, chatId: String(ctx.chatId), expectedImgId: imgId })
+            .catch(error => { if (error?.message === DRAW_SLOT_COPY.missingRecord) return null; throw error; });
+        target.assertCurrent();
+    }
+    const siblings = (await getPreviewsBySlot(slotId)).filter(item => item.imgId !== imgId && hasPreviewImage(item));
+    if (!siblings.length && record) {
+        await retirePreviewToFailed(imgId);
+        // 聊天里的保存条目也要清：否则它的 savedUrl 会在下一次渲染里把已转成失败的图位又显示成图。
+        if (getDrawSavedEntry(message, slotId)) await clearDrawSavedEntry(messageId, slotId);
+        return { remaining: [], retained: { imgId, tags: record.tags || '', positive: record.positive || '' } };
+    }
+    if (imgId) await deletePreview(imgId);
+    return { remaining: siblings, retained: null };
+}
+
+// 移除同层：本楼层（当前 swipe）上所有“失败 / 不可用”的图位，逐个走与单张“移除”相同的流程。
+// 跳过三类：正在绘制 / 有后台任务 / 被整楼重生占用的图位；还有更早成功版本的图位（移除会连旧图一起删，
+// 这类请用卡片上的“返回已有图片”或单张“移除”）。已成功的图不受影响。
+const FLOOR_REMOVE_PREFIX = 'floor-remove:';
+
+export function removeFloorFailedImageCards(container, { confirmRemoval = message => globalThis.confirm(message) } = {}) {
+    const key = `${FLOOR_REMOVE_PREFIX}${getContext().chatId}:${Number(container.dataset.mesid)}`;
+    if (redraws.has(key)) return redraws.get(key);
+    const claimed = [];
+    // 槽位占用令牌：先于第一次占位创建；别处点“重新生成”会并入它，等这次移除结束。
+    let finish;
+    const token = new Promise((resolve) => { finish = resolve; });
+    const operation = removeFloorFailed(container, confirmRemoval, claimed, token).catch((error) => {
+        console.error(DRAW_SLOT_COPY.removeFailed, error);
+        globalThis.toastr?.error?.(error.message);
+        return { removed: 0, skipped: 0, failed: 1 };
+    }).finally(() => {
+        for (const slotId of claimed) if (redraws.get(slotId) === token) redraws.delete(slotId);
+        if (redraws.get(key) === operation) redraws.delete(key);
+        finish();
+    });
+    redraws.set(key, operation);
+    return operation;
+}
+
+async function removeFloorFailed(container, confirmRemoval, claimed, token) {
+    const ctx = getContext();
+    const messageId = Number(container.dataset.mesid);
+    const message = ctx.chat?.[messageId];
+    const toast = globalThis.toastr;
+    if (!message || isMessageBeingEdited(messageId)) {
+        toast?.error?.(DRAW_SLOT_COPY.removeTargetChanged);
+        return { removed: 0, skipped: 0, failed: 0 };
+    }
+    const floorClaim = floorClaims.get(floorRedrawKey(container));
+    const cards = collectFailedImageCards(container).filter(card => isSceneSlotAlive(message.mes, card.dataset.slotId));
+    // 第一个 await 之前同步占位：之后另一处点“重新生成”会并入这次占用，不会提交付费请求再被丢弃。
+    const removable = [];
+    let skipped = 0;
+    for (const card of cards) {
+        const slotId = card.dataset.slotId;
+        if (redraws.has(slotId) || getSlotActivity(slotId) || floorClaim?.claims.has(slotId)) { skipped += 1; continue; }
+        redraws.set(slotId, token);
+        claimed.push(slotId);
+        removable.push(card);
+    }
+    const release = (card) => {
+        const slotId = card.dataset.slotId;
+        if (redraws.get(slotId) === token) redraws.delete(slotId);
+        claimed.splice(claimed.indexOf(slotId), 1);
+        removable.splice(removable.indexOf(card), 1);
+        skipped += 1;
+    };
+    const pendingSlots = await getPendingImageJobSlots();
+    for (const card of [...removable]) {
+        const slotId = card.dataset.slotId;
+        const older = (await getPreviewsBySlot(slotId)).some(hasPreviewImage);
+        if (pendingSlots.has(slotId) || older) release(card);
+    }
+    if (!removable.length) {
+        toast?.info?.(skipped ? DRAW_SLOT_COPY.removeFloorBusy : DRAW_SLOT_COPY.removeFloorNone);
+        return { removed: 0, skipped, failed: 0 };
+    }
+    const unknown = removable.filter(card => card.querySelector('.xb-nd-failed-title')?.textContent === DRAW_SLOT_ERRORS.unknown.label).length;
+    const lines = [`确定移除本楼层 ${removable.length} 个失败图位及其图片记录？`];
+    if (unknown) lines.push(`其中 ${unknown} 个是“绘图未完成”，可能已经提交过请求。`);
+    if (skipped) lines.push(`另有 ${skipped} 个正在处理中或带有更早成功图片的会跳过。`);
+    if (!confirmRemoval(lines.join('\n'))) return { removed: 0, skipped, failed: 0, cancelled: true };
+    let removed = 0;
+    let failed = 0;
+    let firstError = '';
+    for (const card of removable) {
+        // 槽位已被本操作占住，唯一可能变忙的是外部写入的活动状态：忙就跳过，不走 removeChatImageSlot 里的 discard。
+        if (getSlotActivity(card.dataset.slotId)) { skipped += 1; continue; }
+        try { await removeChatImageSlot(card); removed += 1; }
+        catch (error) {
+            failed += 1;
+            console.error(DRAW_SLOT_COPY.removeFailed, error);
+            firstError ||= error.message;
+        }
+    }
+    if (failed) toast?.error?.(`${DRAW_SLOT_COPY.removeFailed}：${firstError}`);
+    else if (removed || skipped) toast?.success?.(`已移除 ${removed} 个${skipped ? `，跳过 ${skipped} 个` : ''}`);
+    return { removed, skipped, failed };
+}
 export async function removeChatImageSlot(container) {
     const ctx = getContext();
     const messageId = Number(container.dataset.mesid);
