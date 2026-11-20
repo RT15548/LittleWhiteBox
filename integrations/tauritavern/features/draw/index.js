@@ -5,7 +5,7 @@ export function mountTauriTavernDrawPanel(element, mesid) {
     return window.xiaobaixDraw?.mountMessagePanel(element, mesid);
 }
 
-// TT 2.3 does not emit message events for content remounts. Read the existing
+// ChatSurface does not emit message events for content remounts. Read the existing
 // gallery at this content lease; never start a new scene-planning generation.
 export function createTauriTavernDrawDecorator({ settings, isDrawProviderActive, onError }) {
     return ({ content, mesid, signal }) => {

@@ -447,14 +447,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/integrations/tauritavern/feature-policy.js",
       "relativePath": "integrations/tauritavern/feature-policy.js",
       "extension": ".js",
-      "sizeBytes": 3738
+      "sizeBytes": 3758
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/integrations/tauritavern/features/draw/index.js",
       "relativePath": "integrations/tauritavern/features/draw/index.js",
       "extension": ".js",
-      "sizeBytes": 984
+      "sizeBytes": 989
     },
     {
       "source": "littlewhitebox",
@@ -489,7 +489,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/integrations/tauritavern/features/story-summary/runtime-options.js",
       "relativePath": "integrations/tauritavern/features/story-summary/runtime-options.js",
       "extension": ".js",
-      "sizeBytes": 598
+      "sizeBytes": 591
     },
     {
       "source": "littlewhitebox",

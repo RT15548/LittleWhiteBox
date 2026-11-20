@@ -1,6 +1,6 @@
 import { TAURITAVERN_ERROR_CODES, TAURITAVERN_MESSAGES } from './diagnostics.js';
 
-// TT v2.3.0 only. supported governs startup admission; mutable governs settings
+// For the host targeted in README.md, supported governs startup admission; mutable governs settings
 // changes after managed ownership is frozen. Neither implies the other.
 // Keep each feature's controls and admission rule together; do not add a second
 // blacklist in the participant, settings UI or documentation.

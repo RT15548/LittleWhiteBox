@@ -2,8 +2,8 @@
 
 ## Compatibility and ownership
 
-This optional integration targets **official TauriTavern v2.3.0 stable** and its
-[ChatSurface v1 contract](https://github.com/Darkatse/TauriTavern/blob/v2.3.0/docs/API/ChatSurface.md).
+This optional integration targets [**official TauriTavern v2.4.0 stable**](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/docs/API/ChatSurface.md)
+and its ChatSurface v1 contract.
 Later TT releases are not validation targets. The host marker and managed-ownership
 decision are read once by `environment.js`; a TT session without virtualization
 is distinct from ordinary SillyTavern.

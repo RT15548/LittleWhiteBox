@@ -1,4 +1,4 @@
-// TauriTavern v2.3.0 saves only the JSONL header through saveMetadata().
+// TauriTavern saves only the JSONL header through saveMetadata().
 // A chat-summary toggle also restores message.is_system, so it must save
 // the complete chat. This applies with virtualization both on and off.
 // Remove this override only when the supported TT host persists message changes
