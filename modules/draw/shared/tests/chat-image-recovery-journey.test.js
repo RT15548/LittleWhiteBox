@@ -55,6 +55,22 @@ test('opening a portable image materializes its inputs once without changing the
     h.api.closeGallery();
 });
 
+test('deleting a portable gallery version without a mounted card keeps inputs and clears only its saved entry', async t => {
+    const h = await savedGallery(t);
+    await h.api.openGallery('portable-slot', 0);
+    const previous = globalThis.confirm;
+    globalThis.confirm = () => true;
+    t.after(() => { globalThis.confirm = previous; });
+    document.getElementById('nd-gallery-delete').click();
+    for (let i = 0; i < 30 && document.getElementById('nd-gallery-overlay').classList.contains('visible'); i++) await h.pump(1);
+    const record = await h.api.getPreview('portable-image');
+    assert.equal(record.status, 'failed');
+    assert.equal(record.savedUrl, null);
+    assert.equal(record.characterPrompts[0].prompt, 'green dress');
+    assert.equal(h.api.getDrawSavedEntry(h.ctx.chat[0], 'portable-slot'), null);
+    assert.equal(h.counters.requests.length, 0);
+});
+
 for (const change of ['chat', 'group', 'account', 'message', 'swipe', 'delete']) {
     test(`portable gallery refuses a changed source during initial read: ${change}`, async t => {
         const h = await savedGallery(t);

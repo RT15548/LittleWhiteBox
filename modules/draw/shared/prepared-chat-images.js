@@ -16,15 +16,20 @@ import { autoSaveDeliveredImage } from './image-autosave.js';
 
 const providers = new Map();
 
-export function registerPreparedImageProvider(provider, execute) {
-    providers.set(provider, execute);
-    return () => { if (providers.get(provider) === execute) providers.delete(provider); };
+export function registerPreparedImageProvider(provider, execute, withJob = (input, run) => run(input)) {
+    const entry = { execute, withJob };
+    providers.set(provider, entry);
+    return () => { if (providers.get(provider) === entry) providers.delete(provider); };
+}
+
+export function withPreparedImageJob(provider, input, run) {
+    const entry = providers.get(provider);
+    if (!entry) throw new Error(DRAW_SLOT_COPY.unavailable);
+    return entry.withJob(input, owned => run(owned, entry.execute));
 }
 
 export function generatePreparedChatImages(provider, input) {
-    const execute = providers.get(provider);
-    if (!execute) throw new Error(DRAW_SLOT_COPY.unavailable);
-    return execute(input);
+    return withPreparedImageJob(provider, input, (owned, execute) => execute(owned));
 }
 
 // The host awaits only local preparation. The same provider/floor job continues

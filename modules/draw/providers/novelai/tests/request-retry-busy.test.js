@@ -39,12 +39,17 @@ test('a 5xx keeps its single retry and is not treated as a rate limit', async ()
 
 test('an aborted signal cancels the retry wait', async () => {
     const controller = new AbortController();
+    let sent = 0, notify;
+    const firstAttempt = new Promise(resolve => { notify = resolve; });
     const retry = requestNovelImageWithRetry({
-        request: async () => { throw busy(); },
+        request: async () => { sent++; notify(); throw busy(); },
         sendMode: 'frontend',
         retryDelayMs: 5000,
         signal: controller.signal,
     });
+    await firstAttempt;
+    await new Promise(resolve => setTimeout(resolve, 0));
     controller.abort();
-    await assert.rejects(retry);
+    await assert.rejects(retry, error => error.status === 429);
+    assert.equal(sent, 1);
 });

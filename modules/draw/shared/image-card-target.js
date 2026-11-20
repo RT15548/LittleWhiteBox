@@ -14,11 +14,14 @@ export function captureImageCardTarget(container) {
     const slotId = container.dataset.slotId;
     const imgId = container.dataset.imgId || '';
     const swipeIndex = message?.swipe_id ?? 0;
-    const assertCurrent = (createdImgId) => {
+    const assertOwner = () => {
         const current = getContext();
         if (String(current.chatId) !== chatId || current.chat[messageId] !== message
-            || (message?.swipe_id ?? 0) !== swipeIndex || !isSceneSlotAlive(message?.mes, slotId)
-            || !container.isConnected || container.dataset.slotId !== slotId
+            || (message?.swipe_id ?? 0) !== swipeIndex || !isSceneSlotAlive(message?.mes, slotId)) throw new Error(DRAW_SLOT_COPY.sourceChanged);
+    };
+    const assertCurrent = (createdImgId) => {
+        assertOwner();
+        if (!container.isConnected || container.dataset.slotId !== slotId
             || Number(container.dataset.mesid) !== messageId) throw new Error(DRAW_SLOT_COPY.sourceChanged);
         const mountedId = container.dataset.imgId || '';
         // A first save may already have projected its own newly persisted

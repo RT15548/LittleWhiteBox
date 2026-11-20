@@ -2,9 +2,9 @@ import { DRAW_SLOT_COPY } from './image-record.js';
 import { observeFloorImageJob, failFloorImageJob } from './floor-image-job.js';
 
 // Prepared cards and native tags enter the same batch registry as capsules.
-export function createImageCardRedrawProvider({ execute, createJob, releaseJob,
+export function createImageCardRedrawProvider({ createJob, releaseJob,
     getCurrentContext, setStateForMessage, classifyError }) {
-    return async input => {
+    return async (input, execute) => {
         if (input.job) return execute(input);
         const { ctx, message } = input;
         const live = getCurrentContext(), messageId = live.chat?.indexOf(message) ?? -1;
@@ -14,17 +14,20 @@ export function createImageCardRedrawProvider({ execute, createJob, releaseJob,
         }
         // Existing slots have per-card admission; a sibling job is not a
         // duplicate request. Structural planning keeps the floor exclusion.
-        const existingSlots = input.tasks.length > 0
+        const existingSlots = input.floorRedraw || input.tasks.length > 0
             && input.tasks.every(task => task.placement?.mode === 'existing');
         const job = createJob(messageId, { join: input.nativeMessage === true || existingSlots });
-        job.total = input.tasks.length;
+        job.total = input.tasks?.length ?? 0;
         const onStateChange = observeFloorImageJob(job, { getCurrentContext, classifyError,
             onStateChange: (state, data, id) => {
                 setStateForMessage(id, state, data);
                 input.onStateChange?.(state, data);
             } });
         try { return await execute({ ...input, messageId, job, onStateChange }); }
-        catch (error) { failFloorImageJob(job, error); throw error; }
+        catch (error) {
+            failFloorImageJob(job, error);
+            throw error;
+        }
         finally { releaseJob(job); }
     };
 }

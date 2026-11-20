@@ -16,8 +16,9 @@ import { GALLERY_METADATA_INDEX, withGalleryMetadata, galleryMetadataFromKey } f
 import { createGalleryImageWindow } from './gallery-image-window.js';
 import { getSafeViewportStyles, observeViewport } from '../../../shared/common/viewport.js';
 import { getImageChatIdentity } from './chat-image-persistence.js';
+import { withConfirmableChatMutation } from './confirmable-chat-save.js';
 import { isSceneSlotAlive } from './scene-placement.js';
-import { observeAsyncCallback } from '../../../shared/common/async-errors.js';
+import { observeAsyncCallback, observeBackgroundTask } from '../../../shared/common/async-errors.js';
 
 const useCurrentGalleryImageEvent = observeAsyncCallback(useCurrentGalleryImage, { source: import.meta.url, operation: "useCurrentGalleryImage" });
 const saveCurrentGalleryImageEvent = observeAsyncCallback(saveCurrentGalleryImage, { source: import.meta.url, operation: "saveCurrentGalleryImage" });
@@ -620,11 +621,11 @@ export async function storePreview(opts) {
         presetId = '',
         vibeNames = '',
     } = opts;
-    const database = await openDB();
     const ctx = getContext();
     const resolvedChatId = String(chatId || ctx.chatId || (ctx.characterId || 'unknown'));
     const resolvedCharacterName = String(characterName || getChatCharacterName());
     const resolvedSlotId = slotId || imgId;
+    const database = await openDB();
 
     // Encode only the incoming result, before opening its write transaction.
     let workingBase64 = base64;
@@ -645,37 +646,21 @@ export async function storePreview(opts) {
             const tx = database.transaction(DB_STORE, 'readwrite');
             const store = tx.objectStore(DB_STORE);
             const previous = store.get(imgId);
-            previous.onsuccess = () => store.put(withGalleryMetadata({
-                imgId,
-                slotId: resolvedSlotId,
-                messageId,
-                chatId: resolvedChatId,
-                characterName: resolvedCharacterName,
-                source,
-                presetId,
-                bookId,
-                bookTitle,
-                chapterPath,
-                chapterTitle,
-                base64: workingBase64,
-                tags,
-                title: String(title || ''),
-                positive,
-                savedUrl,
-                status,
-                errorType,
-                errorMessage,
-                characterPrompts,
-                negativePrompt,
-                postPrompt,
-                orientation,
-                continuityChars: Array.isArray(continuityChars) ? continuityChars : null,
-                vibeNames: String(vibeNames || ''),
-                // Only creation grants attachment authority. Progress/late paid
-                // results cannot restore authority withdrawn by save or editing.
-                placement: previous.result ? previous.result.placement ?? null : placement ?? null,
-                timestamp: Date.now()
-            }));
+            previous.onsuccess = () => {
+                const prior = previous.result;
+                const attachment = prior ? prior.placement : placement;
+                store.put(withGalleryMetadata({
+                    imgId, slotId: resolvedSlotId, messageId, chatId: resolvedChatId,
+                    characterName: resolvedCharacterName, source, presetId, bookId, bookTitle, chapterPath, chapterTitle,
+                    base64: workingBase64, tags, title: String(title || ''), positive, savedUrl, status, errorType,
+                    errorMessage, characterPrompts, negativePrompt, postPrompt, orientation,
+                    continuityChars: Array.isArray(continuityChars) ? continuityChars : null,
+                    vibeNames: String(vibeNames || ''),
+                    // Only creation grants automatic placement; a late result cannot restore it.
+                    placement: attachment ?? null,
+                    timestamp: Date.now(),
+                }));
+            };
             tx.oncomplete = () => {
                 invalidateCache(resolvedSlotId);
                 publishCacheChange([resolvedSlotId]);
@@ -922,23 +907,25 @@ export async function getLatestPreviewForSlot(slotId) {
     return result.preview;
 }
 
-export async function deletePreview(imgId) {
+export async function deletePreview(imgId, { failedOnly = false } = {}) {
     const database = await openDB();
-    const preview = await getPreview(imgId);
-    const slotId = preview?.slotId;
+    let slotId;
 
     return new Promise((resolve, reject) => {
         try {
             const tx = database.transaction([DB_STORE, DB_SELECTIONS_STORE], 'readwrite');
-            tx.objectStore(DB_STORE).delete(imgId);
-            if (slotId) {
+            const store = tx.objectStore(DB_STORE);
+            const request = store.get(imgId);
+            request.onsuccess = () => {
+                if (!request.result || failedOnly && hasPreviewImage(request.result)) return;
+                slotId = request.result.slotId;
+                store.delete(imgId);
                 const selections = tx.objectStore(DB_SELECTIONS_STORE);
                 const selected = selections.get(slotId);
-                selected.onsuccess = () => {
-                    if (selected.result?.selectedImgId === imgId) selections.delete(slotId);
-                };
-            }
+                selected.onsuccess = () => { if (selected.result?.selectedImgId === imgId) selections.delete(slotId); };
+            };
             tx.oncomplete = () => {
+                if (!slotId) { resolve(); return; }
                 revokePreviewObjectUrl(imgId);
                 if (slotId) invalidateCache(slotId);
                 publishCacheChange(slotId ? [slotId] : []);
@@ -951,17 +938,187 @@ export async function deletePreview(imgId) {
     });
 }
 
-// 删除一个图位的最后一张图时不删记录：只去掉图片本体（base64 / savedUrl），把它转成“失败”记录。
-// 场景、角色（characterPrompts）、负向、追加位、画幅、标题和角色记忆快照全部保留，
-// 占位卡的编辑 TAG 与重新生成都读这条记录；删除前的图不再参与服装记忆（记忆只读成功的图）。
-export async function retirePreviewToFailed(imgId) {
-    const record = await updatePreviewRecord(imgId, {
-        base64: null, savedUrl: null, status: PreviewStatus.FAILED,
-        errorType: DRAW_SLOT_ERRORS.deleted.label, errorMessage: DRAW_SLOT_ERRORS.deleted.desc,
-        timestamp: Date.now(),
+function hasChatFloor(record) {
+    return !record.source && record.messageId != null && record.messageId !== '';
+}
+
+// Only attach a chat update if the gallery image matches the active reply at click time.
+// All other records can be deleted directly by ID, without looking up their chat.
+function captureManagementTarget() {
+    const ctx = getContext(), chat = ctx.chat, identity = getImageChatIdentity(ctx);
+    const floors = chat.map((message, messageId) => ({ message, messageId, text: message.mes, swipe: message.swipe_id ?? 0 }));
+    return async imgId => {
+        const record = await getPreview(imgId);
+        if (!record) throw new Error(DRAW_SLOT_COPY.missingRecord);
+        const slotId = record.slotId;
+        const floor = hasChatFloor(record) && String(record.chatId) === String(ctx.chatId)
+            && (!record.placement?.owner || record.placement.owner === identity)
+            ? floors.find(item => isSceneSlotAlive(item.text, slotId)) : null;
+        if (!floor) return { imgId, slotId, messageId: null };
+        const { messageId, message } = floor;
+        const assertCurrent = () => {
+            const live = getContext();
+            if (live.chat !== chat || getImageChatIdentity(live) !== identity
+                || live.chat[messageId] !== message || (message.swipe_id ?? 0) !== floor.swipe
+                || !isSceneSlotAlive(message.mes, slotId)) throw new Error(DRAW_SLOT_COPY.removeTargetChanged);
+        };
+        assertCurrent();
+        return { imgId, slotId, messageId, message, assertCurrent };
+    };
+}
+
+export function captureGalleryDeletion() {
+    const capture = captureManagementTarget();
+    return async imgId => {
+        const target = await capture(imgId);
+        return target.message ? deleteImageVersion(target) : deletePreview(imgId);
+    };
+}
+
+export async function deleteGallerySelection(ids) {
+    const capture = captureManagementTarget();
+    const ctx = getContext();
+    const { uniqueGalleryIds, deleteGalleryImages } = await import('./gallery-batch.js');
+    const selected = new Set(uniqueGalleryIds(ids));
+    const targets = [], failures = [];
+    for (const id of selected) {
+        try { targets.push(await capture(id)); }
+        catch (error) { failures.push({ id, message: error.message }); }
+    }
+    const run = async () => {
+        const prepared = new Map();
+        for (const target of targets) {
+            try { prepared.set(target.imgId, target.message ? await prepareImageDeletion(target, selected) : target); }
+            catch (error) { failures.push({ id: target.imgId, message: error.message }); }
+        }
+        await confirmImageDeletions([...prepared.values()]);
+        const result = await deleteGalleryImages([...prepared.keys()], id => {
+            const item = prepared.get(id);
+            return item.message ? commitImageDeletion(item) : deletePreview(id);
+        });
+        return { deletedIds: result.deletedIds, failures: [...failures, ...result.failures] };
+    };
+    return targets.some(target => target.message) ? withConfirmableChatMutation(ctx, run) : run();
+}
+
+export async function openManagementGallery(imgId, buildChatCallbacks, refresh) {
+    const { slotId, messageId } = await captureManagementTarget()(imgId);
+    await openGallery(slotId, messageId, messageId == null
+        ? { onSave: refresh, onDelete: refresh, onBecameEmpty: refresh }
+        : buildChatCallbacks(slotId, messageId));
+}
+
+// Look up this slot's keys first. Deleting its only version never reads a sibling
+// payload, and the final choice can be made inside the same write transaction.
+function readOtherVersions(store, slotId, exclude, done) {
+    const keys = store.index('slotId').getAllKeys(slotId);
+    keys.onsuccess = () => {
+        const others = keys.result.filter(key => key !== exclude);
+        const rows = [];
+        if (!others.length) { done(rows); return; }
+        let pending = others.length;
+        for (const key of others) {
+            const read = store.get(key);
+            read.onsuccess = () => {
+                const row = galleryMetadataFromKey(read.result.galleryMetadata, key);
+                if (row.displayable) rows.push(row);
+                if (!--pending) done(rows.sort((a, b) => b.timestamp - a.timestamp || compareText(a.imgId, b.imgId)));
+            };
+        }
+    };
+}
+
+export async function getOtherImageVersions(slotId, exclude) {
+    const database = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = database.transaction(DB_STORE, 'readonly');
+        readOtherVersions(tx.objectStore(DB_STORE), slotId, exclude, resolve);
+        tx.onerror = tx.onabort = () => reject(tx.error || new Error(DRAW_SLOT_COPY.storageReadFailed));
     });
+}
+
+export function deleteImageVersion(target) {
+    const run = async () => {
+        const item = await prepareImageDeletion(target, new Set([target.imgId]));
+        await confirmImageDeletions([item]);
+        return commitImageDeletion(item);
+    };
+    return withConfirmableChatMutation(getContext(), run);
+}
+
+async function prepareImageDeletion(target, selected) {
+    const { slotId, imgId, message, messageId, assertCurrent } = target;
+    const { getDrawSavedPreview, materializeDrawSavedPreview } = await import('./draw-common.js');
+    assertCurrent();
+    const swipe = message?.swipe_id ?? 0;
+    const portable = message && getDrawSavedPreview(message, slotId, messageId);
+    let change;
+    if (portable && isSceneSlotAlive(message.mes, slotId)) {
+        await materializeDrawSavedPreview(message, slotId, { messageId, chatId: String(getContext().chatId) });
+        if (portable.imgId === imgId) {
+            // Retire the chat reference while the original image is still safely in the gallery.
+            // Navigation before the gallery commit leaves a complete, usable image to retry.
+            const other = (await getOtherImageVersions(slotId, imgId)).find(row => row.savedUrl && !selected.has(row.imgId));
+            change = { ...target, swipe, replacement: other && await getPreview(other.imgId) };
+        }
+    }
+    return { ...target, swipe, portable, change };
+}
+
+async function confirmImageDeletions(items) {
+    const changes = items.map(item => item.change).filter(Boolean);
+    if (!changes.length) return;
+    const { confirmDrawSavedDeletions } = await import('./draw-common.js');
+    try { await confirmDrawSavedDeletions(changes); }
+    catch (error) { for (const change of changes) change.error = error; }
+}
+
+async function commitImageDeletion({ slotId, imgId, message, messageId, assertCurrent, portable, change, swipe }) {
+    if (change?.error) throw change.error;
+    const { getDrawSavedPreview, renderPreviewsForMessage } = await import('./draw-common.js');
+    const database = await openDB();
+    const { retained, remaining, attached } = await new Promise((resolve, reject) => {
+        const tx = database.transaction([DB_STORE, DB_SELECTIONS_STORE], 'readwrite');
+        const records = tx.objectStore(DB_STORE), selections = tx.objectStore(DB_SELECTIONS_STORE);
+        const version = records.get(imgId), selection = selections.get(slotId);
+        let remaining;
+        let retained = null, attached = false, failure;
+        readOtherVersions(records, slotId, imgId, versions => {
+            remaining = versions;
+            try {
+                assertCurrent();
+                const record = version.result;
+                if (record?.slotId !== slotId || !hasPreviewImage(record) && portable?.imgId !== imgId) throw new Error(DRAW_SLOT_COPY.missingRecord);
+                attached = !!message && !record.source;
+                if (attached && !isSceneSlotAlive(message.mes, slotId)) throw new Error(DRAW_SLOT_COPY.removeTargetChanged);
+                // An upload may have attached a portable URL during preparation.
+                // Leave the full version intact for a confirmed deletion on retry.
+                if (attached && getDrawSavedPreview(message, slotId, messageId)?.imgId === imgId) throw new Error(DRAW_SLOT_COPY.deleteSaveFailed);
+                if (attached && !remaining.length) {
+                    retained = { ...record, base64: null, savedUrl: null, status: PreviewStatus.FAILED,
+                        errorType: DRAW_SLOT_ERRORS.deleted.label, errorMessage: DRAW_SLOT_ERRORS.deleted.desc, timestamp: Date.now() };
+                    records.put(withGalleryMetadata(retained));
+                    selections.put({ slotId, selectedImgId: imgId, timestamp: retained.timestamp });
+                } else {
+                    records.delete(imgId);
+                    if (selection.result?.selectedImgId === imgId || !selection.result && attached) {
+                        if (remaining.length && attached) selections.put({ slotId, selectedImgId: remaining[0].imgId, timestamp: Date.now() });
+                        else selections.delete(slotId);
+                    }
+                }
+            } catch (error) { failure = error; tx.abort(); }
+        });
+        tx.oncomplete = () => resolve({ retained, remaining, attached });
+        tx.onerror = tx.onabort = () => reject(failure || storageWriteError(tx));
+    });
+    invalidateCache(slotId);
     revokePreviewObjectUrl(imgId);
-    return record;
+    if (attached && getContext().chat?.[messageId] === message && (message.swipe_id ?? 0) === swipe) {
+        observeBackgroundTask(renderPreviewsForMessage(messageId, { refreshSlotIds: [slotId] }),
+            { source: import.meta.url, operation: 'refreshDeletedImage' });
+    }
+    publishCacheChange([slotId]);
+    return { retained, remaining };
 }
 
 export async function deleteFailedRecordsForSlot(slotId) {
@@ -974,27 +1131,21 @@ export async function deleteFailedRecordsForSlot(slotId) {
 
 export async function updatePreviewSavedUrl(imgId, savedUrl) {
     const database = await openDB();
-    const preview = await getPreview(imgId);
-    if (!preview) return;
-
-    preview.savedUrl = savedUrl;
-    preview.base64 = null;
-
     return new Promise((resolve, reject) => {
-        try {
-            const tx = database.transaction(DB_STORE, 'readwrite');
-            tx.objectStore(DB_STORE).put(withGalleryMetadata(preview));
-            tx.oncomplete = () => {
-                // 不在这里作废 blob URL：聊天里的图片卡（或尚未加载的懒加载图片）可能还在用它，
-                // 提前作废会让它加载失败；闲置的 blob 由 prunePreviewObjectUrls 回收。
-                invalidateCache(preview.slotId);
-                publishCacheChange([preview.slotId]);
-                resolve();
-            };
-            tx.onerror = () => reject(tx.error);
-        } catch (e) {
-            reject(e);
-        }
+        const tx = database.transaction(DB_STORE, 'readwrite');
+        const records = tx.objectStore(DB_STORE), read = records.get(imgId);
+        let slotId;
+        read.onsuccess = () => {
+            const record = read.result;
+            if (!hasPreviewImage(record)) return;
+            slotId = record.slotId;
+            records.put(withGalleryMetadata({ ...record, savedUrl, base64: null }));
+        };
+        tx.oncomplete = () => {
+            if (slotId) { invalidateCache(slotId); publishCacheChange([slotId]); }
+            resolve(Boolean(slotId));
+        };
+        tx.onerror = tx.onabort = () => reject(storageWriteError(tx));
     });
 }
 
@@ -1006,8 +1157,21 @@ export async function savePreviewImage(imgId, filePrefix = 'draw') {
     const charName = preview.characterName || getChatCharacterName();
     const image = getBase64ImagePayload(preview.base64);
     const url = await saveImageToServer({ base64: image.base64, charName, fileName: `${filePrefix}_${imgId}`, format: image.format });
-    await updatePreviewSavedUrl(imgId, url);
-    return url;
+    return await updatePreviewSavedUrl(imgId, url) ? url : null;
+}
+
+// A deleted last version keeps its selection ID. Read selection and saved image
+// together so neither a deletion nor a restore can slip between the two checks.
+export async function getSelectedSavedPreview(slotId, imgId, savedUrl) {
+    const database = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = database.transaction([DB_STORE, DB_SELECTIONS_STORE], 'readonly');
+        const image = tx.objectStore(DB_STORE).get(imgId);
+        const selected = tx.objectStore(DB_SELECTIONS_STORE).get(slotId);
+        tx.oncomplete = () => resolve(selected.result?.selectedImgId === imgId && image.result?.savedUrl === savedUrl
+            && hasPreviewImage(image.result) ? image.result : null);
+        tx.onerror = tx.onabort = () => reject(tx.error);
+    });
 }
 
 export async function getCacheStats() {
@@ -1497,12 +1661,14 @@ export async function openGallery(slotId, messageId, callbacks = {}, initialImgI
     const msgIdx = messageId == null ? NaN : Number(messageId);
     const message = Number.isInteger(msgIdx) ? ctx.chat?.[msgIdx] : null;
     const swipeIndex = message?.swipe_id ?? 0;
-    const assertCurrent = () => {
+    const isCurrent = () => {
+        if (messageId == null) return true;
         const current = getContext();
-        if (current.chat !== ctx.chat || getImageChatIdentity(current) !== owner
-            || (Number.isInteger(msgIdx) && current.chat?.[msgIdx] !== message)
-            || (message?.swipe_id ?? 0) !== swipeIndex) throw new Error(DRAW_SLOT_COPY.sourceChanged);
+        return current.chat === ctx.chat && getImageChatIdentity(current) === owner
+            && (!Number.isInteger(msgIdx) || current.chat?.[msgIdx] === message)
+            && (message?.swipe_id ?? 0) === swipeIndex;
     };
+    const assertCurrent = () => { if (!isCurrent()) throw new Error(DRAW_SLOT_COPY.sourceChanged); };
     createGalleryOverlay();
 
     let previews = await getSlotVersions(undefined, slotId);
@@ -1536,7 +1702,7 @@ export async function openGallery(slotId, messageId, callbacks = {}, initialImgI
         if (idx >= 0) startIndex = idx;
     }
 
-    currentGalleryData = { slotId, messageId, message, previews: validPreviews, currentIndex: startIndex, callbacks,
+    currentGalleryData = { slotId, messageId, message, isCurrent, assertOwner: assertCurrent, previews: validPreviews, currentIndex: startIndex, callbacks,
         imageWindow: createGalleryImageWindow({ load: getPreview }),
         stopViewport: observeViewport(() => {
             Object.assign(document.getElementById('nd-gallery-overlay').style, getSafeViewportStyles());
@@ -1671,7 +1837,7 @@ async function saveCurrentGalleryImage() {
         const charName = current.characterName || getChatCharacterName();
         const image = getBase64ImagePayload(current.base64);
         const url = await saveImageToServer({ base64: image.base64, charName, fileName: `novel_${current.imgId}`, format: image.format });
-        await updatePreviewSavedUrl(current.imgId, url);
+        if (!await updatePreviewSavedUrl(current.imgId, url)) return;
         metadata.savedUrl = url;
         await setSlotSelection(slotId, current.imgId);
         drawNotify.success(`已保存: ${url}`, undefined, { timeOut: 4000 });
@@ -1695,30 +1861,28 @@ async function deleteCurrentGalleryImage() {
     if (!confirm(msg)) return;
 
     try {
-        // 聊天楼层里仍存在的图位删光最后一张：保留输入记录（见 retirePreviewToFailed）；
-        // 文本配图、公共 API、快速测试等没有楼层可放占位卡的图照旧删除。
-        const keepInput = previews.length === 1 && !current.source && !!message
-            && isSceneSlotAlive(message.mes, slotId);
-        if (keepInput) {
-            await retirePreviewToFailed(current.imgId);
-            // 保存条目不清，下次渲染会把失败图位又显示成图；清失败按删除失败报告。
-            const { clearDrawSavedEntry } = await import('./draw-common.js');
-            await clearDrawSavedEntry(Number(messageId), slotId);
-        } else await deletePreview(current.imgId);
-
-        const selectedId = await getSlotSelection(slotId);
-        if (selectedId === current.imgId) {
-            await clearSlotSelection(slotId);
+        const assertCurrent = () => {
+            view.assertOwner();
+            if (currentGalleryData !== view || view.previews[view.currentIndex]?.imgId !== current.imgId) {
+                throw new Error(DRAW_SLOT_COPY.removeTargetChanged);
+            }
+        };
+        let remaining, retained;
+        if (message) {
+            ({ remaining, retained } = await deleteImageVersion({ slotId, imgId: current.imgId, message, messageId, assertCurrent }));
+        } else {
+            await deletePreview(current.imgId);
+            remaining = previews.filter(preview => preview.imgId !== current.imgId);
         }
-
-        previews.splice(currentIndex, 1);
+        if (currentGalleryData !== view || !view.isCurrent()) return;
+        previews.splice(0, previews.length, ...remaining);
 
         if (previews.length === 0) {
             if (currentGalleryData === view) closeGallery();
             if (callbacks.onBecameEmpty) {
-                callbacks.onBecameEmpty(slotId, messageId, { imgId: keepInput ? current.imgId : '', tags: current.tags || '', title: current.title || '', positive: current.positive || '' });
+                await callbacks.onBecameEmpty(slotId, messageId, retained);
             }
-            drawNotify.success('图片已删除，可点击重试重新生成', undefined, { timeOut: 2500 });
+            drawNotify.success(retained ? DRAW_SLOT_ERRORS.deleted.desc : DRAW_SLOT_ERRORS.deleted.label, undefined, { timeOut: 2500 });
         } else {
             if (currentGalleryData === view) {
                 view.currentIndex = Math.min(view.currentIndex, previews.length - 1);
@@ -1726,12 +1890,6 @@ async function deleteCurrentGalleryImage() {
                 renderGallery();
             }
             if (callbacks.onDelete) {
-                // Existing chat callbacks need the replacement's prompt/orientation,
-                // not every historical payload. Hydrate only their two candidates.
-                const remaining = previews.slice();
-                for (const index of new Set([0, previews.findIndex(item => item.savedUrl)])) {
-                    if (index >= 0) remaining[index] = await getPreview(previews[index].imgId) || previews[index];
-                }
                 await callbacks.onDelete(slotId, current.imgId, remaining);
             }
             drawNotify.success('图片已删除', undefined, { timeOut: 2500 });

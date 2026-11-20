@@ -35,6 +35,11 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
         });
         return refreshScheduled;
     };
+    const refreshAfterWrite = slotIds => {
+        const repaint = scheduleRefresh(slotIds);
+        if (backend) return repaint;
+        observeBackgroundTask(repaint, { source: import.meta.url, operation: 'refreshPreparedSlots' });
+    };
     const commitOnce = async () => {
         if (committed) return true;
         signal?.throwIfAborted();
@@ -46,7 +51,7 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
             uncertain = error?.uncertain === true;
             throw error;
         }
-        if (!nativeMessage) await scheduleRefresh();
+        if (backend && !nativeMessage) await scheduleRefresh();
         return true;
     };
     const deliver = async (index, patch, guard = async () => {}, commitDelivery) => {
@@ -70,7 +75,7 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
         activity(item.slotId, null);
         // 图片已落库并选中：交给“自动保存”等后续处理，不等待它，也不让它的失败影响本批。
         if (patch.status === PreviewStatus.SUCCESS) observeBackgroundTask(afterDelivered?.(item), { source: import.meta.url, operation: "afterDelivered" });
-        await scheduleRefresh([item.slotId]);
+        await refreshAfterWrite([item.slotId]);
     };
     const fail = async (index, error, guard, commitDelivery) => {
         if (results.has(index) || deliveryErrors.has(index)) return;
@@ -98,7 +103,7 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
         onPrepared?.();
         for (const [index, item] of items.entries()) setActivity(item, index, 'queued');
         if (nativeMessage) observeBackgroundTask(scheduleRefresh(), { source: import.meta.url, operation: "executePreparedSlots" });
-        else await scheduleRefresh();
+        else await refreshAfterWrite();
         onStateChange?.('gen', { current: 0, total: items.length });
         await run({
             signal,
@@ -106,8 +111,14 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
             // Queued/unsubmitted inputs remain distinct from possibly billed ones.
             onItemStarting: async ({ index }) => {
                 if (items[index].discarded) { await deliver(index, {}); return false; }
-                await store({ ...items[index], status: PreviewStatus.UNKNOWN,
-                    errorType: DRAW_SLOT_ERRORS.unknown.label, errorMessage: DRAW_SLOT_ERRORS.unknown.desc });
+                try {
+                    await store({ ...items[index], status: PreviewStatus.UNKNOWN,
+                        errorType: DRAW_SLOT_ERRORS.unknown.label, errorMessage: DRAW_SLOT_ERRORS.unknown.desc });
+                } catch (cause) {
+                    const error = new Error(DRAW_SLOT_COPY.storageFailed, { cause });
+                    error.localStorageFailure = true;
+                    throw error;
+                }
                 started.add(index);
                 if (items[index].discarded) { await deliver(index, {}); return false; }
                 setActivity(items[index], index, 'generating');
@@ -161,8 +172,8 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
                     await deliver(index, { base64, status: PreviewStatus.SUCCESS, errorType: null, errorMessage: null }, guard, commitDelivery);
                 } catch (error) {
                     deliveryErrors.add(index);
-                    error.preserveBackendResult = true;
-                    throw error;
+                    if (backend) { error.preserveBackendResult = true; throw error; }
+                    throw new Error(DRAW_SLOT_COPY.storageFailed, { cause: error });
                 }
             },
             onItemSettled: async ({ index, state, error, guard, commitDelivery }) => {
@@ -193,12 +204,12 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
         if (!committed && !uncertain) {
             for (const item of items) await remove(item.imgId);
         } else if (committed && !error?.detached && !isPendingJobLeaseLost(error)
-            && !error?.preserveBackendResult && !deliveryErrors.size) {
+            && !error?.preserveBackendResult) {
             for (const index of items.keys()) await fail(index, error);
         }
         throw error;
     } finally {
         for (const item of items) activity(item.slotId, null);
-        if (committed || uncertain) await scheduleRefresh();
+        if (committed || uncertain) await refreshAfterWrite();
     }
 }

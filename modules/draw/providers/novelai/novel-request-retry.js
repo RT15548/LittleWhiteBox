@@ -1,6 +1,4 @@
-// Only direct NovelAI HTTP failures authorize one retry. Proxy failures and
-// transport interruptions do not say whether the provider generated an image.
-// 429 是限速：等一个冷却再试一次，别把一次排队抖动直接报成失败。
+import { ImageRequestOutcome, withImageRequestOutcome } from '../../shared/image-request-outcome.js';
 
 function waitForRetry(duration, signal) {
     return new Promise((resolve, reject) => {
@@ -19,18 +17,25 @@ function waitForRetry(duration, signal) {
 
 export async function requestNovelImageWithRetry({ request, sendMode, signal, beforeRequest,
     retryDelayMs = 0 }) {
+    let previousFailure;
+    const checkAdmission = () => {
+        if (signal?.aborted) throw previousFailure ?? withImageRequestOutcome(
+            new DOMException(signal.reason?.message, 'AbortError'), ImageRequestOutcome.NOT_SUBMITTED);
+    };
     // attempt 0 = 首试；1 = 5xx 或 429 的一次重试；2 = 429 的第二次重试。
     for (let attempt = 0; attempt < 3; attempt++) {
-        signal?.throwIfAborted();
+        checkAdmission();
         if (await beforeRequest?.() === false) return null;
-        signal?.throwIfAborted();
+        checkAdmission();
         try {
             return await request();
         } catch (error) {
-            const busy = error?.status === 429;
+            previousFailure = error;
+            const busy = error?.status === 429 && (sendMode === 'frontend' || error.upstreamResponse === true);
             if (busy && attempt < 2 && retryDelayMs > 0) {
                 // 每次退避递增，避免连续撞上同一个限速窗口。
-                await waitForRetry(retryDelayMs * (attempt + 1), signal);
+                try { await waitForRetry(retryDelayMs * (attempt + 1), signal); }
+                catch { throw error; } // Cancellation after a definite refusal is still an unbilled refusal.
                 continue;
             }
             if (attempt > 0 || sendMode !== 'frontend' || signal?.aborted

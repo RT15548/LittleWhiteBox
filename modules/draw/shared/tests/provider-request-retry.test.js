@@ -57,8 +57,8 @@ const api = await import('data:text/javascript;base64,' + Buffer.from(bundle.out
 const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN3sAAAAASUVORK5CYII=', 'base64');
 const compiledBatch = { items: [{ request: { url: 'https://novelai.invalid/ai/generate-image', transport: 'legacy-image', payload: {} } }] };
 function novel(sendMode = 'frontend', handlers = {}, useImageBackendJobs = false) {
-    host.settings = { apiKey: 'offline-fixture', sendMode, timeout: 30000, useImageBackendJobs };
-    host.backendStatus = { ready: true, capabilities: [IMAGE_BATCH_JOBS_CAPABILITY, DRAW_WORK_CANCELLATION_CAPABILITY] };
+    host.settings = { apiKey: 'offline-fixture', sendMode, timeout: 30000, requestDelay: { min: 1, max: 1 }, useImageBackendJobs };
+    host.backendStatus = { ready: true, runtimeHostAbi: 1, capabilities: [IMAGE_BATCH_JOBS_CAPABILITY, DRAW_WORK_CANCELLATION_CAPABILITY] };
     return api.runNovelImageBatch({ requests: [{}], compiledBatch, ...handlers });
 }
 
@@ -98,11 +98,29 @@ test('actual providers retry HTTP 5xx only for direct NovelAI, at most once', as
     assert.equal(result.outcomes[0].error.status, 503);
 });
 
+test('only direct or explicitly forwarded upstream 429 authorizes another image purchase', async t => {
+    const originalFetch = globalThis.fetch;
+    t.after(() => { globalThis.fetch = originalFetch; });
+    for (const [mode, forwarded, count] of [['frontend', false, 3], ['backend', true, 3], ['backend', false, 1], ['stream', false, 1]]) {
+        let sent = 0;
+        globalThis.fetch = async () => {
+            sent++;
+            return forwarded ? Response.json({ ok: false, status: 429 }) : new Response('busy', { status: 429 });
+        };
+        const result = mode === 'stream' ? await novel('backend', {
+            compiledBatch: { items: [{ request: { ...compiledBatch.items[0].request, transport: 'msgpack-stream' } }] },
+        }) : await novel(mode);
+        assert.equal(result.outcomes[0].error.status, 429);
+        assert.equal(result.outcomes[0].error.imageRequestOutcome, mode === 'frontend' || forwarded ? 'rejected' : 'unknown');
+        assert.equal(sent, count);
+    }
+});
+
 test('direct NovelAI never retries rejection, disconnection, timeout or a broken success body', async t => {
     const originalFetch = globalThis.fetch;
     t.after(() => { globalThis.fetch = originalFetch; });
     const failures = [
-        ...[400, 401, 402, 429].map(status => () => new Response('rejected', { status })),
+        ...[400, 401, 402].map(status => () => new Response('rejected', { status })),
         () => { throw new TypeError('Failed to fetch'); },
         () => { throw new DOMException('timeout', 'AbortError'); },
         () => new Response(new ReadableStream({ start(controller) { controller.error(new TypeError('stream lost')); } }),
@@ -115,6 +133,16 @@ test('direct NovelAI never retries rejection, disconnection, timeout or a broken
         assert.equal(requests, 1);
         assert.equal(result.outcomes[0].state, 'failed');
     }
+});
+
+test('a malformed proxy envelope with a status field cannot authorize a retry', async t => {
+    const originalFetch = globalThis.fetch;
+    t.after(() => { globalThis.fetch = originalFetch; });
+    let sent = 0;
+    globalThis.fetch = async () => { sent++; return Response.json({ status: 429 }); };
+    const result = await novel('backend');
+    assert.equal(sent, 1);
+    assert.equal(result.outcomes[0].error.imageRequestOutcome, 'unknown');
 });
 
 test('a successful NovelAI retry is delivered once and checks admission twice', async t => {
@@ -141,11 +169,12 @@ test('cancellation during either admission or the first HTTP failure cannot resu
             if (cancelAt === 'http-failure') controller.abort();
             return new Response('unavailable', { status: 503 });
         };
-        await novel('frontend', { signal: controller.signal, onItemStarting: async () => {
+        const result = await novel('frontend', { signal: controller.signal, onItemStarting: async () => {
             starts++;
             if (cancelAt === 'first-admission' || cancelAt === 'retry-admission' && starts === 2) controller.abort();
         } });
         assert.equal(requests, cancelAt === 'first-admission' ? 0 : 1);
+        assert.equal(result.outcomes[0].error.imageRequestOutcome, requests === 0 ? 'not-submitted' : 'unknown');
     }
 });
 

@@ -13,7 +13,7 @@ import novelBackendTransport from './backend-transport-contract.cjs';
 import { getContext } from "../../../../../../../extensions.js";
 import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
-import { deleteGalleryImages, exportGalleryZipPart } from '../../shared/gallery-batch.js';
+import { exportGalleryZipPart } from '../../shared/gallery-batch.js';
 import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
 import { DRAW_LAYERS } from '../../shared/draw-visuals.js';
 import { bindImageCardEvents } from '../../shared/image-card-events.js';
@@ -48,9 +48,9 @@ import {
     getDisplayPreviewForSlot,
     storeFailedPlaceholder,
     setSlotSelection,
-    clearSlotSelection,
     updatePreviewSavedUrl,
-    deletePreview,
+    captureGalleryDeletion,
+    deleteGallerySelection,
     getCacheStats,
     clearExpiredCache,
     clearAllCache,
@@ -90,6 +90,7 @@ import {
 } from "../../shared/character-group-presets-runtime.js";
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
+import { runSequentialImageBatch } from '../../shared/sequential-image-batch.js';
 import { characterLibraryFromSettings, selectEnabledCharacters } from "../../shared/character-library.js";
 import { markNewGroupsOff, restoreGroupPresetReferences } from "../../shared/character-group-presets.js";
 import {
@@ -193,7 +194,6 @@ import {
 import {
     clearDrawSavedEntry,
     syncDrawSavedFromPreview,
-    syncDrawSavedAfterDeletion,
     startSharedDrawPreviewRuntime,
     stopSharedDrawPreviewRuntime,
     renderAllDrawPreviews,
@@ -203,7 +203,6 @@ import {
     isMessageBeingEdited,
     DEFAULT_MESSAGE_FILTER_RULES,
     buildImageHtml,
-    buildFailedPlaceholderHtml,
     ensureDrawImageStyles,
     showDrawTagEditor,
     appendTagEditGroup,
@@ -233,12 +232,12 @@ import { acquireFloorImageJob, getFloorImageJob, getFloorImageJobs, getFloorImag
 import { createImageRequestAttempt, imageHttpFailure, withImageRequestOutcome, ImageRequestOutcome } from '../../shared/image-request-outcome.js';
 import { requestNovelImageWithRetry } from './novel-request-retry.js';
 import { createImageCardRedrawProvider } from "../../shared/image-card-redraw-provider.js";
-import { deleteCardImageVersion, redrawImageCard, removeChatImageSlot, removeFloorFailedImageCards, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
+import { deleteImageFromCard, redrawImageCard, removeChatImageSlot, removeFloorFailedImageCards, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
 import { toggleImageCardControls } from '../../shared/image-card-controls.js';
 import { withDrawActionFeedback } from "../../shared/draw-action-feedback.js";
 import { getCharacterTagEditGroups, persistCardTagEdits, readCardTagEditor } from "../../shared/card-tag-editor.js";
 import { getCurrentUserHandle } from "../../../../../../../user.js";
-import { hasPreviewImage, DRAW_SLOT_COPY, DRAW_SLOT_ERRORS } from "../../shared/image-record.js";
+import { hasPreviewImage, DRAW_SLOT_COPY } from "../../shared/image-record.js";
 import { installHostPanelEscape } from "../../shared/panel-escape.js";
 import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 
@@ -533,10 +532,6 @@ async function syncNovelDrawSavedFromPreview(messageId, preview, overrides = {})
     return syncDrawSavedFromPreview(messageId, preview, overrides);
 }
 
-async function syncNovelDrawSavedAfterDeletion(messageId, slotId, deletedImgId, remainingPreviews = []) {
-    return syncDrawSavedAfterDeletion(messageId, slotId, deletedImgId, remainingPreviews);
-}
-
 function extractSlotIds(mes) {
     const ids = new Set();
     if (!mes) return ids;
@@ -724,6 +719,11 @@ function classifyError(e) {
 
 function parseApiError(status, text, fallbackType = ErrorType.UNKNOWN) {
     return imageHttpFailure(describeApiError(status, text, fallbackType), status);
+}
+
+function backendTransportError(status, text, fallbackType) {
+    const error = parseApiError(status, text, fallbackType);
+    return status === 429 ? withImageRequestOutcome(error, ImageRequestOutcome.UNKNOWN) : error;
 }
 
 function describeApiError(status, text, fallbackType) {
@@ -1688,13 +1688,17 @@ async function generateViaBackend({ url, legacyBaseUrl, apiKey, insecure, payloa
         throw imageHttpFailure(new NovelDrawError(`后端端点不存在。${SERVER_PLUGIN_COPY.install}`, ErrorType.NETWORK), 404);
     }
     if (!res.ok) {
-        throw parseApiError(res.status, await res.text().catch(() => ''));
+        throw backendTransportError(res.status, await res.text().catch(() => ''));
     }
     const data = await res.json().catch(() => null);
     if (!data || typeof data !== 'object' || data.ok !== true) {
         const status = data?.status;
         const msg = data?.error || '后端生图失败';
-        if (status) throw parseApiError(status, msg);
+        if (data?.ok === false && Number.isInteger(status)) {
+            const error = parseApiError(status, msg);
+            error.upstreamResponse = true;
+            throw error;
+        }
         if (data?.code === 'timeout') throw new NovelDrawError('请求超时', ErrorType.TIMEOUT);
         throw new NovelDrawError(msg, ErrorType.UNKNOWN);
     }
@@ -1729,7 +1733,7 @@ async function generateV5ViaBackend({ url, apiKey, insecure, payload, signal, ti
         ), 404);
     }
     if (!response.ok) {
-        throw parseApiError(response.status, await readNovelV5ErrorText(response), ErrorType.PROVIDER);
+        throw backendTransportError(response.status, await readNovelV5ErrorText(response), ErrorType.PROVIDER);
     }
     return response;
 }
@@ -2162,62 +2166,35 @@ async function runNovelImageBatch({
         onStateChange?.('backend_legacy', { message });
     }
 
-    // 整批一次性入队：同一楼层的所有图在提交时就占好队列位置，队列按批连续执行，
-    // 前一层画完才轮到下一层。逐张入队会让层与层按“谁先交付”交错。
-    const queued = prepared.map((_, index) => enqueueImageRequest(
-        () => requestNovelImageWithRetry({
-            request: () => executePreparedNovelRequest(prepared[index], requestConfig, signal),
-            sendMode: requestConfig.sendMode,
-            signal,
-            // 429 是限速：等一个请求间隔再试，别把队列抖动直接报成失败。
-            retryDelayMs: getNovelImageRequestDelay(),
-            beforeRequest: () => onItemStarting?.({ index }),
-        }),
-        {
-            signal,
-            batchKey: queueBatch,
-            onQueued: data => onStateChange?.('queued', { current: index + 1, total: prepared.length, ...data }),
-            onStart: () => onStateChange?.('progress', { current: index + 1, total: prepared.length }),
-            onCooldown: data => {
-                if (index + 1 >= prepared.length) return;
-                onStateChange?.('cooldown', {
-                    duration: data.duration,
-                    cooldownUntil: Date.now() + data.duration,
-                    nextIndex: index + 2,
-                    total: prepared.length,
-                });
+    await runSequentialImageBatch({
+        count: requests.length, signal, onItemReady, onItemSettled,
+        outcomes, normalizeError: handleFetchError,
+        request: index => enqueueImageRequest(
+            () => requestNovelImageWithRetry({
+                request: () => executePreparedNovelRequest(prepared[index], requestConfig, signal),
+                sendMode: requestConfig.sendMode,
+                signal,
+                // 429 是限速：等一个请求间隔再试，别把队列抖动直接报成失败。
+                retryDelayMs: randomDelay(settings.requestDelay?.min, settings.requestDelay?.max),
+                beforeRequest: () => onItemStarting?.({ index }),
+            }),
+            {
+                signal,
+                batchKey: queueBatch,
+                onQueued: data => onStateChange?.('queued', { current: index + 1, total: prepared.length, ...data }),
+                onStart: () => onStateChange?.('progress', { current: index + 1, total: prepared.length }),
+                onCooldown: data => {
+                    if (index + 1 >= prepared.length) return;
+                    onStateChange?.('cooldown', {
+                        duration: data.duration,
+                        cooldownUntil: Date.now() + data.duration,
+                        nextIndex: index + 2,
+                        total: prepared.length,
+                    });
+                },
             },
-        },
-    ));
-    // 未消费的排队项在取消时会被 reject，统一收割，避免未处理的拒绝。
-    let consumed = 0;
-    try {
-        for (let index = 0; index < prepared.length; index++) {
-            if (signal?.aborted) {
-                for (let pending = index; pending < prepared.length; pending++) {
-                    const error = new NovelDrawError('已取消', ErrorType.ABORTED);
-                    outcomes[pending] = { state: 'cancelled', error };
-                    await onItemSettled?.({ index: pending, state: 'cancelled', error, source: 'frontend' });
-                }
-                break;
-            }
-            try {
-                const base64 = await queued[index];
-                consumed = index + 1;
-                if (base64 === null) continue;
-                await onItemReady?.({ index, base64 });
-                outcomes[index] = { state: 'ready', base64 };
-            } catch (error) {
-                consumed = index + 1;
-                const normalized = handleFetchError(error);
-                const state = signal?.aborted ? 'cancelled' : 'failed';
-                outcomes[index] = { state, error: normalized };
-                await onItemSettled?.({ index, state, error: normalized, source: 'frontend' });
-            }
-        }
-    } finally {
-        await Promise.allSettled(queued.slice(consumed));
-    }
+        ),
+    });
     return { mode: requestConfig.sendMode, outcomes, aborted: signal?.aborted === true };
 }
 
@@ -2584,7 +2561,7 @@ async function handleDelegatedClick(e) {
             await retryFailedImage(container);
             break;
         case 'retry-floor-failed':
-            await retryFloorFailedImageCards("novelai", container);
+            await retryFloorFailedImageCards("novelai", container, resolveNovelImageTransport(getRuntimeSettings()) !== 'backend-job');
             break;
         case 'restore-image':
             await restoreImageCard(container);
@@ -2600,7 +2577,7 @@ async function handleDelegatedClick(e) {
             break;
         case 'delete-image':
             container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
-            await deleteCurrentImage(container);
+            await deleteImageFromCard(container);
             break;
         case 'nav-prev': {
             const i = parseInt(container.dataset.currentIndex) || 0;
@@ -2663,36 +2640,6 @@ async function handleImageClick(container) {
                 .catch(e => {
                     console.warn('[NovelDraw] 保存后的楼层持久化失败:', e);
                 });
-        },
-        onDelete: async (sid, deletedImgId, remainingPreviews) => {
-            const cont = container.isConnected && container.dataset.slotId === sid ? container : null;
-            if (cont && cont.dataset.imgId === deletedImgId && remainingPreviews.length > 0) {
-                const latest = remainingPreviews[0];
-                cont.querySelector('img').src = getPreviewDisplayUrl(latest);
-                cont.dataset.imgId = latest.imgId;
-                setImageState(cont, latest.savedUrl ? ImageState.SAVED : ImageState.PREVIEW);
-            }
-            if (cont) {
-                cont.dataset.historyCount = String(remainingPreviews.length);
-                updateNavControls(cont, 0, remainingPreviews.length);
-            }
-            void syncNovelDrawSavedAfterDeletion(messageId, sid, deletedImgId, remainingPreviews).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "onDelete" }, caughtError); });
-        },
-        onBecameEmpty: (sid, msgId, lastImageInfo) => {
-            const cont = container.isConnected && container.dataset.slotId === sid ? container : null;
-            if (!cont) return;
-            const failedHtml = buildFailedPlaceholderHtml({
-                slotId: sid,
-                imgId: lastImageInfo.imgId || '',
-                messageId: msgId,
-                tags: lastImageInfo.tags || '',
-                positive: lastImageInfo.positive || '',
-                errorType: DRAW_SLOT_ERRORS.deleted.label,
-                errorMessage: DRAW_SLOT_ERRORS.deleted.desc,
-            });
-            // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup built locally.
-            cont.outerHTML = failedHtml;
-            void clearNovelDrawSavedEntry(msgId, sid).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "onBecameEmpty" }, caughtError); });
         },
     });
 }
@@ -2792,7 +2739,7 @@ async function saveSingleImage(container) {
         const image = getBase64ImagePayload(preview.base64);
         const url = await saveImageToServer({ base64: image.base64, charName, fileName: `novel_${imgId}`, format: image.format });
         preview.savedUrl = url;
-        await updatePreviewSavedUrl(imgId, url);
+        if (!await updatePreviewSavedUrl(imgId, url)) return;
         await setSlotSelection(slotId, imgId);
         await syncNovelDrawSavedFromPreview(messageId, preview, { slotId, savedUrl: url });
         container.querySelector('img').src = getPreviewDisplayUrl(preview);
@@ -2803,55 +2750,6 @@ async function saveSingleImage(container) {
         console.error('[NovelDraw] 保存失败:', e);
         alert('保存失败: ' + e.message);
         setImageState(container, ImageState.PREVIEW);
-    }
-}
-
-async function deleteCurrentImage(container) {
-    const imgId = container.dataset.imgId;
-    const slotId = container.dataset.slotId;
-    const messageId = parseInt(container.dataset.mesid);
-    const tags = container.dataset.tags || '';
-    const positive = container.dataset.positive || '';
-
-    if (!confirm('确定删除这张图片吗？')) return;
-
-    try {
-        const { retained, remaining: successPreviews } = await deleteCardImageVersion(container);
-
-        if (successPreviews.length > 0) {
-            const latest = successPreviews[0];
-            await setSlotSelection(slotId, latest.imgId);
-            container.querySelector('img').src = getPreviewDisplayUrl(latest);
-            container.dataset.imgId = latest.imgId;
-            container.dataset.tags = escapeHtml(latest.tags || '');
-            container.dataset.positive = escapeHtml(latest.positive || '');
-            container.dataset.title = escapeHtml(latest.title || '');
-            container.dataset.currentIndex = '0';
-            container.dataset.historyCount = String(successPreviews.length);
-            setImageState(container, latest.savedUrl ? ImageState.SAVED : ImageState.PREVIEW);
-            syncImageTitleElements(container, latest.title || '');
-            updateNavControls(container, 0, successPreviews.length);
-            await syncNovelDrawSavedAfterDeletion(messageId, slotId, imgId, successPreviews);
-            drawNotify.success(`已删除（剩余 ${successPreviews.length} 张）`, undefined, { timeOut: 2500 });
-        } else {
-            await clearSlotSelection(slotId);
-            await clearNovelDrawSavedEntry(messageId, slotId);
-            const failedHtml = buildFailedPlaceholderHtml({
-                slotId,
-                imgId: retained?.imgId || '',
-                messageId,
-                tags,
-                positive,
-                errorType: DRAW_SLOT_ERRORS.deleted.label,
-                errorMessage: DRAW_SLOT_ERRORS.deleted.desc,
-            });
-            // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup built locally.
-            container.outerHTML = failedHtml;
-            drawNotify.success('图片已删除，占位符已保留', undefined, { timeOut: 2500 });
-        }
-    } catch (e) {
-        console.error('[NovelDraw] 删除失败:', e);
-        drawNotify.error('删除失败: ' + e.message, undefined, { timeOut: 2500 });
     }
 }
 
@@ -4064,7 +3962,7 @@ async function handleFrameMessage(event) {
         }
 
         case 'BATCH_DELETE': {
-            const result = await deleteGalleryImages(data.ids, deletePreview);
+            const result = await deleteGallerySelection(data.ids);
             if (iframe.isConnected) {
                 postToIframe(iframe, { type: 'BATCH_DELETED', requestId: data.requestId, ...result }, 'LittleWhiteBox-NovelDraw');
                 const overview = await getGalleryOverview();
@@ -4869,7 +4767,7 @@ async function handleFrameMessage(event) {
                 const image = getBase64ImagePayload(preview.base64);
                 const url = await saveImageToServer({ base64: image.base64, charName, fileName: `novel_${data.imgId}`, format: image.format });
                 preview.savedUrl = url;
-                await updatePreviewSavedUrl(data.imgId, url);
+                if (!await updatePreviewSavedUrl(data.imgId, url)) break;
                 if (Number.isFinite(preview.messageId)) {
                     await syncNovelDrawSavedFromPreview(preview.messageId, preview, { savedUrl: url });
                     // The chat card may still show this version's blob URL. Re-read the
@@ -4942,7 +4840,7 @@ async function handleFrameMessage(event) {
 
         case 'DELETE_GALLERY_IMAGE': {
             try {
-                await deletePreview(data.imgId);
+                await captureGalleryDeletion()(data.imgId);
                 {
                     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
                     if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_DELETED', imgId: data.imgId }, 'LittleWhiteBox-NovelDraw');
@@ -4951,7 +4849,7 @@ async function handleFrameMessage(event) {
                 drawNotify.success('已删除', undefined, { timeOut: 2500 });
             } catch (e) {
                 console.error('[NovelDraw] 删除失败:', e);
-                postStatus('error', '删除失败: ' + e.message);
+                postStatus('error', e.message, 'gallery-delete');
             }
             break;
         }
@@ -5182,8 +5080,7 @@ export async function initNovelDraw() {
     // ════════════════════════════════════════════════════════════════════
 
     preparedImageDispose?.();
-    preparedImageDispose = registerPreparedImageProvider("novelai", createImageCardRedrawProvider({
-        execute: runPreparedNovelSlots,
+    preparedImageDispose = registerPreparedImageProvider("novelai", runPreparedNovelSlots, createImageCardRedrawProvider({
         createJob: createGenerationJob,
         releaseJob: releaseGenerationJob,
         getCurrentContext: getContext,

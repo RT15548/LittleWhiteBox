@@ -2,7 +2,7 @@ import { drawNotify } from './draw-toast.js';
 // “自动保存新生成的图片”：图片刚送达图库或楼层后，开了开关就把它存进酒馆，效果同手动点“保存”。
 // 只处理开关打开之后生成的新图，从不扫描旧缓存：开关本身不触发任何保存，只有各处“送达之后”的调用才会走到这里。
 // 三家画图的楼层配图、文本配图和后台接回都在各自送达之后调用；已保存的图（有 savedUrl）不会重复保存。
-import { getPreview, getSlotSelection, savePreviewImage } from './gallery-cache.js';
+import { getPreview, getSelectedSavedPreview, savePreviewImage } from './gallery-cache.js';
 import { renderPreviewsForMessage, syncDrawSavedFromPreview } from './draw-common.js';
 import { getSharedDrawSettings } from './draw-settings.js';
 import { IMAGE_SAVE_COPY } from './image-save-core.js';
@@ -24,8 +24,8 @@ function warnOnce() {
 // 仅当这张图仍是该槽位正在显示的那张、且仍在原来的聊天里才写；失败只记日志，不算保存失败。
 async function syncChatSavedEntry({ imgId, slotId, savedUrl, chatTarget }) {
     try {
-        const saved = await getPreview(imgId);
-        if (await getSlotSelection(slotId) !== imgId) return;
+        const saved = await getSelectedSavedPreview(slotId, imgId, savedUrl);
+        if (!saved) return;
         const target = chatTarget();
         if (!target) return;
         await syncDrawSavedFromPreview(target.messageId, saved, { slotId, savedUrl });
@@ -55,6 +55,7 @@ export async function autoSaveDeliveredImage({ imgId, slotId, filePrefix, genera
         const current = getSharedDrawSettings();
         if (current.autoSaveImages !== true || generatedAt < current.autoSaveImagesSince) return false;
         const savedUrl = await savePreviewImage(imgId, filePrefix);
+        if (!savedUrl) return false;
         await syncChatSavedEntry({ imgId, slotId, savedUrl, chatTarget });
         return true;
     } catch (error) {

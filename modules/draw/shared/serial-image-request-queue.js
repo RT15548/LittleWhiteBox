@@ -154,9 +154,8 @@ export function createSerialImageRequestQueue({
         })(), { source: import.meta.url, operation: "pump" });
     }
 
-    // 同一批（batchKey）的请求连续执行：一个楼层的图画完，才轮到后提交的楼层。
-    // 调用方把整批任务一次性入队，队列按批分组排队，所以层内连续、层间按提交顺序。
-    // 没有 batchKey 的请求（公共 API 等）按到达顺序排。
+    // 只排列已经入队的请求。同批续项靠在一起，无批次的请求按到达顺序排。
+    // 「重画本楼」的点击顺序由卡片入口决定；下一张保存前不会预占这里的位置。
     function insertionIndex(item) {
         if (item.batchKey === undefined) return pending.length;
         for (let index = pending.length - 1; index >= 0; index--) {

@@ -15,7 +15,10 @@ const stubs = {
     'gallery-cache.js': `
         const host = globalThis.__autoSaveTest;
         export const getPreview = async id => { host.beforePreview?.(); return host.previews.get(id); };
-        export const getSlotSelection = async slot => host.selections.get(slot) ?? null;
+        export const getSelectedSavedPreview = async (slot,id,url) => {
+            const p = await getPreview(id);
+            return host.selections.get(slot) === id && p?.savedUrl === url ? p : null;
+        };
         export const savePreviewImage = async (id, prefix) => {
             if (host.failSave) throw new Error('upload failed');
             const url = '/user/images/' + prefix + '_' + id + '.png';

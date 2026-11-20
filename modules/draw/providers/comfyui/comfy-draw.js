@@ -5,12 +5,12 @@ import {
     setSlotSelection,
     openDB,
     openGallery,
+    openManagementGallery,
     getPreviewsBySlot,
     getPreview,
     getGallerySummary,
     clearExpiredCache,
     clearAllCache,
-    deletePreview,
     updatePreviewSavedUrl,
     getPreviewDisplayUrl,
     preloadPreviewDisplayUrl,
@@ -44,6 +44,7 @@ import { createLlmRecordsView } from "../../shared/llm-records-view.js";
 import { characterLibraryFromSettings, selectEnabledCharacters } from "../../shared/character-library.js";
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
+import { runSequentialImageBatch } from '../../shared/sequential-image-batch.js';
 import {
     buildComfyImageRequest,
     buildSimpleWorkflow,
@@ -114,12 +115,10 @@ import {
     classifyError,
     ErrorType,
     syncDrawSavedFromPreview,
-    syncDrawSavedAfterDeletion,
     clearDrawSavedEntry,
     startSharedDrawPreviewRuntime,
     stopSharedDrawPreviewRuntime,
     toScenePlannerProgress,
-    buildFailedPlaceholderHtml,
 } from "../../shared/draw-common.js";
 import * as drawCommonModule from "../../shared/draw-common.js";
 import { createFilterRuleHandle, createFilterRuleSortable } from "../../shared/filter-rule-sort.js";
@@ -153,12 +152,12 @@ import { prepareImageInput } from '../../shared/prepared-image-input.js';
 import { acquireFloorImageJob, getFloorImageJob, getFloorImageJobs, getFloorImagePhase, getFloorImageState, releaseFloorImageJob, observeFloorImageJob, failFloorImageJob, clearFloorImageJobs, resolveFloorImageJobTarget, rebaseFloorImageJobsAfterSwipeDeletion } from '../../shared/floor-image-job.js';
 import { createImageRequestAttempt, imageHttpFailure, withImageRequestOutcome, ImageRequestOutcome } from '../../shared/image-request-outcome.js';
 import { createImageCardRedrawProvider } from "../../shared/image-card-redraw-provider.js";
-import { redrawImageCard, removeChatImageSlot, removeFloorFailedImageCards, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
+import { deleteImageFromCard, redrawImageCard, removeChatImageSlot, removeFloorFailedImageCards, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
 import { toggleImageCardControls } from '../../shared/image-card-controls.js';
 import { withDrawActionFeedback } from "../../shared/draw-action-feedback.js";
 import { getCharacterTagEditGroups, persistCardTagEdits, readCardTagEditor } from "../../shared/card-tag-editor.js";
 import { getCurrentUserHandle } from "../../../../../../../user.js";
-import { hasPreviewImage, DRAW_SLOT_COPY, DRAW_SLOT_ERRORS } from "../../shared/image-record.js";
+import { hasPreviewImage, DRAW_SLOT_COPY } from "../../shared/image-record.js";
 import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 
 const handleImageDelegatedClickEvent = observeAsyncCallback(handleImageDelegatedClick, { source: import.meta.url, operation: "handleImageDelegatedClick" });
@@ -1312,47 +1311,25 @@ async function runComfyImageBatch({
             detachScope.dispose();
         }
     }
-    // 整批一次性入队：同一楼层的所有图在提交时就占好队列位置，前一层画完才轮到下一层。
-    const queued = requests.map((_, index) => generateComfyImage({
-        ...requests[index],
-        prepared: prepared[index],
-        beforeRequest: () => onItemStarting?.({ index }),
-        generationConfig: settings,
-        signal,
-        queueBatch,
-        onQueueStateChange: (state, data) => {
-            if (state === 'start') return onStateChange?.('progress', { current: index + 1, total: requests.length });
-            if (state === 'cooldown') {
-                if (index + 1 >= requests.length) return;
-                return onStateChange?.('cooldown', { ...data, nextIndex: index + 2, total: requests.length });
-            }
-            onStateChange?.(state, { current: index + 1, total: requests.length, ...data });
-        },
-    }));
-    // 未消费的排队项在取消时会被 reject，统一收割，避免未处理的拒绝。
-    let consumed = 0;
-    try {
-        for (let index = 0; index < requests.length; index++) {
-            if (signal?.aborted) {
-                for (let pending = index; pending < requests.length; pending++) {
-                    await onItemSettled?.({ index: pending, state: 'cancelled', error: new Error('已取消'), source: 'frontend' });
+    await runSequentialImageBatch({
+        count: requests.length, signal, onItemReady, onItemSettled,
+        request: index => generateComfyImage({
+            ...requests[index],
+            prepared: prepared[index],
+            beforeRequest: () => onItemStarting?.({ index }),
+            generationConfig: settings,
+            signal,
+            queueBatch,
+            onQueueStateChange: (state, data) => {
+                if (state === 'start') return onStateChange?.('progress', { current: index + 1, total: requests.length });
+                if (state === 'cooldown') {
+                    if (index + 1 >= requests.length) return;
+                    return onStateChange?.('cooldown', { ...data, nextIndex: index + 2, total: requests.length });
                 }
-                break;
-            }
-            try {
-                const base64 = await queued[index];
-                consumed = index + 1;
-                if (base64 === null) continue;
-                await onItemReady?.({ index, base64 });
-            } catch (error) {
-                consumed = index + 1;
-                await onItemSettled?.({ index, state: signal?.aborted ? 'cancelled' : 'failed', error, source: 'frontend' });
-                if (signal?.aborted) break;
-            }
-        }
-    } finally {
-        await Promise.allSettled(queued.slice(consumed));
-    }
+                onStateChange?.(state, { current: index + 1, total: requests.length, ...data });
+            },
+        }),
+    });
     return { mode: 'frontend' };
 }
 
@@ -2794,12 +2771,7 @@ async function renderGalleryManagement() {
             button.type = 'button';
             button.className = 'gallery-slot-btn';
             button.addEventListener('click', observeAsyncCallback(async () => {
-                const latest = await getPreview(slotSummaries[slotId]?.latestImgId).catch(() => null);
-                const messageId = latest?.messageId == null ? null : Number(latest.messageId);
-                const refresh = () => renderGalleryManagement();
-                await openGallery(slotId, messageId, messageId === null
-                    ? { onSave: refresh, onDelete: refresh, onBecameEmpty: refresh }
-                    : buildSharedGalleryCallbacks(slotId, messageId));
+                await openManagementGallery(slotSummaries[slotId].latestImgId, buildSharedGalleryCallbacks, renderGalleryManagement);
             }, { source: import.meta.url, operation: "callback" }));
 
             const img = document.createElement('img');
@@ -4431,6 +4403,9 @@ async function navigateToImage(container, targetIndex) {
 }
 
 function buildSharedGalleryCallbacks(slotId, messageId, container) {
+    const refreshManagement = async () => {
+        if (getSettingsElement('comfy-gallery-container')) await renderGalleryManagement();
+    };
     return {
         onUse: (sid, msgId, selected, historyCount) => {
             const cont = container?.isConnected && container.dataset.slotId === sid ? container : null;
@@ -4453,34 +4428,8 @@ function buildSharedGalleryCallbacks(slotId, messageId, container) {
                 await syncDrawSavedFromPreview(messageId, preview, { slotId, savedUrl: url }).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "onSave" }, caughtError); });
             }
         },
-        onDelete: async (sid, deletedImgId, remainingPreviews) => {
-            const cont = container?.isConnected && container.dataset.slotId === sid ? container : null;
-            if (cont && cont.dataset.imgId === deletedImgId && remainingPreviews.length > 0) {
-                syncContainerToPreview(cont, remainingPreviews[0], remainingPreviews.length, 0);
-            }
-            await syncDrawSavedAfterDeletion(messageId, sid, deletedImgId, remainingPreviews).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "onDelete" }, caughtError); });
-        },
-        onBecameEmpty: async (sid, msgId, lastImageInfo = {}) => {
-            const cont = container?.isConnected && container.dataset.slotId === sid ? container : null;
-            if (cont) {
-                // eslint-disable-next-line no-unsanitized/property -- The draw renderer escapes text fields; slot/message identifiers come from this image record.
-                cont.outerHTML = buildFailedPlaceholderHtml({
-                    slotId: sid, imgId: lastImageInfo.imgId || '', messageId: msgId,
-                    tags: lastImageInfo.tags || '', positive: lastImageInfo.positive || '',
-                    errorType: DRAW_SLOT_ERRORS.deleted.label, errorMessage: DRAW_SLOT_ERRORS.deleted.desc,
-                });
-            }
-            // 画廊已把这条记录转成失败记录（输入全部保留）时不再另存一条只有 TAG 的占位。
-            if (!lastImageInfo.imgId) await storeFailedPlaceholder({
-                slotId: sid, messageId: msgId,
-                tags: lastImageInfo.tags || '', positive: lastImageInfo.positive || '',
-                errorType: 'deleted', errorMessage: '图片已删除，点击重试可重新生成',
-            }).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "onBecameEmpty" }, caughtError); });
-            await clearDrawSavedEntry(msgId, sid).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "onBecameEmpty" }, caughtError); });
-            if (getSettingsElement('comfy-gallery-container')) {
-                await renderGalleryManagement();
-            }
-        },
+        onDelete: refreshManagement,
+        onBecameEmpty: refreshManagement,
     };
 }
 
@@ -4557,12 +4506,12 @@ async function handleImageDelegatedClick(event) {
 
     if (action === 'delete-image') {
         container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
-        await deleteCurrentImage(container);
+        await deleteImageFromCard(container);
         return;
     }
 
     if (action === 'retry-image') { await retryFailedImage(container); return; }
-    if (action === 'retry-floor-failed') { await retryFloorFailedImageCards("comfyui", container); return; }
+    if (action === 'retry-floor-failed') { await retryFloorFailedImageCards("comfyui", container, !getSettings().useImageBackendJobs); return; }
     if (action === 'restore-image') { await restoreImageCard(container); return; }
     if (action === 'edit-tags') { container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open'); observeBackgroundTask(toggleEditPanel(container, true), { source: import.meta.url, operation: 'handleImageDelegatedClick' }); return; }
     if (action === 'cancel-edit') { observeBackgroundTask(toggleEditPanel(container, false), { source: import.meta.url, operation: 'handleImageDelegatedClick' }); return; }
@@ -4679,33 +4628,6 @@ async function removePlaceholder(container) {
     catch (error) { console.error(DRAW_SLOT_COPY.removeFailed, error); drawNotify.error(error.message); }
 }
 
-async function deleteCurrentImage(container) {
-    const slotId = container.dataset.slotId;
-    const imgId = container.dataset.imgId;
-    const messageId = Number(container.dataset.mesid);
-    if (!slotId) return;
-    if (imgId) { try { await deletePreview(imgId); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "deleteCurrentImage" }, caughtError); } }
-    const previews = await getPreviewsBySlot(slotId).catch(() => []);
-    const successPreviews = previews.filter(hasPreviewImage);
-    if (successPreviews.length > 0) {
-        const nextPreview = successPreviews[0];
-        await setSlotSelection(slotId, nextPreview.imgId).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "deleteCurrentImage" }, caughtError); });
-        syncContainerToPreview(container, nextPreview, successPreviews.length, 0);
-        await syncDrawSavedAfterDeletion(messageId, slotId, imgId, successPreviews).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "deleteCurrentImage" }, caughtError); });
-        drawNotify.success(`已删除（剩余 ${successPreviews.length} 张）`);
-        return;
-    } else {
-        try { await removeChatImageSlot(container); }
-        catch (error) {
-            console.error(DRAW_SLOT_COPY.removeFailed, error);
-            drawNotify.error(error.message);
-            return;
-        }
-    }
-    container.remove();
-    drawNotify.success('图片已删除');
-}
-
 async function saveCurrentImage(container) {
     const imgId = container.dataset.imgId;
     const slotId = container.dataset.slotId;
@@ -4720,7 +4642,7 @@ async function saveCurrentImage(container) {
             ? String(ctx.groups?.[ctx.groupId]?.id ?? 'group')
             : String(ctx.characters?.[ctx.characterId]?.name || 'character');
         const url = await saveImageToServer({ base64: preview.base64, charName, fileName: `comfy_${imgId}`, format: 'png' });
-        await updatePreviewSavedUrl(imgId, url);
+        if (!await updatePreviewSavedUrl(imgId, url)) return;
         preview.savedUrl = url;
         await syncDrawSavedFromPreview(Number(container.dataset.mesid), preview, { slotId, savedUrl: url }).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "saveCurrentImage" }, caughtError); });
         const img = container.querySelector('img');
@@ -4974,8 +4896,7 @@ export async function initComfyDraw() {
     }, 300);
 
     preparedImageDispose?.();
-    preparedImageDispose = registerPreparedImageProvider("comfyui", createImageCardRedrawProvider({
-        execute: runPreparedComfySlots,
+    preparedImageDispose = registerPreparedImageProvider("comfyui", runPreparedComfySlots, createImageCardRedrawProvider({
         createJob: createGenerationJob,
         releaseJob: releaseGenerationJob,
         getCurrentContext: getContext,

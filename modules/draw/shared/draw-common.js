@@ -22,7 +22,8 @@ import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from './image-sav
 import {
     ScenePlannerError,
 } from "./scene-plan-contract.js";
-import { ScenePlacementError } from './scene-placement.js';
+import { ScenePlacementError, isSceneSlotAlive } from './scene-placement.js';
+import { createConfirmableChatTarget, readSavedChatRows, savedChatBranch } from './confirmable-chat-save.js';
 import { getRenderedSceneSlotIds, replaceSceneSlotElements } from './scene-slot-dom.js';
 import { getPendingImageJobSlots, PendingJobState } from './pending-image-jobs.js';
 import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
@@ -690,6 +691,49 @@ export async function syncDrawSavedAfterDeletion(messageId, slotId, deletedImgId
     const replacement = remainingPreviews.find(item => item?.savedUrl);
     if (replacement) return syncDrawSavedFromPreview(messageId, replacement, { slotId });
     return clearDrawSavedEntry(messageId, slotId);
+}
+
+// Both supported hosts can resolve saveChat() after a failed write. Keep the
+// gallery image until the original branch on disk reflects the user's deletion.
+export async function confirmDrawSavedDeletions(changes) {
+    if (!changes.length) return;
+    const ctx = getContext();
+    const target = createConfirmableChatTarget(ctx);
+    const matches = (entry, expected) => (entry?.imgId ?? null) === (expected?.imgId ?? null)
+        && (entry?.savedUrl ?? null) === (expected?.savedUrl ?? null);
+    // Validate every selection before editing any branch. No await between that
+    // check, the edits and the host's single save of the original chat.
+    for (const { assertCurrent, message, slotId, imgId } of changes) {
+        assertCurrent();
+        if (getDrawSavedPreview(message, slotId)?.imgId !== imgId) throw new Error(DRAW_SLOT_COPY.removeTargetChanged);
+    }
+    for (const change of changes) {
+        const { message, slotId, replacement } = change;
+        change.original = getDrawSavedEntry(message, slotId);
+        removeDrawSavedEntry(message, slotId);
+        if (replacement) ensureSavedMap(message, DRAW_SAVED_EXTRA_KEY)[slotId] = normalizeDrawSavedEntry(slotId, replacement);
+    }
+    try {
+        await ctx.saveChat();
+        const rows = await readSavedChatRows(target, ctx.getRequestHeaders());
+        for (const change of changes) {
+            const { messageId, slotId, swipe, original, replacement } = change;
+            const saved = savedChatBranch(rows, messageId, swipe);
+            const entry = getDrawSavedEntry(saved, slotId);
+            if (!isSceneSlotAlive(saved?.mes, slotId) || !matches(entry, replacement)) {
+                change.error = new Error(matches(entry, original) ? DRAW_SLOT_COPY.deleteSaveFailed : DRAW_SLOT_COPY.deleteUnconfirmed);
+            }
+        }
+    } catch (cause) {
+        for (const change of changes) change.error = new Error(DRAW_SLOT_COPY.deleteUnconfirmed, { cause });
+    }
+    for (const { error, message, swipe, slotId, original, replacement } of changes) {
+        if (!error) continue;
+        const branch = (message.swipe_id ?? 0) === swipe ? message : message.swipe_info?.[swipe];
+        if (branch && matches(getDrawSavedEntry(branch, slotId), replacement)) {
+            ensureSavedMap(branch, DRAW_SAVED_EXTRA_KEY)[slotId] = original;
+        }
+    }
 }
 
 export function insertPreviewIntoRenderedMessage({ messageId, slotId, html }) {

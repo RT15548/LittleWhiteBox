@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { parseHTML } from 'linkedom';
+import { deleteGalleryImages } from '../../../shared/gallery-batch.js';
 
 // Acceptance: the actual iframe handler must retain paid output across write /
 // history-read failures, reopen, retry and concurrent messages, without resubmit.
@@ -18,7 +19,7 @@ const stubs = {
     'user.js': 'exports.getCurrentUserHandle=()=>"fixture-user";',
     'event-manager.js': 'exports.createModuleEvents=()=>({});exports.event_types={};',
     'server-storage.js': 'exports.NovelDrawStorage={getStrict:(...args)=>globalThis.__quickTestHandler.storage.getStrict(...args),updateAndSave:(...args)=>globalThis.__quickTestHandler.storage.updateAndSave(...args)};',
-    'gallery-cache.js': 'exports.storePreview=record=>globalThis.__quickTestHandler.store(record);exports.getSlotPreviewPage=(...args)=>globalThis.__quickTestHandler.page(...args);exports.deletePreview=id=>globalThis.__quickTestHandler.remove(id);exports.getPreview=id=>globalThis.__quickTestHandler.read(id);exports.getGalleryOverview=()=>globalThis.__quickTestHandler.overview();',
+    'gallery-cache.js': 'exports.storePreview=record=>globalThis.__quickTestHandler.store(record);exports.getSlotPreviewPage=(...args)=>globalThis.__quickTestHandler.page(...args);exports.deleteGallerySelection=ids=>globalThis.__quickTestHandler.removeSelected(ids);exports.getPreview=id=>globalThis.__quickTestHandler.read(id);exports.getGalleryOverview=()=>globalThis.__quickTestHandler.overview();',
     'scene-planner.js': 'module.exports={};',
     'worldbook-processor.js': 'module.exports={};',
     'draw-agent.js': 'module.exports={};',
@@ -160,6 +161,7 @@ test('gallery host handles JPEG persistence, partial deletion, ZIP export and ca
 
     const removed = [];
     host.remove = async id => { if (id === 'blocked') throw new Error('write failed'); removed.push(id); };
+    host.removeSelected = ids => deleteGalleryImages(ids, host.remove);
     await send({ type: 'BATCH_DELETE', ids: ['one', 'blocked', 'one'], requestId: 'delete-1' });
     const receipt = host.messages.find(event => event.type === 'BATCH_DELETED');
     assert.deepEqual(removed, ['one']);

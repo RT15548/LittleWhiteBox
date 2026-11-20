@@ -5305,7 +5305,7 @@ window.addEventListener('message', event => {
             syncBatchSelection();
             pruneGalleryObjectUrls();
             galleryFeedback.show(data.failures?.length ? 'error' : 'success',
-                GALLERY_BATCH_COPY.deleted(ids.length, data.failures?.length || 0));
+                [GALLERY_BATCH_COPY.deleted(ids.length, data.failures?.length || 0), data.failures?.[0]?.message].filter(Boolean).join('。'));
             break;
         }
 
@@ -5353,6 +5353,10 @@ window.addEventListener('message', event => {
 
             
         case 'STATUS':
+            if (data.target === 'gallery-delete') {
+                galleryFeedback.show(data.state, data.text);
+                break;
+            }
             if (data.target === 'jpeg') {
                 state.saveAsJpeg = data.saveAsJpeg === true;
                 $('nd_save_as_jpeg').checked = state.saveAsJpeg;
