@@ -1,3 +1,5 @@
+import { isTimelineCompaction } from '../state/compaction-history.js';
+import { compactionRow } from './compaction-row.js';
 import { buildMarkdownFragment } from '../../../agent-core/ui/message-markdown.js';
 import { createToolActivityProjection } from './tool-activity.js';
 import { createToolProcess } from './tool-process.js';
@@ -416,7 +418,7 @@ export function createChatUi(deps) {
         return { key: view, build: () => view.node, update: () => view.update(messages, running) };
     }
 
-    function collectRenderUnits(startIndex, endIndex) {
+    function collectMessageUnits(startIndex, endIndex) {
         const units = [];
         for (let start = startIndex; start < endIndex;) {
             let end = start + 1;
@@ -441,6 +443,32 @@ export function createChatUi(deps) {
             }
             start = end;
         }
+        return units;
+    }
+
+    function collectRenderUnits(start, end) {
+        const records = state.compactions || [];
+        if (!records.length && !state.compactionPending) return collectMessageUnits(start, end);
+        const units = [];
+        let epoch = start ? state.messages[start - 1].compactionEpoch || 0 : 0;
+        const emitUntil = limit => {
+            while (epoch < limit) {
+                const record = records[epoch];
+                // Imported old summaries have no recorded event to display.
+                if (isTimelineCompaction(record)) units.push(compactionRow(epoch, record));
+                epoch++;
+            }
+        };
+        for (let i = start; i < end;) {
+            const position = state.messages[i].compactionEpoch || 0;
+            emitUntil(position);
+            let next = i + 1;
+            while (next < end && (state.messages[next].compactionEpoch || 0) === position) next++;
+            units.push(...collectMessageUnits(i, next));
+            i = next;
+        }
+        emitUntil(records.length);
+        if (state.compactionPending) units.push(compactionRow(records.length, null));
         return units;
     }
 
@@ -478,7 +506,7 @@ export function createChatUi(deps) {
     function renderMessages(container) {
         if (!container) return;
         container.classList.toggle('is-busy', !!state.isBusy);
-        if (!state.messages.length) {
+        if (!state.messages.length && !state.compactions?.some(isTimelineCompaction)) {
             if (renderCache.kind === 'empty') return;
             container.replaceChildren();
             const empty = document.createElement('div');

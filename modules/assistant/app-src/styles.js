@@ -1141,6 +1141,16 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-empty h2 { margin: 0 0 10px; font-size: 24px; }
         .xb-assistant-empty p { margin: 0; color: #766d62; line-height: 1.7; }
         .xb-assistant-empty p + p { margin-top: 8px; }
+        .xb-assistant-compaction {
+            min-width: 0;
+            padding: 4px;
+            font-size: 13px;
+            line-height: 1.5;
+            color: var(--xb-assistant-text);
+            overflow-wrap: anywhere;
+        }
+        .xb-assistant-compaction > summary { cursor: pointer; width: fit-content; }
+        .xb-assistant-compaction > div { margin: 6px 0 0 1em; white-space: pre-wrap; }
         .xb-assistant-history-gate {
             align-self: center;
             color: rgba(111, 103, 93, 0.72);

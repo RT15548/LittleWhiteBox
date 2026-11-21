@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHistoryCompactionController } from '../app-src/runtime/history-compaction.js';
-import { createContextStatsController } from '../app-src/runtime/context-stats.js';
 import { buildProviderMessagesFromHistory } from '../../agent-core/runtime/protocol.js';
 import { estimateConversationTokens } from '../../agent-core/runtime/context-tokens.js';
-import { createAssistantRuntime } from '../app-src/runtime.js';
-import { TOOL_NAMES, TOOL_DEFINITIONS, formatToolResultDisplay } from '../app-src/tooling.js';
+import { currentHistorySummary } from '../app-src/state/compaction-history.js';
 
 // Acceptance contracts:
 // - Repeated compaction keeps parallel calls and their replies together (broken provider protocol).
@@ -19,31 +17,32 @@ const cycle = (id, size = 6000) => {
     ...calls.map(call => ({ role: 'tool', toolCallId: call.id, toolName: call.name, content: `${id}:` + 'x'.repeat(size / 2) }))];
 };
 
-function harness({ messages, summary = '', threshold = 2500, inputLimit = 5000, respond = () => ({ text: 'memory' }) } = {}) {
+function harness({ messages, summary = '', threshold = 2500, inputLimit = 5000, respond = () => ({ text: 'memory' }), saveResult } = {}) {
     const state = { messages: [{ role: 'user', content: 'Continue the card.' }, ...(messages || Array.from({ length: 5 }, (_, i) => cycle(`c${i}`)).flat())],
-        archivedTurnCount: 0, historySummary: summary, archivedSkillIds: [], contextStats: {} };
+        compactions: summary ? [{ summary }] : [], archivedSkillIds: [], contextStats: {} };
     const requests = [], saved = [];
     const providerConfig = { provider: 'anthropic', maxTokens: 1000 };
-    const controller = createHistoryCompactionController({ state, render() {}, persistSession() { saved.push(structuredClone(state)); }, showToast() {},
+    const controller = createHistoryCompactionController({ state, render() {}, persistSession() { saved.push(structuredClone(state)); return saveResult; }, showToast() {},
         getActiveProviderConfig: () => providerConfig, formatToolResultDisplay: () => ({}), buildTextWithAttachmentSummary: text => text,
         trimForSummary: text => text, SUMMARY_SYSTEM_PROMPT: 'Summarize', compactionThreshold: () => threshold, requestInputLimit: () => inputLimit,
         buildContextMeterLabel: () => '',
-        toProviderMessages: messages => [...(state.historySummary ? [{ role: 'system', content: state.historySummary }] : []), ...buildProviderMessagesFromHistory(messages)],
+        toProviderMessages: (messages, { historySummary = currentHistorySummary(state) } = {}) => [...(historySummary ? [{ role: 'system', content: historySummary }] : []), ...buildProviderMessagesFromHistory(messages)],
         updateContextStats(messages) { state.contextStats = { usedTokens: estimateConversationTokens({ messages, providerConfig }), budgetTokens: 258000 }; },
     });
-    return { state, requests, saved, run: signal => controller.ensureContextBudget({ chat: async request => {
+    const adapter = { chat: async request => {
         requests.push(request); return respond(request, requests.length);
-    } }, signal) };
+    } };
+    return { state, requests, saved, run: signal => controller.ensureContextBudget(adapter, signal) };
 }
 
-test('both compaction passes retain complete parallel Anthropic tool groups', async () => {
-    const h = harness();
+test('compaction retains fitting parallel Anthropic calls with both replies and invalidates old signatures', async () => {
+    const h = harness({ messages: [...cycle('big', 12000), ...cycle('c4', 400)] });
     const result = await h.run(new AbortController().signal);
     const calls = result.flatMap(message => (message.tool_calls || []).map(call => call.id));
     const replies = result.filter(message => message.role === 'tool').map(message => message.tool_call_id);
     assert.deepEqual(calls, ['c4-0', 'c4-1']);
     assert.deepEqual(replies, calls);
-    assert.equal(h.saved.length, 2);
+    assert.equal(h.saved.length, 1);
     assert.ok(h.state.messages.every(message => !message.providerPayload?.anthropicContent.some(block => block.type === 'thinking')));
 });
 
@@ -60,43 +59,64 @@ for (const failure of ['empty-first', 'empty-later', 'error-later', 'cancel-late
         } });
         const original = structuredClone(h.state);
         await assert.rejects(h.run(abort.signal), failure === 'cancel-later' ? { name: 'AbortError' } : { code: 'assistant_summary_failed' });
-        assert.equal(h.state.historySummary, original.historySummary);
+        assert.equal(currentHistorySummary(h.state), currentHistorySummary(original));
         assert.deepEqual(h.state.messages, original.messages);
-        assert.equal(h.state.archivedTurnCount, original.archivedTurnCount);
+        assert.equal(h.state.compactionPending, false);
         assert.equal(h.saved.length, 0);
     });
 }
 
-test('a latest batch larger than the input budget is retained and rejected before sending', async () => {
-    const stats = createContextStatsController({ state: {}, getActiveProviderConfig: () => ({ maxTokens: 24000 }),
-        MAX_CONTEXT_TOKENS: 258000, SUMMARY_TRIGGER_TOKENS: 228000 });
-    const latest = cycle('latest', 1000000);
-    const h = harness({ messages: [...cycle('older'), ...latest], threshold: stats.compactionThreshold(), inputLimit: stats.requestInputLimit() });
-    let sent = false;
-    await assert.rejects((async () => { await h.run(new AbortController().signal); sent = true; })(), { code: 'assistant_context_over_budget' });
-    assert.equal(sent, false);
-    assert.deepEqual(h.state.messages.slice(-2), latest.slice(-2));
-    assert.deepEqual(h.saved.at(-1).messages, h.state.messages);
+test('even a latest batch larger than one request is summarized in pieces without replaying it', async () => {
+    const h = harness({ messages: cycle('latest', 1000000), threshold: 200000, inputLimit: 210000 });
+    const result = await h.run(new AbortController().signal);
+    assert.deepEqual(result.map(m => m.role), ['system', 'user']);
+    assert.ok(h.requests.length > 1);
+    assert.equal(h.saved.length, 1);
 });
 
-test('the main loop never calls the adapter for an oversized current batch', async t => {
-    t.mock.method(console, 'error', () => {});
-    const run = { id: 'budget', controller: new AbortController(), toolRequestIds: new Set(), workspaceBaseline: [] };
-    const state = { messages: [{ role: 'user', content: 'Continue.' }, ...cycle('latest', 1000000)],
-        activeRun: run, archivedTurnCount: 0, archivedSkillIds: [] };
-    const original = structuredClone(state.messages);
-    let sent = 0;
-    const runtime = createAssistantRuntime({ state, TOOL_NAMES, TOOL_DEFINITIONS, pendingToolCalls: new Map(), pendingApprovals: new Map(),
-        render() {}, persistSession() {}, showToast() {}, createRequestId: () => 'budget-fixture', safeJsonParse: JSON.parse,
-        describeError: error => error.message, formatToolResultDisplay, normalizeAttachments: () => [], normalizeThoughtBlocks: () => [],
-        buildUserContentParts: message => message.content, normalizeSlashSkillTrigger: () => '',
-        getActiveProviderConfig: () => ({ provider: 'openai-compatible', maxTokens: 24000 }), getToolDefinitions: () => TOOL_DEFINITIONS,
-        SYSTEM_PROMPT: '', MAX_CONTEXT_TOKENS: 258000, SUMMARY_TRIGGER_TOKENS: 228000, REQUEST_TIMEOUT_MS: 1000,
-        isAbortError: error => error.name === 'AbortError', createAdapter: () => ({ chat() { sent++; return { text: 'unexpected request' }; } }),
-    });
-    await assert.rejects(runtime.runAssistantLoop(run), { code: 'assistant_context_over_budget' });
-    assert.equal(sent, 0);
-    assert.deepEqual(state.messages, original);
+test('a failed checkpoint write restores tool evidence and the previous summary before reporting the failure', async () => {
+    const h = harness({ summary: 'prior summary', saveResult: { ok: false, error: 'quota' } });
+    const original = structuredClone(h.state.messages);
+    await assert.rejects(h.run(new AbortController().signal), error => error.compactionReported === true);
+    assert.equal(currentHistorySummary(h.state), 'prior summary');
+    assert.deepEqual(h.state.messages, original);
+    assert.equal(h.state.compactionPending, false);
+    assert.ok(h.state.compactions.at(-1).error.includes('quota'));
+});
+
+test('an oversized pinned user request stops before buying summaries of available history', async () => {
+    const h = harness({ messages: cycle('archivable') });
+    h.state.messages[0].content = 'u'.repeat(100000);
+    const original = structuredClone(h.state.messages);
+    await assert.rejects(h.run(new AbortController().signal), { code: 'assistant_context_over_budget' });
+    assert.equal(h.requests.length, 0);
+    assert.deepEqual(h.state.messages, original);
+});
+
+test('a legal pinned input leaves room for the summary by archiving an otherwise fitting recent batch', async () => {
+    const h = harness({ messages: [{role: 'assistant', toolCalls: [{id: 'a', name: 'Read', arguments: '{}'}]},
+        {role: 'tool', toolCallId: 'a', content: 'x'.repeat(245)}], threshold: 970, inputLimit: 1000 });
+    h.state.messages[0].content = 'p'.repeat(3050);
+    const next = await h.run();
+    assert.deepEqual(next.map(m => m.role), ['system', 'user']);
+    assert.ok(h.state.compactions.at(-1).after <= 1000);
+});
+
+for (const inputLimit of [4000, 5000]) test('an unhelpful summary preserves original inputs, input limit ' + inputLimit, async () => {
+    const h = harness({ messages: cycle('large', 14000), threshold: 4000, inputLimit,
+        respond: request => ({ text: request.messages[0].content.includes('END-OF-EVIDENCE') ? 'm'.repeat(15500) : 'partial' }) });
+    h.state.messages.at(-1).content += 'END-OF-EVIDENCE';
+    const original = structuredClone(h.state.messages);
+    if (inputLimit === 4000) await assert.rejects(h.run(), { code: 'assistant_context_over_budget' });
+    else {
+        assert.deepEqual((await h.run()).map(m => m.role), original.map(m => m.role));
+        const requests = h.requests.length;
+        await h.run();
+        assert.equal(h.requests.length, requests, 'do not buy the same rejected summary again');
+    }
+    assert.deepEqual(h.state.messages, original);
+    assert.equal(currentHistorySummary(h.state), '');
+    assert.ok(h.state.compactions.every(record => !record.summary));
 });
 
 test('an oversized running summary stops before sending another chunk and preserves history', async () => {
@@ -104,7 +124,7 @@ test('an oversized running summary stops before sending another chunk and preser
     const original = structuredClone(h.state.messages);
     await assert.rejects(h.run(new AbortController().signal), { code: 'assistant_summary_failed' });
     assert.equal(h.requests.length, 1);
-    assert.equal(h.state.historySummary, 'original memory');
+    assert.equal(currentHistorySummary(h.state), 'original memory');
     assert.deepEqual(h.state.messages, original);
     assert.equal(h.saved.length, 0);
 });

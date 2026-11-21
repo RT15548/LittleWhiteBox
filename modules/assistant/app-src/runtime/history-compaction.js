@@ -1,12 +1,10 @@
 import { resetMessageWindow } from '../../../agent-core/ui/message-windowing.js';
-import { recentTurnArchiveCounts, hasChatAnswer } from '../../../agent-core/runtime/recent-turns.js';
+import { currentHistorySummary } from '../state/compaction-history.js';
+import { selectCompactionRange } from './compaction-range.js';
 import { ACTIVITY_COPY } from '../ui/activity-copy.js';
 import { loadedSkillIds } from '../../shared/skill-tools.js';
 import { dropInvalidatedThinkingFromMessage } from '../../../agent-core/runtime/protocol.js';
-import { estimateTokenCount, estimateConversationTokens } from '../../../agent-core/runtime/context-tokens.js';
-
-// Newest tool cycles of the in-progress request kept verbatim, preferred first.
-const RETAINED_CURRENT_CYCLES = [2, 1];
+import { estimateTokenCount, estimateConversationTokens, estimateMessageTokenCosts } from '../../../agent-core/runtime/context-tokens.js';
 
 export function splitMessagesIntoTurns(messages = []) {
     const turns = [];
@@ -33,14 +31,13 @@ export function createHistoryCompactionController(deps) {
         state,
         render,
         persistSession,
-        showToast,
+        getToolDefinitions = () => [],
         getActiveProviderConfig,
         formatToolResultDisplay,
         buildTextWithAttachmentSummary,
         SUMMARY_SYSTEM_PROMPT,
         compactionThreshold,
         requestInputLimit,
-        buildContextMeterLabel,
         updateContextStats,
         toProviderMessages,
     } = deps;
@@ -111,30 +108,14 @@ export function createHistoryCompactionController(deps) {
     }
 
     function getActiveContextMessages() {
-        const turns = splitMessagesIntoTurns(state.messages);
-        const archivedCount = Math.min(state.archivedTurnCount, turns.length);
-        return turns.slice(archivedCount).flat();
+        return state.messages.filter(message => !message.approvalRequest);
     }
 
-    function pruneArchivedTurnsFromState() {
-        const turns = splitMessagesIntoTurns(state.messages);
-        const archivedCount = Math.min(state.archivedTurnCount, turns.length);
-        if (archivedCount <= 0) return false;
-        state.archivedSkillIds = loadedSkillIds(turns.slice(0, archivedCount).flat(), state.archivedSkillIds);
-        state.messages = turns.slice(archivedCount).flat();
-        state.archivedTurnCount = 0;
-        resetMessageWindow(state);
-        return true;
-    }
-
-    async function summarizeArchivedTurns(adapter, turnsToArchive, signal) {
-        if (!turnsToArchive.length) return;
-
+    async function summarizeMessages(adapter, messages, summary, signal) {
         const providerConfig = getActiveProviderConfig();
 
         try {
-            let summary = state.historySummary;
-            for (const lines of buildSummaryChunks(turnsToArchive)) {
+            for (const lines of buildSummaryChunks(splitMessagesIntoTurns(messages))) {
                 const request = {
                     systemPrompt: SUMMARY_SYSTEM_PROMPT,
                     messages: [{ role: 'user', content: buildSummarySource(lines, summary) }],
@@ -154,113 +135,95 @@ export function createHistoryCompactionController(deps) {
                 if (!nextSummary) throw new Error(ACTIVITY_COPY.summaryEmpty);
                 summary = nextSummary;
             }
-            state.historySummary = summary;
+            return summary;
         } catch (error) {
             if (signal?.aborted || error?.name === 'AbortError') throw error;
             throw Object.assign(new Error(ACTIVITY_COPY.summaryFailed(error.message), { cause: error }), { code: 'assistant_summary_failed' });
         }
     }
 
+    // One adapter per run. Do not buy a rejected summary of the same prefix again.
+    const skippedThrough = new WeakMap();
+
     async function ensureContextBudget(adapter, signal, options = {}) {
         signal?.throwIfAborted();
-        let contextMessages = getActiveContextMessages();
-        let providerMessages = toProviderMessages(contextMessages, options);
-        updateContextStats(providerMessages);
+        const context = getActiveContextMessages();
+        const original = toProviderMessages(context, options);
+        updateContextStats(original);
+        const before = state.contextStats.usedTokens;
+        if (before <= compactionThreshold()) return original;
 
-        if (state.contextStats.usedTokens <= compactionThreshold()) {
-            return providerMessages;
+        const limit = requestInputLimit();
+        const checkLimit = used => {
+            if (used > limit) throw Object.assign(new Error(ACTIVITY_COPY.contextFull(used, limit)), { code: 'assistant_context_over_budget' });
+        };
+        const tools = getToolDefinitions(), providerConfig = getActiveProviderConfig();
+        const count = messages => estimateConversationTokens({ messages, tools, providerConfig });
+        const pinned = context.findLast(message => message.role === 'user');
+        const fixed = count(toProviderMessages(pinned ? [pinned] : [], { ...options, historySummary: '' }));
+        checkLimit(fixed);
+        const costs = estimateMessageTokenCosts(original, tools, providerConfig);
+        const tailCapacity = Math.max(0, limit - fixed - (providerConfig.maxTokens || 0));
+        const { archived, retained, priorCount } = selectCompactionRange(context, costs.slice(costs.length - context.length), limit, tailCapacity);
+        if (!archived.length || skippedThrough.get(adapter) === archived.at(-1)) {
+            checkLimit(before);
+            return original;
         }
 
-        const turns = splitMessagesIntoTurns(contextMessages);
-        // ensureContextBudget runs before each model call, so the final turn is
-        // still in progress, including every tool call/result in that request.
-        const boundaries = recentTurnArchiveCounts(turns.slice(0, -1), hasChatAnswer);
-        let archived = 0;
-        for (const boundary of boundaries) {
-            const desiredArchivedTurnCount = state.archivedTurnCount + boundary - archived;
-            if (desiredArchivedTurnCount > state.archivedTurnCount) {
-                const turnsToArchive = turns.slice(archived, boundary);
-                const previousProgressLabel = state.progressLabel;
-                state.progressLabel = '总结中';
-                render();
-                try {
-                    await summarizeArchivedTurns(adapter, turnsToArchive, signal);
-                } finally {
-                    state.progressLabel = previousProgressLabel || '生成中';
-                    render();
-                }
-                state.archivedTurnCount = desiredArchivedTurnCount;
-                pruneArchivedTurnsFromState();
-                persistSession();
-            }
-            archived = boundary;
-
-            contextMessages = getActiveContextMessages();
-            providerMessages = toProviderMessages(contextMessages, options);
-            signal?.throwIfAborted();
-            updateContextStats(providerMessages);
-            if (state.contextStats.usedTokens <= compactionThreshold()) {
-                showToast(`已压缩较早历史，当前上下文 ${buildContextMeterLabel()}`);
-                render();
-                return providerMessages;
-            }
-        }
-
-        // A single long request can outgrow the context by itself. Its earlier
-        // tool cycles become summary material; the request and the newest
-        // cycles stay verbatim so the model can continue from them.
-        for (const keep of RETAINED_CURRENT_CYCLES) {
-            // Thinking cleanup replaces assistant objects. Use the current history
-            // on each pass so calls and results are removed as one group.
-            const currentTurn = splitMessagesIntoTurns(contextMessages).at(-1) || [];
-            const firstReply = currentTurn.findIndex(message => message.role === 'assistant');
-            const cycles = [];
-            for (const message of firstReply < 0 ? [] : currentTurn.slice(firstReply)) {
-                if (message.role === 'assistant' || !cycles.length) cycles.push([]);
-                cycles.at(-1).push(message);
-            }
-            const boundary = cycles.length - keep;
-            if (boundary <= 0) continue;
-            const archivedMessages = cycles.slice(0, boundary).flat();
-            const previousProgressLabel = state.progressLabel;
-            state.progressLabel = '总结中';
-            render();
-            try {
-                await summarizeArchivedTurns(adapter, [archivedMessages], signal);
-            } finally {
-                state.progressLabel = previousProgressLabel || '生成中';
-                render();
-            }
-            const removed = new Set(archivedMessages);
-            const retained = new Set(cycles.slice(boundary).flat());
-            state.archivedSkillIds = loadedSkillIds(archivedMessages, state.archivedSkillIds);
-            state.messages = state.messages.filter(message => !removed.has(message))
-                .map(message => (retained.has(message) ? dropInvalidatedThinkingFromMessage(message) : message));
-            resetMessageWindow(state);
-            persistSession();
-
-            contextMessages = getActiveContextMessages();
-            providerMessages = toProviderMessages(contextMessages, options);
-            signal?.throwIfAborted();
-            updateContextStats(providerMessages);
-            if (state.contextStats.usedTokens <= compactionThreshold()) {
-                showToast(`已压缩本轮较早的工具记录，当前上下文 ${buildContextMeterLabel()}`);
-                render();
-                return providerMessages;
-            }
-        }
-
-        if (state.contextStats.usedTokens > requestInputLimit()) {
-            throw Object.assign(new Error(ACTIVITY_COPY.contextFull(state.contextStats.usedTokens, requestInputLimit())), { code: 'assistant_context_over_budget' });
-        }
-        showToast(`最近对话本身已接近上限，当前上下文 ${buildContextMeterLabel()}`);
+        const previousPhase = state.progressLabel;
+        const previous = { messages: state.messages, compactions: state.compactions, archivedSkillIds: state.archivedSkillIds, contextStats: state.contextStats };
+        state.compactionPending = true;
+        state.progressLabel = ACTIVITY_COPY.compacting;
         render();
-        return providerMessages;
+        try {
+            // Fold up to the user's boundary first. A reroll can then keep just the
+            // older memory, without storing raw tool output or resummarizing it.
+            const prior = archived.slice(0, priorCount);
+            const priorSummary = await summarizeMessages(adapter, prior, currentHistorySummary(state), signal);
+            const hasCurrent = priorCount < archived.length;
+            const summary = hasCurrent ? await summarizeMessages(adapter, archived.slice(priorCount), priorSummary, signal) : priorSummary;
+            signal?.throwIfAborted();
+            const messages = retained.map(dropInvalidatedThinkingFromMessage);
+            const next = toProviderMessages(messages, { ...options, historySummary: summary });
+            const after = count(next);
+            let record;
+            if (after >= before) {
+                checkLimit(before);
+                record = { skipped: true };
+            } else {
+                checkLimit(after);
+                record = { before, summary, after };
+                if (hasCurrent) record.turnStart = {
+                    archivedSkillIds: loadedSkillIds(prior, previous.archivedSkillIds),
+                    ...(prior.length ? { summary: priorSummary } : {}),
+                };
+                state.messages = messages;
+                state.archivedSkillIds = loadedSkillIds(archived, previous.archivedSkillIds);
+            }
+            state.compactions = [...(previous.compactions || []), record];
+            if (!record.skipped) updateContextStats(next, tools);
+            state.compactionPending = false;
+            const saved = await persistSession();
+            if (saved?.ok === false) throw new Error(ACTIVITY_COPY.compactionSaveFailed(saved.error));
+            if (record.skipped) {
+                skippedThrough.set(adapter, archived.at(-1));
+                return original;
+            }
+            skippedThrough.delete(adapter);
+            resetMessageWindow(state);
+            return next;
+        } catch (error) {
+            Object.assign(state, previous);
+            if (signal?.aborted || error?.name === 'AbortError') throw error;
+            // The outer run failure handler persists the same terminal state, without an extra chat reply.
+            state.compactions = [...(previous.compactions || []), { error: error.message }];
+            throw Object.assign(error, { compactionReported: true });
+        } finally {
+            state.compactionPending = false;
+            state.progressLabel = previousPhase;
+            render();
+        }
     }
 
-    return {
-        ensureContextBudget,
-        getActiveContextMessages,
-        pruneArchivedTurnsFromState,
-    };
+    return { ensureContextBudget, getActiveContextMessages };
 }

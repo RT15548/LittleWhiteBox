@@ -42,6 +42,7 @@ import { buildAppMarkup as buildAssistantAppMarkup } from './ui/app-shell.js';
 import { createChatUi } from './ui/chat-ui.js';
 import { MESSAGE_ACTION_COPY } from './ui/message-actions.js';
 import { getMessageActions, getRerollUserIndex } from './state/message-actions.js';
+import { rewindUserTurn } from './state/compaction-history.js';
 import { createSettingsPanel } from './ui/settings-panel.js';
 import { syncAgentSettingsPanelFeedback } from '../../agent-core/ui/settings-markup.js';
 import { setHostChatCompletionsRequestHeadersProvider } from '../../../shared/host-llm/chat-completions/client.js';
@@ -93,8 +94,8 @@ const state = {
     pendingApproval: null,
     assistantSessionId: '',
     messages: [],
-    historySummary: '',
-    archivedTurnCount: 0,
+    compactions: [],
+    compactionPending: false,
     archivedSkillIds: [],
     contextStats: {
         usedTokens: 0,
@@ -278,6 +279,18 @@ async function persistWorkspaceUiState() {
 
 function persistSession() {
     return sessionStore?.persistSession();
+}
+
+async function saveHistoryEdit(next) {
+    const { messages, compactions, archivedSkillIds } = state;
+    Object.assign(state, next);
+    let saved;
+    try {
+        saved = await persistSession();
+        return saved;
+    } finally {
+        if (!saved?.ok) Object.assign(state, { messages, compactions, archivedSkillIds });
+    }
 }
 
 function clearSession() {
@@ -1378,7 +1391,7 @@ async function executeAssistantRun(run) {
         await runAssistantLoop(run);
     } catch (error) {
         settleAssistantRunFailure({ messages: state.messages,
-            notice: isAbortError(error) ? run.cancelNotice : describeError(error),
+            notice: isAbortError(error) ? run.cancelNotice : error.compactionReported ? '' : describeError(error),
             pushMessage, persistSession });
     } finally {
         if (state.activeRun?.id === run.id) {
@@ -1758,16 +1771,21 @@ function bindEvents(root) {
 
         if (action === 'delete') {
             if (state.isBusy) return;
-            if (message.role === 'user') {
-                if (messageIndex < state.messages.length - 1 && !window.confirm(MESSAGE_ACTION_COPY.deleteTurn)) return;
-                state.messages.splice(messageIndex);
-            } else {
-                state.messages.splice(messageIndex, 1);
+            const wholeTurn = message.role === 'user';
+            if (wholeTurn && messageIndex < state.messages.length - 1 && !window.confirm(MESSAGE_ACTION_COPY.deleteTurn)) return;
+            state.isPreparingRun = true;
+            try {
+                const next = wholeTurn ? rewindUserTurn(state, messageIndex, false)
+                    : { messages: state.messages.filter((_, index) => index !== messageIndex) };
+                const saved = await saveHistoryEdit(next);
+                state.editingMessageIndex = -1;
+                showToast(saved.ok ? MESSAGE_ACTION_COPY.deleted : MESSAGE_ACTION_COPY.saveFailed(saved.error));
+            } catch (error) {
+                showToast(MESSAGE_ACTION_COPY.saveFailed(describeError(error)));
+            } finally {
+                state.isPreparingRun = false;
+                render();
             }
-            state.editingMessageIndex = -1;
-            const saved = await persistSession();
-            showToast(saved.ok ? MESSAGE_ACTION_COPY.deleted : MESSAGE_ACTION_COPY.saveFailed(saved.error));
-            render();
             return;
         }
 
@@ -1778,18 +1796,14 @@ function bindEvents(root) {
                 showToast(MESSAGE_ACTION_COPY.noUserInput);
                 return;
             }
-            const nextMessages = state.messages.slice(0, turnUserIndex + 1);
             state.isPreparingRun = true;
             try {
                 const run = await createAssistantRun();
                 if (!run) return;
-                const previousMessages = state.messages;
-                state.messages = nextMessages;
                 state.pendingApproval = null;
                 state.editingMessageIndex = -1;
-                const saved = await persistSession();
+                const saved = await saveHistoryEdit(rewindUserTurn(state, turnUserIndex, true));
                 if (!saved.ok) {
-                    state.messages = previousMessages;
                     state.activeRun = null;
                     showToast(MESSAGE_ACTION_COPY.saveFailed(saved.error));
                     render();
@@ -1800,6 +1814,7 @@ function bindEvents(root) {
                 state.isPreparingRun = false;
                 await executeAssistantRun(run);
             } catch (error) {
+                state.activeRun = null;
                 showToast(MESSAGE_ACTION_COPY.saveFailed(describeError(error)));
             } finally {
                 state.isPreparingRun = false;

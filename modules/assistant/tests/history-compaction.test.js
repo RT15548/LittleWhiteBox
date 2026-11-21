@@ -1,152 +1,70 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHistoryCompactionController } from '../app-src/runtime/history-compaction.js';
-import { SUMMARY_SYSTEM_PROMPT } from '../app-src/prompts/system-prompt.js';
+import { currentHistorySummary } from '../app-src/state/compaction-history.js';
+import { selectCompactionRange } from '../app-src/runtime/compaction-range.js';
+import { buildProviderMessagesFromHistory } from '../../agent-core/runtime/protocol.js';
+import { estimateConversationTokens } from '../../agent-core/runtime/context-tokens.js';
 import { readResponseCompletion } from '../../agent-core/runtime/response-completion.js';
 import { settleAssistantRunFailure } from '../app-src/runtime/run-failure.js';
 
-// Acceptance contracts (cost: lost history / duplicate paid requests):
-// - Plain-text summaries replace archived history without triggering the local fallback.
-// - API failures preserve history and memory, without another model call.
-// - Cancellation never archives history or adopts a late reply.
-// - Recent answers and the active tool round are retained separately (cost: lost context / broken protocol).
-// - Budget pressure may summarize every prior turn, without changing the current request/tool group.
-// - Failed/cancelled prose never occupies an answered-turn slot; confirmed tool groups remain intact (cost: lost context / broken protocol).
-function harness(respond, fitsAt = 5) {
-    const state = { messages: [
-        { role: 'user', content: 'Remember the original request.' }, { role: 'assistant', content: 'Confirmed.' },
-        { role: 'user', content: 'Second question.' }, { role: 'assistant', content: 'Second answer.' },
-        { role: 'user', content: 'Third question.' }, { role: 'assistant', content: 'Third answer.' },
-        { role: 'user', content: 'Continue the next step.' },
-    ], archivedTurnCount: 0, historySummary: 'original memory', contextStats: { usedTokens: 0 } };
-    const notices = [], requests = [];
+// Contracts: preserve the user's instruction and complete newest groups within budget
+// (lost work / invalid provider requests); use one visible operation even for chunked summaries.
+const message = (role, content) => ({ role, content });
+const batch = id => [{ role: 'assistant', toolCalls: [{ id, name: 'Write', arguments: '{}' }] }, { role: 'tool', toolCallId: id, content: 'ok' }];
+test('keep the three fitting batches and never round up to take a large fourth batch', () => {
+    const user = message('user', '开始写我的卡');
+    const older = message('user', 'Previous');
+    const big = batch('large');
+    const recent = ['a', 'b', 'c'].flatMap(batch);
+    const messages = [older, user, ...big, ...recent];
+    for (const cost of [100, 800]) {
+        const { archived, retained } = selectCompactionRange(messages, [1, 900, cost - 1, 1, 20, 10, 20, 10, 30, 10], 1000);
+        assert.deepEqual(archived, [older, ...big]);
+        assert.deepEqual(retained, [user, ...recent]);
+    }
+    const latest = selectCompactionRange([older, user, ...big], [1, 900, 1, 799], 1000);
+    assert.deepEqual(latest.retained, [user]);
+    assert.deepEqual(latest.archived, [older, ...big]);
+});
+
+function harness(respond) {
+    const state = { messages: [message('user', 'historical '.repeat(2000)), message('user', '开始写我的卡'), ...batch('latest')],
+        compactions: [{ summary: 'original memory' }], contextStats: {} };
+    const requests = [], stages = [];
     let saves = 0;
-    const controller = createHistoryCompactionController({ state, render() {}, persistSession() { saves++; },
-        showToast: text => notices.push(text), getActiveProviderConfig: () => ({ maxTokens: 15000 }),
-        formatToolResultDisplay: () => ({}), buildTextWithAttachmentSummary: text => text, trimForSummary: text => text,
-        SUMMARY_SYSTEM_PROMPT, compactionThreshold: () => 100, requestInputLimit: () => 100000,
-        buildContextMeterLabel: () => '', toProviderMessages: messages => messages,
-        updateContextStats() { state.contextStats.usedTokens = state.messages.length > fitsAt ? 200 : 1; },
+    const providerConfig = { provider: 'openai-compatible', maxTokens: 200 };
+    const controller = createHistoryCompactionController({
+        state, render() { stages.push(state.compactionPending); }, persistSession() { saves++; },
+        getActiveProviderConfig: () => providerConfig, formatToolResultDisplay: () => ({}),
+        buildTextWithAttachmentSummary: text => text, SUMMARY_SYSTEM_PROMPT: 'Summarize',
+        compactionThreshold: () => 3000, requestInputLimit: () => 4000,
+        toProviderMessages: (messages, { historySummary = currentHistorySummary(state) } = {}) => [message('system', historySummary), ...buildProviderMessagesFromHistory(messages)],
+        updateContextStats(messages) { state.contextStats = { usedTokens: estimateConversationTokens({ messages, providerConfig }) }; },
     });
-    const adapter = { chat: async request => { requests.push(request); return respond(request); } };
-    return { state, notices, requests, run: signal => controller.ensureContextBudget(adapter, signal), saves: () => saves };
+    const adapter = { chat: async request => { requests.push(request); return respond(request, requests.length); } };
+    return { state, requests, stages, run: signal => controller.ensureContextBudget(adapter, signal), saves: () => saves };
 }
 
 for (const reason of ['stop', 'length', undefined]) {
-    test(`assistant adopts plain-text summary after ${reason ?? 'missing completion'} without fallback`, async () => {
-        const h = harness(() => ({ ...readResponseCompletion('openai', reason), text: 'merged memory' }));
-        await h.run(new AbortController().signal);
-        assert.equal(h.state.historySummary, 'merged memory');
-        assert.equal(h.state.messages.length, 5);
-        assert.equal(h.notices.length, 1, 'Only the normal compaction notice is emitted');
-        assert.equal(h.requests.length, 1);
-        assert.equal(h.requests[0].maxTokens, 15000);
-        assert.equal(h.saves(), 1);
-    });
-}
-
-test('assistant preserves history for an API error without a paid retry', async () => {
-    const h = harness(() => { throw new Error('offline provider failure'); });
-    const original = structuredClone(h.state);
-    await assert.rejects(h.run(new AbortController().signal), { code: 'assistant_summary_failed' });
-    assert.equal(h.state.historySummary, original.historySummary);
-    assert.deepEqual(h.state.messages, original.messages);
-    assert.equal(h.saves(), 0);
-    assert.equal(h.requests.length, 1);
-});
-
-test('assistant cancellation preserves the original history and memory', async () => {
-    const abort = new AbortController();
-    const h = harness(() => { abort.abort(); return { text: 'late reply' }; });
-    const original = structuredClone(h.state);
-    await assert.rejects(h.run(abort.signal), { name: 'AbortError' });
-    assert.equal(h.state.historySummary, original.historySummary);
-    assert.deepEqual(h.state.messages, original.messages);
-    assert.equal(h.saves(), 0);
-});
-
-test('assistant prefers one answered turn when it fits beside the complete active tool round', async () => {
-    const h = harness(() => ({ text: 'memory' }), 5);
-    h.state.messages.push({ role: 'assistant', content: '', toolCalls: [{ id: 'a', name: 'Read', arguments: '{}' }] },
-        { role: 'tool', content: 'observed', toolCallId: 'a' });
-    const active = structuredClone(h.state.messages.slice(-3));
-    const messages = await h.run(new AbortController().signal);
-    assert.deepEqual(messages.slice(-3), active);
-    assert.deepEqual(messages.slice(0, 2), [{ role: 'user', content: 'Third question.' }, { role: 'assistant', content: 'Third answer.' }]);
-    assert.equal(h.requests.length, 2);
-    await h.run(new AbortController().signal);
-    assert.equal(h.requests.length, 2);
-});
-
-test('assistant summarizes its only prior answer while retaining the complete active tool round', async () => {
-    const h = harness(() => ({ text: 'memory' }), 3);
-    h.state.messages = h.state.messages.slice(-3);
-    h.state.messages.push({ role: 'assistant', content: '', toolCalls: [{ id: 'a', name: 'Read', arguments: '{}' }] },
-        { role: 'tool', content: 'observed', toolCallId: 'a' });
-    const active = structuredClone(h.state.messages.slice(-3));
-    assert.deepEqual(await h.run(new AbortController().signal), active);
-    assert.equal(h.notices.length, 1);
-    assert.deepEqual(h.state.messages, active);
-    assert.equal(h.state.historySummary, 'memory');
-    assert.equal(h.requests.length, 1);
-    assert.equal(h.saves(), 1);
-    await h.run(new AbortController().signal);
-    assert.equal(h.requests.length, 1);
-});
-
-for (const notice of ['provider failure', 'cancelled', '']) {
-    test(`assistant can summarize failed runs together with the last answer (${notice || 'silent cancellation'})`, async () => {
-        const h = harness(() => ({ text: 'memory' }), 0);
-        h.state.messages.pop();
-        for (let i = 0; i < 2; i++) {
-            h.state.messages.push({ role: 'user', content: `attempt ${i}` },
-                { role: 'assistant', content: 'partial reply', streaming: true });
-            settleAssistantRunFailure({ messages: h.state.messages, notice,
-                pushMessage: message => h.state.messages.push(message), persistSession() {} });
-        }
-        h.state.messages.push({ role: 'user', content: 'current request' });
+    test(`one checkpoint for all chunks after ${reason || 'missing completion'}; next call continues with original user and tool pair`, async () => {
+        const h = harness((_, n) => ({ ...readResponseCompletion('openai', reason), text: 'merged memory ' + n }));
         const messages = await h.run(new AbortController().signal);
-        assert.deepEqual(messages, [{ role: 'user', content: 'current request' }]);
-        assert.equal(h.state.historySummary, 'memory');
-        assert.equal(h.requests.length, 3);
+        const record = h.state.compactions.at(-1);
+        assert.ok(record.after < record.before);
+        assert.equal(record.summary, 'merged memory ' + h.requests.length);
+        assert.deepEqual(h.stages, [true, false]);
+        assert.equal(h.saves(), 1);
+        assert.ok(h.requests.length > 1);
+        assert.ok(h.requests[0].messages[0].content.includes('original memory'));
+        for (let i = 1; i < h.requests.length; i++) assert.ok(h.requests[i].messages[0].content.includes('merged memory ' + i));
+        assert.deepEqual(messages.map(m => m.role), ['system', 'user', 'assistant', 'tool']);
+        assert.equal(messages[1].content, '开始写我的卡');
+        const count = h.requests.length;
         await h.run(new AbortController().signal);
-        assert.equal(h.requests.length, 3, 'Already summarized history cannot trigger more requests');
-        h.state.messages.push({ role: 'assistant', content: 'next successful answer' },
-            { role: 'user', content: 'continue' });
-        const next = await h.run(new AbortController().signal);
-        assert.deepEqual(next, [{ role: 'user', content: 'continue' }]);
+        assert.equal(h.requests.length, count);
     });
 }
-
-test('a single overlong request summarizes its earlier tool cycles in request-sized pieces', async () => {
-    const big = 'x'.repeat(4000);
-    const requests = [];
-    const state = { messages: [{ role: 'user', content: 'build the whole card' }], archivedTurnCount: 0,
-        historySummary: '', archivedSkillIds: [], contextStats: { usedTokens: 0 } };
-    for (let i = 0; i < 6; i++) {
-        state.messages.push({ role: 'assistant', content: '', toolCalls: [{ id: `c${i}`, name: 'Write', arguments: big }] },
-            { role: 'tool', toolCallId: `c${i}`, toolName: 'Write', content: '{"ok":true}' });
-    }
-    const controller = createHistoryCompactionController({ state, render() {}, persistSession() {}, showToast() {},
-        getActiveProviderConfig: () => ({ maxTokens: 100 }),
-        formatToolResultDisplay: () => ({}), buildTextWithAttachmentSummary: text => text, trimForSummary: text => text,
-        SUMMARY_SYSTEM_PROMPT, compactionThreshold: () => 3000, requestInputLimit: () => 3000,
-        buildContextMeterLabel: () => '', toProviderMessages: messages => messages,
-        updateContextStats(messages) {
-            state.contextStats.usedTokens = messages.reduce((sum, message) => sum + String(message.content).length
-                + (message.toolCalls || []).reduce((total, call) => total + call.arguments.length, 0), 0) / 3.35;
-        } });
-    const messages = await controller.ensureContextBudget({ chat: async request => {
-        requests.push(request.messages[0].content);
-        return { text: `memory ${requests.length}` };
-    } }, new AbortController().signal);
-    assert.equal(messages[0].content, 'build the whole card');
-    assert.deepEqual(messages.slice(1).map(message => message.toolCallId || message.toolCalls[0].id), ['c4', 'c4', 'c5', 'c5']);
-    assert.equal(state.historySummary, `memory ${requests.length}`);
-    assert.ok(requests.length > 1);
-    for (const input of requests) assert.ok(new TextEncoder().encode(input).length / 3.35 <= 3000);
-    assert.ok(requests.slice(1).every((input, index) => input.includes(`memory ${index + 1}`)), 'Each piece folds into the previous summary');
-});
 
 test('failure settlement retains completed tool evidence and persists silent interruption', () => {
     const group = [{ role: 'assistant', content: 'reading', toolCalls: [{ id: 'a', name: 'Read', arguments: '{}' }] },

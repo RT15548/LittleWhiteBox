@@ -190,7 +190,7 @@ export function renderAppChrome(root, state, options = {}) {
     addLocalDirectoryButton.title = supportsDirectoryImport ? '导入本地文件夹源码' : '当前环境不支持文件夹导入';
 
     const clearButton = root.querySelector('#xb-assistant-clear');
-    clearButton.disabled = state.isBusy || state.isPreparingRun || state.isClearingConversation || !state.messages.length;
+    clearButton.disabled = state.isBusy || state.isPreparingRun || state.isClearingConversation || (!state.messages.length && !state.compactions?.length);
 
     renderApiSummary(root, apiSummary);
 

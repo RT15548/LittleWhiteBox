@@ -1,3 +1,4 @@
+import { currentHistorySummary } from '../state/compaction-history.js';
 import { buildTokenCounterPayload, estimateTokenCount, estimateConversationTokens } from '../../../agent-core/runtime/context-tokens.js';
 
 const textEncoder = new TextEncoder();
@@ -87,6 +88,10 @@ function logContextStats(reason, {
     console.info('[Assistant][ContextStats][TopEntries]', payloadSummary.topEntries);
 }
 
+export function formatContextCount(tokens) {
+    return `${Math.max(0, Math.round((Number(tokens) || 0) / 1000))}k`;
+}
+
 export function createContextStatsController(deps) {
     const {
         state,
@@ -115,10 +120,6 @@ export function createContextStatsController(deps) {
         return TOOL_DEFINITIONS;
     }
 
-    function formatContextCount(tokens) {
-        return `${Math.max(0, Math.round((Number(tokens) || 0) / 1000))}k`;
-    }
-
     function buildContextMeterLabel(stats = state.contextStats) {
         return `${formatContextCount(stats.usedTokens)}/${formatContextCount(stats.budgetTokens)}`;
     }
@@ -126,7 +127,7 @@ export function createContextStatsController(deps) {
     function updateContextStats(messages = [], tools = null) {
         const providerConfig = getActiveProviderConfig();
         const resolvedTools = resolveToolDefinitions(tools);
-        const summaryActive = !!state.historySummary;
+        const summaryActive = !!currentHistorySummary(state);
         const estimatedTokens = estimateConversationTokens({ messages, tools: resolvedTools, providerConfig });
 
         state.contextStats = {

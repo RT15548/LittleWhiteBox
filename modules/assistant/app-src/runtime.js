@@ -1,3 +1,4 @@
+import { currentHistorySummary, compactionPosition } from './state/compaction-history.js';
 import { pluginAsset } from '../../../core/build-assets.js';
 import { analyzeJavaScriptApiRequest } from '../runtime-src/jsapi-runtime.js';
 import { JSAPI_CANCEL_NOTICE } from '../shared/jsapi-contract.js';
@@ -149,9 +150,9 @@ export function createAssistantRuntime(deps) {
     }
 
     function resetCompactionState() {
-        state.historySummary = '';
+        state.compactions = [];
+        state.compactionPending = false;
         state.archivedSkillIds = [];
-        state.archivedTurnCount = 0;
         state.contextStats = {
             usedTokens: 0,
             budgetTokens: MAX_CONTEXT_TOKENS,
@@ -159,11 +160,11 @@ export function createAssistantRuntime(deps) {
         };
     }
 
-    function buildHistorySummarySystemMessage() {
-        if (!state.historySummary?.trim()) return null;
+    function buildHistorySummarySystemMessage(summary = currentHistorySummary(state)) {
+        if (!summary) return null;
         return {
             role: 'system',
-            content: `${HISTORY_SUMMARY_PREFIX}\n${state.historySummary.trim()}`,
+            content: `${HISTORY_SUMMARY_PREFIX}\n${summary}`,
         };
     }
 
@@ -220,6 +221,7 @@ export function createAssistantRuntime(deps) {
 
     function pushMessage(message) {
         state.messages.push({
+            ...compactionPosition(state),
             ...message,
             attachments: normalizeAttachments(message.attachments),
             thoughts: message?.role === 'assistant'
@@ -287,7 +289,7 @@ export function createAssistantRuntime(deps) {
 
     function toProviderMessages(baseMessages = state.messages, options = {}) {
         const messages = [{ role: 'system', content: resolveSystemPrompt() }];
-        const summaryMessage = buildHistorySummarySystemMessage();
+        const summaryMessage = buildHistorySummarySystemMessage(options.historySummary);
         const lightBrakeMessage = buildRepeatedToolErrorSystemMessage();
         const finalAnswerReminder = String(options.finalAnswerReminderText || '').trim();
         if (summaryMessage) messages.push(summaryMessage);
@@ -323,14 +325,13 @@ export function createAssistantRuntime(deps) {
         state,
         render,
         persistSession,
-        showToast,
+        getToolDefinitions: resolveToolDefinitions,
         getActiveProviderConfig,
         formatToolResultDisplay,
         buildTextWithAttachmentSummary,
         SUMMARY_SYSTEM_PROMPT,
         compactionThreshold,
         requestInputLimit,
-        buildContextMeterLabel,
         updateContextStats,
         toProviderMessages,
     });
@@ -675,7 +676,7 @@ export function createAssistantRuntime(deps) {
                 const hasThoughts = Array.isArray(snapshot.thoughts);
                 if (!hasText && !hasThoughts) return;
                 if (!streamingAssistantMessage) {
-                    streamingAssistantMessage = createStreamingAssistantMessage();
+                    streamingAssistantMessage = createStreamingAssistantMessage(compactionPosition(state));
                 }
                 updateStreamingAssistantMessage(streamingAssistantMessage, {
                     ...(hasText ? { content: snapshot.text } : {}),
@@ -700,14 +701,15 @@ export function createAssistantRuntime(deps) {
                     onStreamProgress: handleStreamProgress,
                 };
 
-                const historyBeforeBudget = state.messages;
+                const checkpointsBeforeBudget = state.compactions;
                 const budgetMessages = await ensureContextBudget(adapter, run.controller.signal, {
                     ...providerMessageOptions,
                     finalAnswerReminderText: pendingFinalAnswerReminderText || providerMessageOptions.finalAnswerReminderText,
                 });
+                run.controller.signal.throwIfAborted();
                 // Provider sessions retain their initial tools, so both history and tools must still match.
                 const continueSession = adapter?.supportsSessionToolLoop
-                    && historyBeforeBudget === state.messages
+                    && checkpointsBeforeBudget === state.compactions
                     && previousToolSignature === toolSignature;
                 if (Array.isArray(pendingToolResponses) && pendingToolResponses.length && continueSession) {
                     requestTask.toolResponses = pendingToolResponses;

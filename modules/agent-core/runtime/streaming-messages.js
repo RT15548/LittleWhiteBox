@@ -51,8 +51,9 @@ export function createStreamingMessageController(deps) {
     }
 
     /** @returns {import('./conversation.js').AgentMessage} */
-    function createStreamingAssistantMessage() {
+    function createStreamingAssistantMessage(fields = {}) {
         const message = {
+            ...fields,
             role: 'assistant',
             content: '',
             thoughts: [],

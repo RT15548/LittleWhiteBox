@@ -1,3 +1,4 @@
+import { currentHistorySummary } from '../app-src/state/compaction-history.js';
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,12 +12,10 @@ const {
 } = await import('../shared/session-db.js');
 const { createPlanLedger } = await import('../../agent-core/plan-ledger.js');
 const { buildProviderMessagesFromHistory } = await import('../../agent-core/runtime/protocol.js');
-const { recentTurnArchiveCounts, hasChatAnswer } = await import('../../agent-core/runtime/recent-turns.js');
-const { splitMessagesIntoTurns } = await import('../app-src/runtime/history-compaction.js');
 const { settleAssistantRunFailure } = await import('../app-src/runtime/run-failure.js');
 
-// Acceptance: restoring a session preserves failed-answer classification (cost: losing real recent answers at the next compaction).
-test('session reload keeps failure notices and interrupted prose out of answered-turn counts', async () => {
+// Acceptance: reopening must preserve failed/interrupted replies without reclassifying them as successful.
+test('session reload preserves failure notices and interrupted prose', async () => {
     await resetDb();
     const state = createState(), store = createStore(state);
     await store.restoreSession();
@@ -30,10 +29,8 @@ test('session reload keeps failure notices and interrupted prose out of answered
     await store.persistSession();
     const restored = createState();
     await createStore(restored).restoreSession();
-    const turns = splitMessagesIntoTurns(restored.messages);
-    assert.deepEqual(turns.map(hasChatAnswer), [true, false, false]);
-    assert.deepEqual(recentTurnArchiveCounts(turns, hasChatAnswer), [0, 3]);
-    assert.equal(restored.messages.filter(message => message.error).length, 4);
+    assert.deepEqual(restored.messages.filter(m => m.role === 'assistant').map(m => [m.content, !!m.error]),
+        [['real answer', false], ['partial', true], ['failure', true], ['partial', true], ['failure', true]]);
 });
 
 async function resetDb() {
@@ -45,8 +42,7 @@ function createState() {
     return {
         assistantSessionId: '',
         messages: [],
-        historySummary: '',
-        archivedTurnCount: 0,
+        compactions: [],
         sidebarCollapsed: true,
         localSources: [],
         isWorkspaceOpen: false,
@@ -95,9 +91,36 @@ test('session store keeps legacy default session on first restore', async () => 
     await store.restoreSession();
 
     assert.equal(state.assistantSessionId, 'default');
-    assert.equal(state.historySummary, 'legacy summary');
+    assert.equal(currentHistorySummary(state), 'legacy summary');
+    await store.persistSession();
+    assert.equal(Object.hasOwn(await sessionsTable.get('default'), 'historySummary'), false);
     assert.equal(state.messages.length, 1);
     assert.equal(state.messages[0].content, 'hello');
+});
+
+// Contract: reopening restores each historical disclosure at its own position and only the
+// latest successful memory is model context. Clearing the chat deletes both (private history).
+test('two compactions and a failed attempt survive reopening without reviving an in-progress operation', async () => {
+    await resetDb();
+    const state = createState();
+    const store = createStore(state);
+    await store.restoreSession();
+    state.compactions = [{ before: 2000, after: 900, summary: 'first' }, { before: 2100, after: 800, summary: 'second' }, { error: 'offline' }];
+    state.compactionPending = true;
+    state.messages = [{ role: 'user', content: 'start' }, { role: 'assistant', content: 'middle', compactionEpoch: 1 },
+        { role: 'user', content: 'continue', compactionEpoch: 2 }];
+    await store.persistSession();
+    const restored = createState();
+    const next = createStore(restored);
+    await next.restoreSession();
+    assert.deepEqual(restored.compactions, state.compactions);
+    assert.deepEqual(restored.messages.map(m => m.compactionEpoch || 0), [0, 1, 2]);
+    assert.equal(currentHistorySummary(restored), 'second');
+    assert.equal(restored.compactionPending, false);
+    await next.clearSession();
+    await next.restoreSession();
+    assert.equal(currentHistorySummary(restored), '');
+    assert.deepEqual(restored.compactions, []);
 });
 
 test('session store always restores API settings as collapsed', async () => {

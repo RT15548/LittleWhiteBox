@@ -1,3 +1,4 @@
+import { restoreCompactions } from './compaction-history.js';
 import { resetMessageWindow } from '../../../agent-core/ui/message-windowing.js';
 import db, { metaTable, messagesTable, plansTable, sessionsTable } from './session-db.js';
 import { describePersistenceError } from '../../shared/persistence-error.js';
@@ -25,6 +26,7 @@ function serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks,
         sessionId,
         order,
         role: message.role,
+        ...(message.compactionEpoch ? { compactionEpoch: message.compactionEpoch } : {}),
         content: String(message.content || ''),
         ...(message.error === true ? { error: true } : {}),
         attachments: normalizeAttachments(message.attachments).map((attachment) => ({
@@ -61,6 +63,7 @@ function normalizeRestoredMessage(message, deps) {
 
     return {
         role: message.role,
+        ...(message.compactionEpoch ? { compactionEpoch: message.compactionEpoch } : {}),
         content: String(message.content || ''),
         ...(message.error === true ? { error: true } : {}),
         attachments: normalizeAttachments(message.attachments || []),
@@ -145,7 +148,7 @@ export function createSessionStore(deps) {
 
         return {
             sessionId,
-            historySummary: String(state.historySummary || ''),
+            compactions: state.compactions || [],
             archivedSkillIds: loadedSkillIds([], state.archivedSkillIds),
             messages: activeMessages,
         };
@@ -156,7 +159,7 @@ export function createSessionStore(deps) {
             await sessionsTable.put({
                 id: snapshot.sessionId,
                 updatedAt: Date.now(),
-                historySummary: snapshot.historySummary,
+                compactions: snapshot.compactions,
                 archivedSkillIds: snapshot.archivedSkillIds,
             });
             await messagesTable.where('sessionId').equals(snapshot.sessionId).delete();
@@ -201,9 +204,9 @@ export function createSessionStore(deps) {
                     currentSessionId = nextSessionId;
                     state.assistantSessionId = nextSessionId;
                     state.messages = [];
-                    state.historySummary = '';
+                    state.compactions = [];
+                    state.compactionPending = false;
                     state.archivedSkillIds = [];
-                    state.archivedTurnCount = 0;
                     resetMessageWindow(state);
                     return {
                         ok: true,
@@ -229,9 +232,9 @@ export function createSessionStore(deps) {
         state.messages = messages.map(message => normalizeRestoredMessage(message, {
             normalizeAttachments, normalizeThoughtBlocks, createRequestId,
         })).filter(Boolean);
-        state.historySummary = String(session?.historySummary || '');
+        state.compactions = restoreCompactions(session);
+        state.compactionPending = false;
         state.archivedSkillIds = loadedSkillIds([], session?.archivedSkillIds);
-        state.archivedTurnCount = 0;
         resetMessageWindow(state);
         state.sidebarCollapsed = true;
     }

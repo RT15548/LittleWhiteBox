@@ -1,3 +1,4 @@
+import { currentHistorySummary } from '../app-src/state/compaction-history.js';
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -79,7 +80,7 @@ for (const version of [1, 2]) {
         const restored = await reload();
         assert.deepEqual(restored.state.localSources, fixture.localSources);
         assert.deepEqual(restored.state.messages, []);
-        assert.equal(restored.state.historySummary, '');
+        assert.equal(currentHistorySummary(restored.state), '');
         assert.notEqual(restored.state.assistantSessionId, oldId);
         restored.state.messages = [{ role: 'user', content: 'Continue editing' }];
         await restored.chat.persistSession();

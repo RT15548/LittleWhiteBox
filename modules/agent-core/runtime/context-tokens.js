@@ -66,6 +66,12 @@ function buildTokenCounterMessages(messages = [], tools = [], providerConfig = {
     });
 }
 
+// Price model-visible history in order, using the same replay policy as the whole request.
+export function estimateMessageTokenCosts(messages, tools, providerConfig) {
+    return buildTokenCounterMessages(messages, tools, providerConfig).map(entry =>
+        entry.content || entry.reasoning_content ? estimateTokenCount(JSON.stringify(entry) + ',') : 0);
+}
+
 export function buildTokenCounterPayload(messages = [], tools = [], providerConfig = {}) {
     return [
         ...buildTokenCounterMessages(messages, tools, providerConfig),
