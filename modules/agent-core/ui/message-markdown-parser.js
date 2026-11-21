@@ -84,9 +84,9 @@ for (const name of ['emphasis', 'strikethrough']) {
     });
 }
 
-// The native block parser owns fence lengths, nesting, indentation and EOF.
-// Keep incomplete streamed HTML as code until its closing fence arrives.
-parser.block.ruler.at('fence', (state, startLine, endLine, silent) => {
+// Leave the native fence registered: paragraphs, lists and quotes consult it
+// to decide where to stop. Only the render pass needs the streamed-HTML metadata.
+parser.block.ruler.before('fence', 'message_fence', (state, startLine, endLine, silent) => {
     if (!fenceRule(state, startLine, endLine, silent)) return false;
     if (!silent) {
         const token = state.tokens.at(-1);

@@ -8,6 +8,7 @@ import { readDesign } from './design.js';
 import { cardLifecycle } from './lifecycle.js';
 import { equalText } from './comparison.js';
 import { variableFileGroup, variableGroupChanged } from '../variables/state3/definition/card-files.js';
+import { flattenLocalSourceFiles, normalizeLocalSourceFile } from '../assistant/shared/local-workspace-kernel.js';
 
 export async function runCardFiles(args, options = {}) {
     if (args.action === 'open') {
@@ -16,7 +17,7 @@ export async function runCardFiles(args, options = {}) {
     }
     if (!['save', 'refresh'].includes(args.action)) throw new Error(COPY.unsupported);
     const paths = selectedPaths(args.paths), avatars = paths.map(path => locateFile(path)?.avatar).filter(Boolean);
-    return cardLifecycle.run(avatars, () => args.action === 'save' ? saveFiles(paths, options.signal) : refreshFiles(paths, options.signal));
+    return cardLifecycle.run(avatars, () => args.action === 'save' ? saveFiles(paths, options) : refreshFiles(paths, options.signal));
 }
 
 async function openFiles(selected, signal) {
@@ -92,8 +93,13 @@ async function refreshFiles(paths, signal) {
     return { paths: requested, refreshed: true };
 }
 
-async function saveFiles(paths, signal) {
+async function saveFiles(paths, { signal, onWorkspaceObserved }) {
     const files = await readFiles(), groups = new Map(), results = [];
+    const observations = [];
+    const recordSave = onWorkspaceObserved && ((submitted, stored) => observations.push({
+        path: stored.path, scope: 'entry', expected: { kind: 'file', file: normalizeLocalSourceFile(stored) },
+        submitted: { path: submitted.path, content: submitted.content },
+    }));
     for (const path of selectedPaths(paths)) {
         const file = files.find(item => item.path === path);
         let target = locateFile(path);
@@ -124,22 +130,27 @@ async function saveFiles(paths, signal) {
             }
             const result = await saveFile(first.target, first.file, signal, companions);
             if (ITEM_KINDS[first.target.kind]) {
-                const receipt = await storeItemReceipt(first.file, result.content, first.target.kind);
+                const receipt = await storeItemReceipt(first.file, result.content, first.target.kind, recordSave);
                 results.push({ ...receipt, saved: true, unchanged: result.unchanged === true,
                     ...(result.missingActivationConfig ? { missingActivationConfig: true } : {}) });
                 continue;
             }
             const receipts = entries.map((item, index) => ({ path: item.file.path, content: result.contents?.[index] ?? result.content,
                 ...(result.originalGroupHash && item.target.settings ? { originalGroupHash: result.originalGroupHash } : {}) }));
-            await storeFiles(receipts, { baselineOnly: true });
-            const latest = await readFiles();
+            const latest = flattenLocalSourceFiles(await storeFiles(receipts, { baselineOnly: true }));
             const groupChanged = first.target.kind === 'variables' && variableGroupChanged(first.target.root, entries, latest);
-            results.push(...receipts.map((item, index) => ({ path: item.path, saved: true, unchanged: result.unchanged === true,
-                ...(result.missingActivationConfig ? { missingActivationConfig: true } : {}),
-                hasUnsavedEdits: groupChanged || latest.some(file => file.path === item.path && file.content !== entries[index].file.content) })));
+            receipts.forEach((item, index) => {
+                const submitted = entries[index].file, stored = latest.find(file => file.path === item.path);
+                const sameDraft = stored?.content === submitted.content;
+                if (sameDraft) recordSave?.(submitted, stored);
+                results.push({ path: item.path, saved: true, unchanged: result.unchanged === true,
+                    ...(result.missingActivationConfig ? { missingActivationConfig: true } : {}),
+                    hasUnsavedEdits: groupChanged || !sameDraft });
+            });
         } catch (error) {
             results.push(...entries.map(item => ({ path: item.file.path, saved: false, error: error.message })));
         }
     }
+    if (observations.length) onWorkspaceObserved(observations);
     return { ok: results.every(item => item.saved), results };
 }

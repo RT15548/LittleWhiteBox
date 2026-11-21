@@ -1,5 +1,5 @@
 import { workspaceRepository } from '../assistant/shared/workspace-repository.js';
-import { flattenLocalSourceFiles, upsertLocalSourceFile, removeLocalSourcePath, moveLocalSourcePath, findLocalDirectoryByPath } from '../assistant/shared/local-workspace-kernel.js';
+import { flattenLocalSourceFiles, upsertLocalSourceFile, removeLocalSourcePath, moveLocalSourcePath, findLocalDirectoryByPath, findLocalFileByPath } from '../assistant/shared/local-workspace-kernel.js';
 import { INTERNAL_WORKSPACE_TOOL_NAMES } from '../assistant/shared/workspace-protocol.js';
 import { buildWorkspacePreconditions } from '../assistant/shared/workspace-preconditions.js';
 import { itemDocumentPath, parseItemDocument } from './item-document.js';
@@ -88,7 +88,7 @@ export async function changeCardDirectory(from, to, readName = async () => undef
 
 // The receipt and derived filename move together. A concurrent editor draft is
 // kept verbatim; a concurrently deleted file is not resurrected by writeback.
-export async function storeItemReceipt(file, content, kind) {
+export async function storeItemReceipt(file, content, kind, recordSave) {
     const sources = (await workspaceRepository.readWorkspace()).localSources;
     const name = INTERNAL_WORKSPACE_TOOL_NAMES.BATCH_WRITE_FILES, args = { files: [{ path: file.path }] };
     const saved = await workspaceRepository.commitWorkspaceMutation({ name, args,
@@ -106,8 +106,9 @@ export async function storeItemReceipt(file, content, kind) {
         },
     });
     if (!saved.committed) {
-        if (saved.result.error === 'workspace_conflict') return storeItemReceipt(file, content, kind);
+        if (saved.result.error === 'workspace_conflict') return storeItemReceipt(file, content, kind, recordSave);
         throw new Error(saved.result.error);
     }
+    if (!saved.result.hasUnsavedEdits) recordSave?.(file, findLocalFileByPath(saved.localSources, saved.result.path).file);
     return saved.result;
 }

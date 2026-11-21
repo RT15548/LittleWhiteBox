@@ -126,23 +126,28 @@ function parseUpdateFile(lines, startIndex) {
         index += 1;
 
         const hunkLines = [];
-        let endOfFile = false;
+        let oldCount = 0, newCount = 0;
         while (index < lines.length && !lines[index].startsWith('@@') && !isFileOperationHeader(lines[index]) && lines[index] !== '*** End Patch') {
             const line = lines[index];
-            if (line === '*** End of File') {
-                endOfFile = true;
-                index += 1;
-                break;
-            }
-            const prefix = line[0] || '';
+            if (line === '*** End of File' || (oldCount === hunkMarker.oldLineCount && newCount === hunkMarker.newLineCount)) break;
+            const prefix = line === '' ? ' ' : line[0];
             if (![' ', '+', '-'].includes(prefix)) createParseError(`invalid hunk line for ${path}`);
             hunkLines.push({
                 type: prefix === ' ' ? 'context' : prefix === '+' ? 'add' : 'remove',
                 text: line.slice(1),
             });
+            if (prefix !== '+') oldCount++;
+            if (prefix !== '-') newCount++;
             index += 1;
         }
 
+        if (hunkMarker.oldLineCount !== undefined && (oldCount !== hunkMarker.oldLineCount || newCount !== hunkMarker.newLineCount)) {
+            createParseError(`hunk line count mismatch for ${path}`);
+        }
+        const endOfFile = lines[index] === '*** End of File';
+        if (endOfFile) index++;
+        // Outside a complete numbered range a bare blank separates hunks.
+        if (hunkMarker.oldLineCount !== undefined) while (lines[index] === '') index++;
         if (!hunkLines.length) createParseError(`empty hunk for ${path}`);
         hunks.push({
             header: hunkMarker.header,
@@ -337,12 +342,21 @@ function buildHunkFailureMessage(hunkIndex, pathText, kind, details = {}) {
     return parts.join(' ');
 }
 
-function resolveHunkMatch(fileLines, hunk, oldLines, preferredStart = 0, options = {}) {
+function resolveHunkMatch(fileLines, hunk, oldLines, searchStart, rangeIndex, options = {}) {
     const pathText = options.path || 'file';
+    const preferredStart = Math.max(searchStart, rangeIndex ?? searchStart);
     const usesHeader = Boolean(String(hunk.header || '').trim());
     const headerText = String(hunk.header || '').trim();
     let deferredHeaderFailure = null;
 
+    if (rangeIndex >= searchStart) {
+        for (const profile of LINE_ALIGNMENT_PROFILES) {
+            if (!blockMatchesAtWithProfile(fileLines, oldLines, rangeIndex, profile.key)) continue;
+            if (!usesHeader || fileLines.some((line, i) => i <= rangeIndex && compareLineUnderProfile(line, headerText, profile.key).equal)) {
+                return { index: rangeIndex, comparisonProfile: profile.key };
+            }
+        }
+    }
     if (!usesHeader) {
         for (const profile of LINE_ALIGNMENT_PROFILES) {
             const preferredMatches = findContiguousBlockMatches(fileLines, oldLines, preferredStart, profile.key);
@@ -445,24 +459,32 @@ export function applyPatchUpdateToText(originalText = '', hunks = [], options = 
         lines: fileLines,
         hadTerminalNewline,
     } = splitTextForPatchApplication(normalized);
+    const originalLineCount = fileLines.length;
     let searchStart = 0;
 
     hunks.forEach((hunk, hunkIndex) => {
         const oldLines = hunk.lines
             .filter((line) => line.type !== 'add')
             .map((line) => line.text);
-        const newLines = hunk.lines
-            .filter((line) => line.type !== 'remove')
-            .map((line) => line.text);
 
         if (!oldLines.length) {
             createApplyError(`hunk ${hunkIndex + 1} for ${options.path || 'file'} has no match context`);
         }
 
-        const hunkStartHint = Number.isFinite(hunk.oldStartLine)
-            ? Math.max(searchStart, hunk.oldStartLine - 1)
-            : searchStart;
-        const match = resolveHunkMatch(fileLines, { ...hunk, index: hunkIndex }, oldLines, hunkStartHint, options);
+        const rangeIndex = Number.isFinite(hunk.oldStartLine)
+            ? hunk.oldStartLine - 1 + (fileLines.length - originalLineCount)
+            : undefined;
+        const match = resolveHunkMatch(fileLines, { ...hunk, index: hunkIndex }, oldLines, searchStart, rangeIndex, options);
+        // Context can match loosely, but its original bytes are not part of the edit.
+        const newLines = [];
+        let cursor = match.index;
+        for (const line of hunk.lines) {
+            if (line.type === 'add') newLines.push(line.text);
+            else {
+                if (line.type === 'context') newLines.push(fileLines[cursor]);
+                cursor++;
+            }
+        }
         fileLines.splice(match.index, oldLines.length, ...newLines);
         searchStart = match.index + newLines.length;
     });

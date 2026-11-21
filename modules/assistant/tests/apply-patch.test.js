@@ -11,6 +11,50 @@ function parsePatchDocument(lines) {
     ].join('\n'));
 }
 
+// A missing context-space must not force a full rewrite or move an edit to the wrong line.
+test('a bare blank context line matches a real blank line and cannot be skipped', () => {
+    const [{ hunks }] = parsePatchDocument(['*** Update File: local/a.css', '@@',
+        ' top', '', '-before', '+after']).operations;
+    assert.equal(applyPatchUpdateToText('top\n\nbefore\n', hunks).content, 'top\n\nafter\n');
+    assert.throws(() => applyPatchUpdateToText('top\nbefore\n', hunks), /missing_block_match/);
+});
+
+test('numbered hunks count blank context inside the range, not blank separators after it', () => {
+    const [{ hunks }] = parsePatchDocument(['*** Update File: local/card.md',
+        '@@ -4 +4 @@', '-old', '+new', '',
+        '@@ -5,2 +5,2 @@', '', '-tail', '+end', '*** End of File']).operations;
+    assert.equal(applyPatchUpdateToText('old\n\nmiddle\nold\n\ntail\n', hunks).content, 'old\n\nmiddle\nnew\n\nend\n');
+    assert.equal(hunks[1].endOfFile, true);
+    for (const range of ['@@ -4,2 +4 @@', '@@ -4 +4,2 @@', '@@ -4,0 +4 @@']) {
+        assert.throws(() => parsePatchDocument(['*** Update File: local/card.md', range, '-old', '+new']), /apply_patch_parse_error/);
+    }
+});
+
+test('a blank separator cannot move a numbered edit to an earlier copy', () => {
+    const [{ hunks }] = parsePatchDocument(['*** Update File: local/card.md',
+        '@@ -4 +4 @@', '-old', '+new', '', '@@ -5 +5 @@', '-tail', '+end']).operations;
+    assert.equal(applyPatchUpdateToText('old\n\nmiddle\nold\ntail\n', hunks).content, 'old\n\nmiddle\nnew\nend\n');
+});
+
+test('a prior deletion shifts a numbered edit with duplicate text to its current line', () => {
+    const [{ hunks }] = parsePatchDocument(['*** Update File: local/card.md',
+        '@@ -1,2 +1 @@', '-X', '-Y', '+Z', '', '@@ -4 +3 @@', '-old', '+new']).operations;
+    assert.equal(applyPatchUpdateToText('X\nY\nmiddle\nold\nold\ntail', hunks).content, 'Z\nmiddle\nnew\nold\ntail');
+});
+
+test('a repeated section heading cannot divert an edit from its matching numbered line', () => {
+    const [{ hunks }] = parsePatchDocument(['*** Update File: local/card.md', '@@ -2 +2 @@ section', '-old', '+new']).operations;
+    assert.equal(applyPatchUpdateToText('section\nold\nsection\nold', hunks).content, 'section\nnew\nsection\nold');
+    assert.throws(() => applyPatchUpdateToText('other\nold', hunks), /missing_header_anchor/);
+});
+
+test('loose context locates the edit without rewriting whitespace or punctuation in the file', () => {
+    const [{ hunks }] = parsePatchDocument(['*** Update File: local/card.md', '@@',
+        ' top', '', '-before', '+after', ' "quoted"']).operations;
+    assert.equal(applyPatchUpdateToText('  top\n \t\nbefore\n“quoted”  \n', hunks).content,
+        '  top\n \t\nafter\n“quoted”  \n');
+});
+
 test('parseApplyPatch parses a mixed assistant workspace patch', () => {
     const patch = parsePatchDocument([
         '*** Add File: local/notes/summary.md',

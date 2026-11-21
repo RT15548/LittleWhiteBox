@@ -107,11 +107,39 @@ export function reconcileEditorWriteRetry(path, content, preconditions, currentS
         ? { ...item, expected: current } : item);
 }
 
+// Index the private, normalized run snapshot once per batch. A save can
+// replace a known file or rename it in its own directory; it creates no folders.
+function indexSaveReceipts(sources) {
+    const slots = new Map(), directories = new Set();
+    for (const { rootPath, directories: relativeDirs, files } of sources) {
+        directories.add(canonicalPath(rootPath));
+        for (const relative of relativeDirs) directories.add(rootPath + relative);
+        files.forEach((file, index) => slots.set(file.path, { files, index }));
+    }
+    return (submitted, file) => {
+        const slot = slots.get(submitted.path);
+        if (!slot || slot.files[slot.index].content !== submitted.content) return;
+        if (file.path !== submitted.path) {
+            if (slots.has(file.path) || directories.has(file.path)) return;
+            slots.delete(submitted.path);
+            slots.set(file.path, slot);
+        }
+        slot.files[slot.index] = file;
+    };
+}
+
 // Change only paths actually read/committed, not unrelated files in a run's view.
 export function applyWorkspaceObservations(sources, observations = []) {
     let next = normalizeLocalSources(sources);
-    for (const { path, scope, expected } of observations) {
+    let applySave;
+    for (const { path, scope, expected, submitted } of observations) {
         if (scope === 'parent') continue;
+        if (submitted) {
+            applySave ??= indexSaveReceipts(next);
+            applySave(submitted, expected.file);
+            continue;
+        }
+        applySave = undefined;
         const existing = captureWorkspacePath(next, path);
         if (scope === 'tree' || expected.kind !== 'directory') {
             if (existing.kind !== 'absent') next = removeLocalSourcePath(next, path).nextSources;

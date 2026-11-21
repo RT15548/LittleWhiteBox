@@ -96,6 +96,20 @@ test('native code boundaries keep HTML literal across fences, indentation, line 
     }
 });
 
+// A fence immediately after prose must keep configuration comments and values
+// together as copyable code, even before the closing fence arrives.
+test('a YAML fence starts on the next line without a blank paragraph', () => {
+    const intro = '打开酒馆的 `config.yaml`，把 `sessionTimeout` 改掉：';
+    const yaml = '# 默认是 86400\n# 改成 31536000 或者 -1\nsessionTimeout: 31536000';
+    for (const ending of ['', '\n```\n后文']) {
+        const body = content(intro + '\n```yaml\n' + yaml + ending);
+        assert.deepEqual([...body.querySelectorAll('p > code')].map(node => node.textContent), ['config.yaml', 'sessionTimeout']);
+        assert.equal(body.querySelector('pre > code')?.textContent, yaml + (ending ? '\n' : ''));
+        assert.equal(body.querySelector('h1'), null);
+        if (ending) assert.equal(body.lastElementChild.textContent, '后文');
+    }
+});
+
 test('placeholder-looking text remains literal beside real HTML and previews', () => {
     const markers = ['@@XBHTMLRAW:example@@', '@@XBHTMLBLOCK:example@@', '@@XB_HTML_BLOCK_example@@', '@@XBMARKDOWN:0@@'];
     for (const marker of markers) {

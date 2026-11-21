@@ -6,12 +6,13 @@ import { runInNewContext } from 'node:vm';
 import db from '../assistant/shared/session-db.js';
 import * as workspace from './workspace.js';
 import * as files from './files.js';
+import * as documents from './item-document.js';
 import { equalText } from './comparison.js';
 import { COPY } from './copy.js';
 import { createCardLifecycle } from './lifecycle.js';
 import { workspaceRepository } from '../assistant/shared/workspace-repository.js';
-import { buildWorkspacePreconditions } from '../assistant/shared/workspace-preconditions.js';
-import { upsertLocalSourceFile } from '../assistant/shared/local-workspace-kernel.js';
+import { applyWorkspaceObservations, buildWorkspacePreconditions, findWorkspaceConflicts } from '../assistant/shared/workspace-preconditions.js';
+import { createLocalSourceRecord, flattenLocalSourceFiles, normalizeLocalSourceFile, upsertLocalSourceFile } from '../assistant/shared/local-workspace-kernel.js';
 
 const root = files.rootFor('fixture.png'), path = root + files.DESIGN_FILE;
 async function edit(content) {
@@ -20,13 +21,64 @@ async function edit(content) {
         preconditions: buildWorkspacePreconditions('Write', args, (await workspaceRepository.readWorkspace()).localSources),
         execute: async sources => ({ result: { ok: true }, nextSources: upsertLocalSourceFile(sources, path, content).nextSources }) });
 }
-function harness(readDesign) {
+function harness(readDesign, saveFile) {
     const source = readFileSync(new URL('./service.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '');
-    return runInNewContext(source + '\nrunCardFiles', { ...workspace, ...files, equalText, COPY, Set,
+    return runInNewContext(source + '\nrunCardFiles', { ...workspace, ...files, ...documents, equalText, COPY, Set,
+        saveFile, flattenLocalSourceFiles, normalizeLocalSourceFile,
         currentCard: () => ({ avatar: 'fixture.png', name: 'fixture' }),
         readCharacter: async () => ({ data: {} }), linkedBooks: () => [], readDesign,
         cardFileDirectory: value => value, cardLifecycle: createCardLifecycle() });
 }
+
+// A committed tool save permits the next edit without Read; an unseen human draft stays protected.
+for (const timing of ['none', 'before', 'during', 'after']) test('same-run CardFiles receipt; editor change: ' + timing, async () => {
+    await db.delete(); await db.open();
+    try {
+        const regex = root + 'regex/rule.md', renamed = root + 'regex/updated.md';
+        const document = (name, body) => documents.serializeItemDocument('regex', { id: '1', scriptName: name, replaceString: body });
+        await workspace.storeFiles([{ path, content: 'A' }, { path: regex, content: document('rule', 'A') }]);
+        await edit('B');
+        let baseline = (await workspaceRepository.readWorkspace()).localSources;
+        if (timing === 'before') await edit('D');
+        const run = harness(null, async (target, file) => {
+            if (timing === 'during' && file.path === path) await edit('D');
+            return { content: target.kind === 'regex' ? document('updated', 'A') : file.content };
+        });
+        const result = await run({ action: 'save', paths: [path, regex, root + 'missing.md'] }, {
+            onWorkspaceObserved: changes => { baseline = applyWorkspaceObservations(baseline, changes); },
+        });
+        assert.deepEqual(Array.from(result.results, r => r.saved).sort(), [false, true, true]);
+        if (timing === 'after') await edit('D');
+        const actual = (await workspaceRepository.readWorkspace()).localSources;
+        function conflicts(target) {
+            const args = { patchText: ['*** Begin Patch', '*** Update File: ' + target, '@@', '-B', '+C', '*** End Patch'].join('\n') };
+            return findWorkspaceConflicts('apply_patch', args, buildWorkspacePreconditions('apply_patch', args, baseline), actual);
+        }
+        assert.deepEqual(conflicts(path), timing === 'none' ? [] : [path]);
+        assert.deepEqual(conflicts(renamed), []);
+        assert.deepEqual(conflicts(regex), []);
+        assert.equal((await workspace.readFiles()).find(f => f.path === path).content, timing === 'none' ? 'B' : 'D');
+    } finally { await db.delete(); }
+});
+
+test('batched saves advance only known drafts, respecting occupied names and earlier renames', () => {
+    const dir = root + 'regex/';
+    const file = (name, content) => normalizeLocalSourceFile({ path: dir + name, content, originalContent: null });
+    const a = file('a.md', 'A'), b = file('b.md', 'B'), c = file('c.md', 'C');
+    const base = [createLocalSourceRecord({ sourceId: 'cards', rootPath: 'local/cards/',
+        files: [a, b, c], directories: [dir.slice('local/cards/'.length) + 'occupied.md'] })];
+    const receipt = (old, saved) => ({ path: saved.path, scope: 'entry', submitted: old, expected: { kind: 'file', file: saved } });
+    const renamed = file('free.md', 'saved B'), reused = file('b.md', 'saved A');
+    const updated = { ...c, originalContent: c.content, originalGroupHash: 'saved' };
+    const result = applyWorkspaceObservations(base, [
+        receipt(a, file('occupied.md', 'blocked by directory')), receipt(a, file('b.md', 'blocked by file')),
+        receipt(b, renamed), receipt(a, reused), receipt({ ...renamed, content: 'unseen' }, file('free.md', 'unseen')),
+        receipt(c, updated),
+    ]);
+    const byPath = files => Object.fromEntries(files.map(f => [f.path, f]));
+    assert.deepEqual(byPath(result[0].files), byPath([renamed, reused, updated]));
+    assert.deepEqual(byPath(base[0].files), byPath([a, b, c]));
+});
 
 // Acceptance contracts (cost: invisible draft overwrite or stale design decisions):
 // - Opening updates a clean design, preserves a draft, and reports remote conflicts.

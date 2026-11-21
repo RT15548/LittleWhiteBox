@@ -1133,7 +1133,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/tests/message-markdown.test.js",
       "relativePath": "modules/agent-core/tests/message-markdown.test.js",
       "extension": ".js",
-      "sizeBytes": 13010
+      "sizeBytes": 13906
     },
     {
       "source": "littlewhitebox",
@@ -1315,7 +1315,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/tools/apply-patch.js",
       "relativePath": "modules/agent-core/tools/apply-patch.js",
       "extension": ".js",
-      "sizeBytes": 17508
+      "sizeBytes": 18950
     },
     {
       "source": "littlewhitebox",
@@ -1343,7 +1343,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/ui/message-markdown-parser.js",
       "relativePath": "modules/agent-core/ui/message-markdown-parser.js",
       "extension": ".js",
-      "sizeBytes": 11010
+      "sizeBytes": 11041
     },
     {
       "source": "littlewhitebox",
@@ -2050,7 +2050,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/workspace-preconditions.js",
       "relativePath": "modules/assistant/shared/workspace-preconditions.js",
       "extension": ".js",
-      "sizeBytes": 6535
+      "sizeBytes": 7721
     },
     {
       "source": "littlewhitebox",
@@ -2127,7 +2127,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/apply-patch.test.js",
       "relativePath": "modules/assistant/tests/apply-patch.test.js",
       "extension": ".js",
-      "sizeBytes": 17779
+      "sizeBytes": 20584
     },
     {
       "source": "littlewhitebox",
@@ -2491,14 +2491,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/service.js",
       "relativePath": "modules/card-workspace/service.js",
       "extension": ".js",
-      "sizeBytes": 7869
+      "sizeBytes": 8589
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/service.test.js",
       "relativePath": "modules/card-workspace/service.test.js",
       "extension": ".js",
-      "sizeBytes": 4401
+      "sizeBytes": 8148
     },
     {
       "source": "littlewhitebox",
@@ -2785,7 +2785,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/workspace.js",
       "relativePath": "modules/card-workspace/workspace.js",
       "extension": ".js",
-      "sizeBytes": 6994
+      "sizeBytes": 7163
     },
     {
       "source": "littlewhitebox",
