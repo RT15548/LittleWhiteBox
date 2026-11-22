@@ -137,7 +137,6 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-delivery-entry { position: relative; padding: 2px 8px; border-bottom: 1px solid var(--xb-assistant-border); }
         .xb-assistant-delivery-form { display: grid; gap: 10px; color: var(--xb-assistant-text); font-size: 13px; }
         .xb-assistant-delivery-form p { margin: 0; color: var(--xb-assistant-text-soft); line-height: 1.55; }
-        .xb-assistant-delivery-form details p { margin-top: 6px; }
         .xb-assistant-delivery-form textarea { box-sizing: border-box; width: 100%; min-height: 5em; resize: vertical; font: inherit; color: inherit; background: var(--xb-assistant-surface); border: 1px solid var(--xb-assistant-border); border-radius: 6px; padding: 8px; }
         .xb-assistant-delivery-form button { justify-self: start; min-height: 32px; border: 1px solid var(--xb-assistant-border); border-radius: 6px; background: var(--xb-assistant-surface-muted); color: inherit; cursor: pointer; padding: 4px 10px; }
         .xb-assistant-delivery-form button:disabled { opacity: .55; cursor: default; }

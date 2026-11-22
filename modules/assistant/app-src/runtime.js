@@ -293,7 +293,8 @@ export function createAssistantRuntime(deps) {
     }
 
     function toProviderMessages(baseMessages = state.messages, options = {}) {
-        const messages = [{ role: 'system', content: resolveSystemPrompt() }];
+        const systemPrompt = [options.delivery?.systemPrefix, resolveSystemPrompt()].filter(Boolean).join('\n\n');
+        const messages = [{ role: 'system', content: systemPrompt }];
         const summaryMessage = buildHistorySummarySystemMessage(options.historySummary);
         const lightBrakeMessage = buildRepeatedToolErrorSystemMessage();
         const finalAnswerReminder = String(options.finalAnswerReminderText || '').trim();
@@ -735,7 +736,6 @@ export function createAssistantRuntime(deps) {
             let result;
             try {
                 const requestTask = {
-                    systemPrompt: resolveSystemPrompt(),
                     tools: requestTools,
                     toolChoice: 'auto',
                     temperature: providerConfig.temperature,
@@ -748,6 +748,8 @@ export function createAssistantRuntime(deps) {
                 const checkpointsBeforeBudget = state.compactions;
                 const budgetMessages = await ensureContextBudget(adapter, run.controller.signal, options);
                 run.controller.signal.throwIfAborted();
+                // Use the budgeted prompt so adapters merge it with history only once.
+                requestTask.systemPrompt = budgetMessages[0].content;
                 // Provider sessions retain their initial tools, so both history and tools must still match.
                 const continueSession = adapter?.supportsSessionToolLoop
                     && checkpointsBeforeBudget === state.compactions

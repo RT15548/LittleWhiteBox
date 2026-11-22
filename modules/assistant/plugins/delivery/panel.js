@@ -18,12 +18,12 @@ export function deliveryPanelMarkup() {
             <header class="xb-assistant-api-popover-header"><strong id="xb-assistant-delivery-title">答复交付</strong><button data-delivery-close class="xb-assistant-text-button" type="button">关闭面板</button></header>
             <div class="xb-assistant-api-popover-body xb-assistant-delivery-form">
                 <label><input type="checkbox" data-delivery-enabled> 启用答复交付</label>
-                <p>将主助手的最终答复单独显示在对话中。关闭不影响已交付的历史答复。</p>
+                <p>实验性功能。你可以在这里为小白助手添加额外的工作要求，调整它最终给出的答复。</p>
                 <p data-delivery-availability role="status" hidden></p>
                 <label for="xb-assistant-delivery-requirements">工作要求</label>
                 <textarea id="xb-assistant-delivery-requirements" rows="6"></textarea>
                 <button data-delivery-default type="button">恢复默认要求</button>
-                <details><summary>适用范围与缓存影响</summary><p>原生模式使用准备步骤和工作要求。手动选择 JSON 兼容模式时默认直接交付；填写自定义要求后随请求发送。只影响主助手，保存后从下一轮生效。</p><p>切换开关或修改要求可能降低后续请求的缓存命中率。</p></details>
+                <p>开启或关闭此功能、修改工作要求，都会改变发给模型的开头提示，影响缓存复用。建议在同一个任务中保持设置不变。</p>
                 <div class="xb-assistant-delivery-actions"><button data-delivery-save type="button">保存</button><button data-delivery-discard type="button">放弃修改</button></div>
                 <small data-delivery-note role="status" aria-live="polite"></small>
             </div>

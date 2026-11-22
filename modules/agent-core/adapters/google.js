@@ -13,6 +13,14 @@ import { stripToolProtocolMarker } from './tool-protocol-marker.js';
 import { encodeGeminiToolResponse } from './gemini-tool-result.js';
 import { prepareGoogleToolParameters } from './google-tool-schema.js';
 
+const GOOGLE_SAFETY_SETTINGS_OFF = [
+    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'OFF' },
+    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'OFF' },
+    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'OFF' },
+    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'OFF' },
+    { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'OFF' },
+];
+
 function parseArguments(text) {
     try {
         return JSON.parse(text || '{}');
@@ -587,6 +595,7 @@ export class GoogleAdapter {
             ...(systemInstruction ? { systemInstruction } : {}),
             temperature: task.temperature,
             ...(task.maxTokens ? { maxOutputTokens: task.maxTokens } : {}),
+            safetySettings: GOOGLE_SAFETY_SETTINGS_OFF,
         };
         if (reasoning.mode === 'off') {
             config.thinkingConfig = {

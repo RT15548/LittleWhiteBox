@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { GoogleAdapter } from '../../agent-core/adapters/google.js';
 import { OpenAICompatibleAdapter } from '../../agent-core/adapters/openai-compatible.js';
 import { SillyTavernOpenAICompatibleAdapter } from '../../agent-core/adapters/sillytavern-openai-compatible.js';
 import { createHostChatCompletionsClient } from '../../../shared/host-llm/chat-completions/client.js';
@@ -8,11 +9,12 @@ import { estimateConversationTokens } from '../../agent-core/runtime/context-tok
 import { buildProviderMessagesFromHistory } from '../../agent-core/runtime/protocol.js';
 import { deliveredText } from '../plugins/delivery/history.js';
 import { selectCompactionRange } from '../app-src/runtime/compaction-range.js';
-import { APPROVAL_RESULT, DEFAULT_REQUIREMENTS, DELIVERY_CHECKLIST, DELIVERY_FINAL_STEP, READ_RESULT, TOOL_APPROVAL, TOOL_DELIVER, TOOL_READ } from '../plugins/delivery/protocol.js';
+import { APPROVAL_RESULT, DEFAULT_REQUIREMENTS, DELIVERY_CHECKLIST, DELIVERY_FINAL_STEP, READ_RESULT, SILENT_EFFORT, TOOL_APPROVAL, TOOL_DELIVER, TOOL_READ } from '../plugins/delivery/protocol.js';
 
 const deliveryTools = [TOOL_READ, TOOL_APPROVAL, TOOL_DELIVER];
 const makeCall = (id, body) => ({ id, name: TOOL_DELIVER, arguments: JSON.stringify({ body }) });
 const ordinaryReply = { text: 'Ordinary reply', toolCalls: [] };
+const systemInstructions = 'Assistant system instructions.';
 
 function harness(t, options = {}) {
     t.mock.method(console, 'info', () => {});
@@ -34,7 +36,7 @@ function harness(t, options = {}) {
         getToolDefinitions: ({ role }) => delegateConfig && role === 'main' ? [{ function: { name: 'DelegateRun' } }] : [],
         getDelegateProviderConfig: () => delegateConfig,
         isJsApiEnabled: () => false,
-        SYSTEM_PROMPT: 'Assistant system instructions.', MAX_CONTEXT_TOKENS: 100000, SUMMARY_TRIGGER_TOKENS: 90000,
+        SYSTEM_PROMPT: systemInstructions, MAX_CONTEXT_TOKENS: 100000, SUMMARY_TRIGGER_TOKENS: 90000,
         TOOL_NAMES: { RUN_JAVASCRIPT_API: 'RunJavaScriptApi', RUN_SLASH_COMMAND: 'RunSlashCommand', DELEGATE_RUN: 'DelegateRun' },
         createAdapter: config => !config && options.adapter ? options.adapter : ({ supportsSessionToolLoop: true, async chat(task) {
             const queue = config ? delegateRequests : requests;
@@ -60,6 +62,7 @@ test('enabled native delivery records local read and scoped acknowledgement, the
         assert.equal(task.toolChoice, 'auto');
         assert.deepEqual(toolNames(task), deliveryTools);
         assert.ok(task.tools[0].function.description.endsWith(requirements));
+        assert.ok(task.messages[0].content.startsWith(`${SILENT_EFFORT}\n\n`));
         assert.equal(task.messages.find(message => message.content === DELIVERY_CHECKLIST)?.role, 'system');
         assert.deepEqual(task.messages.filter(message => message.role === 'user').map(message => message.content), ['Answer the question.']);
         assert.deepEqual(receipts(task.messages, TOOL_READ), [{ ok: true, status: READ_RESULT }]);
@@ -144,6 +147,40 @@ function completionStream(delta, finishReason = 'tool_calls') {
     });
 }
 
+// Request contract (context/cost): one system prompt, with the delivery prefix first;
+// tool continuation and a later user turn must preserve that ordering.
+test('Google sends one prefixed system prompt through tool continuation and a new user turn', async t => {
+    for (const enabled of [true, false]) {
+        const provider = { provider: 'google', model: 'fixture', apiKey: 'offline', resolvedBaseUrl: 'https://offline.invalid/v1beta' };
+        const requests = [];
+        t.mock.method(globalThis, 'fetch', async (input, init) => {
+            const request = new Request(input, init);
+            assert.equal(new URL(request.url).hostname, 'offline.invalid');
+            requests.push(await request.json());
+            const part = requests.length === 1
+                ? { functionCall: { name: TOOL_DELIVER, args: { body: ' ' } } }
+                : { text: 'Done' };
+            return new Response(`data: ${JSON.stringify({ candidates: [{ content: { role: 'model', parts: [part] }, finishReason: 'STOP' }] })}\n\n`, {
+                headers: { 'Content-Type': 'text/event-stream' },
+            });
+        });
+        const h = harness(t, { settings: { enabled }, provider, adapter: new GoogleAdapter(provider) });
+        await h.start();
+        assert.equal(requests.length, 2);
+        assert.ok(requests[1].contents.at(-1).parts.some(part => part.functionResponse));
+        h.state.messages.push({ role: 'user', content: 'Next question.' });
+        await h.start();
+        assert.equal(requests.length, 3);
+        const expected = enabled ? `${SILENT_EFFORT}\n\n${systemInstructions}` : systemInstructions;
+        for (const request of requests) {
+            const system = request.systemInstruction.parts.map(part => part.text).join('\n\n');
+            assert.ok(system.startsWith(expected));
+            assert.equal(system.split(systemInstructions).length - 1, 1);
+        }
+        assert.equal(h.state.messages.at(-1).content, 'Done');
+    }
+});
+
 function textCall(name, args) {
     return `<tool_call>${JSON.stringify({ name, arguments: args })}</tool_call>`;
 }
@@ -166,6 +203,9 @@ test('native and tagged deliveries finish once and replay one copy of the body o
             requests.push(JSON.parse(init.body));
             if (requests.length === 2) return completionStream({ content: 'Follow-up' }, 'stop');
             assert.equal(requests.length, 1);
+            const system = requests[0].messages[0].content;
+            assert.ok(system.startsWith(toolMode === 'native' ? `${SILENT_EFFORT}\n\n${systemInstructions}` : systemInstructions));
+            assert.equal(system.split(systemInstructions).length - 1, 1);
             return completionStream(toolMode === 'native'
                 ? { tool_calls: [{ ...nativeDelivery, function: { name: TOOL_DELIVER, arguments: JSON.stringify({ body }) } }] }
                 : { content: textCall(TOOL_DELIVER, { body }) });
@@ -192,6 +232,9 @@ test('SillyTavern tagged retry can deliver immediately without changing ordinary
         const requests = [];
         const host = createHostChatCompletionsClient({ requestHeadersProvider: () => ({}), fetch: async (_url, options) => {
             requests.push(JSON.parse(options.body));
+            const system = requests.at(-1).messages[0].content;
+            assert.ok(system.startsWith(`${SILENT_EFFORT}\n\n${systemInstructions}`));
+            assert.equal(system.split(systemInstructions).length - 1, 1);
             if (requests.length === 1) return Response.json({ error: { message: "Cannot read properties of null (reading 'function')" } }, { status: 500 });
             assert.equal(requests.length, 2);
             return completionStream(taggedDelta);

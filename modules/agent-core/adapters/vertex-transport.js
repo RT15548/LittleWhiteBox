@@ -7,15 +7,16 @@ export function vertexInputContent(message) {
 }
 
 export function buildVertexBody(history, message, config) {
-    const { systemInstruction, tools, toolConfig } = config;
+    const { systemInstruction, tools, toolConfig, safetySettings } = config;
     const generationConfig = { ...config };
-    for (const key of ['systemInstruction', 'tools', 'toolConfig', 'httpOptions', 'abortSignal']) delete generationConfig[key];
+    for (const key of ['systemInstruction', 'tools', 'toolConfig', 'safetySettings', 'httpOptions', 'abortSignal']) delete generationConfig[key];
     return {
         contents: [...history, vertexInputContent(message)],
         ...(systemInstruction ? { systemInstruction: typeof systemInstruction === 'string'
             ? { parts: [{ text: systemInstruction }] } : systemInstruction } : {}),
         ...(tools ? { tools } : {}),
         ...(toolConfig ? { toolConfig } : {}),
+        ...(safetySettings ? { safetySettings } : {}),
         generationConfig,
     };
 }

@@ -720,7 +720,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/google.js",
       "relativePath": "modules/agent-core/adapters/google.js",
       "extension": ".js",
-      "sizeBytes": 36181
+      "sizeBytes": 36618
     },
     {
       "source": "littlewhitebox",
@@ -804,7 +804,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/vertex-transport.js",
       "relativePath": "modules/agent-core/adapters/vertex-transport.js",
       "extension": ".js",
-      "sizeBytes": 5578
+      "sizeBytes": 5667
     },
     {
       "source": "littlewhitebox",
@@ -1602,7 +1602,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime.js",
       "relativePath": "modules/assistant/app-src/runtime.js",
       "extension": ".js",
-      "sizeBytes": 39228
+      "sizeBytes": 39435
     },
     {
       "source": "littlewhitebox",
@@ -1700,7 +1700,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/styles.js",
       "relativePath": "modules/assistant/app-src/styles.js",
       "extension": ".js",
-      "sizeBytes": 78052
+      "sizeBytes": 77985
     },
     {
       "source": "littlewhitebox",
@@ -1896,14 +1896,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/plugins/delivery/panel.js",
       "relativePath": "modules/assistant/plugins/delivery/panel.js",
       "extension": ".js",
-      "sizeBytes": 6290
+      "sizeBytes": 6128
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/plugins/delivery/protocol.js",
       "relativePath": "modules/assistant/plugins/delivery/protocol.js",
       "extension": ".js",
-      "sizeBytes": 5845
+      "sizeBytes": 6435
     },
     {
       "source": "littlewhitebox",
@@ -2211,7 +2211,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/delivery-runtime.test.js",
       "relativePath": "modules/assistant/tests/delivery-runtime.test.js",
       "extension": ".js",
-      "sizeBytes": 14443
+      "sizeBytes": 17130
     },
     {
       "source": "littlewhitebox",
