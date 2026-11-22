@@ -2,7 +2,7 @@ import { getRequestHeaders } from '../../../../../../script.js';
 import { createIdentifier } from '../../shared/common/identifier.js';
 import { setHostChatCompletionsRequestHeadersProvider } from '../../shared/host-llm/chat-completions/client.js';
 import { getTextApiRepository } from './repository.js';
-import { resolveFeaturePreset, featureRequestTimeoutSec } from './model.js';
+import { resolveFeaturePreset } from './model.js';
 import { generateText } from './runtime.js';
 import { createTextApiRequestHandler } from './bridge.js';
 
@@ -32,9 +32,7 @@ export async function resolveTextApi(feature) {
 
 export async function generateFeatureText(feature, options, snapshot) {
     setHostChatCompletionsRequestHeadersProvider(() => getRequestHeaders());
-    const settings = await (await getTextApiRepository()).load();
-    return generateText(snapshot || resolveFeaturePreset(settings, feature),
-        { ...options, timeoutMs: options?.timeoutMs ?? featureRequestTimeoutSec(settings, feature) * 1000 }, { generateHost });
+    return generateText(snapshot || await resolveTextApi(feature), options, { generateHost });
 }
 
 // The owning page verifies its iframe before dispatching.

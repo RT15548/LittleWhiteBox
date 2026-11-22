@@ -1231,7 +1231,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/tests/settings-migration.test.js",
       "relativePath": "modules/agent-core/tests/settings-migration.test.js",
       "extension": ".js",
-      "sizeBytes": 6928
+      "sizeBytes": 6980
     },
     {
       "source": "littlewhitebox",
@@ -10632,28 +10632,28 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/text-api/copy.js",
       "relativePath": "modules/text-api/copy.js",
       "extension": ".js",
-      "sizeBytes": 2129
+      "sizeBytes": 2009
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/text-api/host.js",
       "relativePath": "modules/text-api/host.js",
       "extension": ".js",
-      "sizeBytes": 2490
+      "sizeBytes": 2288
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/text-api/migration.js",
       "relativePath": "modules/text-api/migration.js",
       "extension": ".js",
-      "sizeBytes": 4625
+      "sizeBytes": 5001
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/text-api/model.js",
       "relativePath": "modules/text-api/model.js",
       "extension": ".js",
-      "sizeBytes": 6264
+      "sizeBytes": 6333
     },
     {
       "source": "littlewhitebox",
@@ -10674,7 +10674,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/text-api/runtime.js",
       "relativePath": "modules/text-api/runtime.js",
       "extension": ".js",
-      "sizeBytes": 5827
+      "sizeBytes": 5947
     },
     {
       "source": "littlewhitebox",
@@ -10688,7 +10688,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/text-api/settings-ui.js",
       "relativePath": "modules/text-api/settings-ui.js",
       "extension": ".js",
-      "sizeBytes": 19764
+      "sizeBytes": 19139
     },
     {
       "source": "littlewhitebox",
@@ -10702,14 +10702,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/text-api/tests/repository.test.js",
       "relativePath": "modules/text-api/tests/repository.test.js",
       "extension": ".js",
-      "sizeBytes": 11167
+      "sizeBytes": 12819
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/text-api/tests/request-timeout.test.js",
       "relativePath": "modules/text-api/tests/request-timeout.test.js",
       "extension": ".js",
-      "sizeBytes": 2687
+      "sizeBytes": 3219
     },
     {
       "source": "littlewhitebox",

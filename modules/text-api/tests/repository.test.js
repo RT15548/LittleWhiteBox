@@ -162,10 +162,34 @@ test('stored Text API v1 upgrades all bindings once without losing fields or lat
     assert.deepEqual(f.files.common, { [KEY]: old, unrelated: 'keep' });
     f.failWrite('');
     const loaded = await repository.load();
-    assert.deepEqual(loaded, { ...old, version: TEXT_API_VERSION, presets: old.presets.map(p => ({ ...p, modelListAuth: 'bearer' })) });
+    assert.deepEqual(loaded, { ...old, version: TEXT_API_VERSION, hostPreset: { requestTimeoutSec: 180 },
+        presets: old.presets.map(p => ({ ...p, modelListAuth: 'bearer', requestTimeoutSec: 180 })) });
     assert.deepEqual(await f.create().load(), loaded);
     for (const preset of old.presets) await repository.mutate('summary', { type: 'save', id: preset.id, preset });
     const restored = await f.create().load();
     assert.deepEqual(restored.presets.map(p => p.modelListAuth), ['x-api-key', 'x-goog-api-key']);
     assert.equal(f.files.common.unrelated, 'keep');
+});
+
+// Losing an existing model connection or sharing a timeout with the wrong preset
+// changes future requests. Use the released v2 shape, not a current preset builder.
+test('v2 keeps its named connection and bindings; saved deadlines survive a fresh repository', async () => {
+    const old = { version: 2, presets: [{ id: 'daily', name: 'Daily', provider: 'openai-compatible',
+        baseUrl: 'https://relay.invalid', apiKey: 'fixture', model: 'alias', vertex: { authMode: 'relay', projectId: '',
+            serviceAccountJson: '', streamFunctionCallArguments: true }, prefixMode: 'auto', customPrefix: '',
+        stream: true, temperature: 0, maxTokens: null, sampling: {}, reasoning: {}, modelListAuth: 'bearer' }],
+    bindings: { summary: 'daily', planner: 'daily', outline: '@host' } };
+    const f = fixture({ common: { [KEY]: old } });
+    const repo = f.create();
+    const settings = await repo.load();
+    assert.deepEqual(settings.presets, [{ ...old.presets[0], requestTimeoutSec: 180 }]);
+    assert.deepEqual(settings.bindings, old.bindings);
+    for (const [feature, seconds] of [['summary', 600], ['outline', 900]]) {
+        const preset = resolveFeaturePreset(settings, feature);
+        await repo.mutate(feature, { type: 'save', id: preset.id, preset: { ...preset, requestTimeoutSec: seconds } });
+    }
+    const writes = f.writes();
+    const after = await f.create().load();
+    assert.deepEqual(['summary', 'planner', 'outline'].map(key => resolveFeaturePreset(after, key).requestTimeoutSec), [600, 600, 900]);
+    assert.equal(f.writes(), writes);
 });

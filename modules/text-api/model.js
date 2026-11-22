@@ -4,7 +4,7 @@ import { normalizeVertexConfig } from '../agent-core/vertex-config.js';
 import { TEXT_API_COPY as COPY } from './copy.js';
 
 export const TEXT_API_SETTINGS_KEY = 'textApiPresets';
-export const TEXT_API_VERSION = 2;
+export const TEXT_API_VERSION = 3;
 export const TEXT_API_FEATURES = Object.freeze(['summary', 'planner', 'outline']);
 export const HOST_BINDING = '@host';
 export const HOST_PROVIDER = 'sillytavern-current';
@@ -13,20 +13,20 @@ export const MIN_REQUEST_TIMEOUT_SEC = 30;
 export const MAX_REQUEST_TIMEOUT_SEC = 3600;
 
 export function normalizeRequestTimeoutSec(value) {
-    const seconds = Number.parseInt(value, 10);
-    return Number.isFinite(seconds)
-        ? Math.max(MIN_REQUEST_TIMEOUT_SEC, Math.min(MAX_REQUEST_TIMEOUT_SEC, seconds))
+    return Number.isFinite(value)
+        ? Math.max(MIN_REQUEST_TIMEOUT_SEC, Math.min(MAX_REQUEST_TIMEOUT_SEC, Math.trunc(value)))
         : DEFAULT_REQUEST_TIMEOUT_SEC;
 }
 
-// Per feature, not per preset: the host binding has no stored preset to carry it.
-export function featureRequestTimeoutSec(settings, feature) {
-    return normalizeRequestTimeoutSec(settings?.requestTimeouts?.[feature]);
+// Only local options belong to this built-in preset; SillyTavern owns its connection.
+export function hostPresetOptions({ requestTimeoutSec = DEFAULT_REQUEST_TIMEOUT_SEC } = {}) {
+    return { requestTimeoutSec };
 }
 
 export function createPreset(id, name, input = {}) {
     return {
         id, name, provider: input.provider ?? HOST_PROVIDER,
+        requestTimeoutSec: input.requestTimeoutSec ?? DEFAULT_REQUEST_TIMEOUT_SEC,
         baseUrl: input.baseUrl ?? '', apiKey: input.apiKey ?? '', model: input.model ?? '',
         vertex: normalizeVertexConfig(input.vertex),
         prefixMode: input.prefixMode ?? 'auto', customPrefix: input.customPrefix ?? '',
@@ -38,7 +38,7 @@ export function createPreset(id, name, input = {}) {
 
 export function assertPreset(preset) {
     const providers = [HOST_PROVIDER, ...PROVIDER_OPTIONS.map(option => option.value)];
-    if (!preset || !providers.includes(preset.provider)
+    if (!preset || !providers.includes(preset.provider) || preset.requestTimeoutSec !== normalizeRequestTimeoutSec(preset.requestTimeoutSec)
         || !['baseUrl', 'apiKey', 'model', 'customPrefix'].every(key => typeof preset[key] === 'string')
         || !['auto', 'custom'].includes(preset.prefixMode)
         || typeof preset.stream !== 'boolean'
@@ -55,9 +55,7 @@ export function assertSettings(value) {
         || !value.bindings || new Set(value.presets.map(preset => preset.id)).size !== value.presets.length
         || value.presets.some(preset => !preset.id || !preset.name)) throw new Error(COPY.invalid);
     for (const preset of value.presets) assertPreset(preset);
-    if (value.requestTimeouts != null && (typeof value.requestTimeouts !== 'object' || Array.isArray(value.requestTimeouts)
-        || Object.entries(value.requestTimeouts).some(([feature, seconds]) => !TEXT_API_FEATURES.includes(feature)
-            || seconds !== normalizeRequestTimeoutSec(seconds)))) throw new Error(COPY.invalid);
+    if (!value.hostPreset || value.hostPreset.requestTimeoutSec !== normalizeRequestTimeoutSec(value.hostPreset.requestTimeoutSec)) throw new Error(COPY.invalid);
     for (const feature of TEXT_API_FEATURES) {
         const id = value.bindings[feature];
         if (id != null && id !== HOST_BINDING && !value.presets.some(preset => preset.id === id)) throw new Error(COPY.invalid);
@@ -65,12 +63,15 @@ export function assertSettings(value) {
     return structuredClone(value);
 }
 
-export function resolveFeaturePreset(settings, feature) {
-    const id = settings.bindings[feature];
-    if (id === HOST_BINDING) return createPreset(HOST_BINDING, COPY.host);
+export function resolvePreset(settings, id) {
+    if (id === HOST_BINDING) return createPreset(HOST_BINDING, COPY.host, hostPresetOptions(settings.hostPreset));
     const preset = settings.presets.find(item => item.id === id);
     if (!preset) throw new Error(COPY.unset);
     return structuredClone(preset);
+}
+
+export function resolveFeaturePreset(settings, feature) {
+    return resolvePreset(settings, settings.bindings[feature]);
 }
 
 export function applyPresetAction(settings, feature, action) {
@@ -82,8 +83,9 @@ export function applyPresetAction(settings, feature, action) {
         next.bindings[feature] = action.id; return next;
     }
     if (action.type === 'select-host') { next.bindings[feature] = HOST_BINDING; return next; }
-    if (action.type === 'request-timeout') {
-        next.requestTimeouts = { ...next.requestTimeouts, [feature]: normalizeRequestTimeoutSec(action.seconds) };
+    if (action.type === 'save' && action.id === HOST_BINDING) {
+        next.hostPreset = hostPresetOptions(action.preset);
+        next.bindings[feature] = HOST_BINDING;
         return assertSettings(next);
     }
     if (action.type === 'save' || action.type === 'add' || action.type === 'rename') {

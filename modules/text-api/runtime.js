@@ -3,7 +3,7 @@ import { getModelListApiPrefix, pullModelsForProvider } from '../agent-core/mode
 import { resolveRuntimeReasoning } from '../agent-core/reasoning-capabilities.js';
 import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../shared/common/openai-url-utils.js';
 import { runWithAbortDeadline } from '../../shared/common/abort-utils.js';
-import { HOST_PROVIDER, assertPreset } from './model.js';
+import { DEFAULT_REQUEST_TIMEOUT_SEC, HOST_PROVIDER, assertPreset } from './model.js';
 import { TEXT_API_COPY as COPY } from './copy.js';
 import { CONNECTION_TEST_PROMPT } from './prompts.js';
 import { VERTEX_PROVIDER, vertexRuntimeFields, vertexSecrets } from '../agent-core/vertex-config.js';
@@ -57,8 +57,9 @@ export function connectionError(error, preset) {
     return safe;
 }
 
-export async function generateText(preset, { messages, signal, onDelta, timeoutMs = 180000 } = {}, dependencies = {}) {
+export async function generateText(preset, { messages, signal, onDelta, timeoutMs } = {}, dependencies = {}) {
     const snapshot = structuredClone(assertPreset(preset));
+    timeoutMs ??= snapshot.requestTimeoutSec * 1000;
     const controller = new AbortController();
     const abort = () => controller.abort(signal.reason);
     if (signal?.aborted) abort();
@@ -99,7 +100,7 @@ export async function generateText(preset, { messages, signal, onDelta, timeoutM
 
 export async function testTextConnection(preset, options = {}, dependencies = {}) {
     const result = await generateText(preset, {
-        ...options, messages: [{ role: 'user', content: CONNECTION_TEST_PROMPT }],
+        timeoutMs: DEFAULT_REQUEST_TIMEOUT_SEC * 1000, ...options, messages: [{ role: 'user', content: CONNECTION_TEST_PROMPT }],
     }, dependencies);
     if (!String(result.text || '').trim()) throw new Error(COPY.emptyResponse);
     return { ok: true };

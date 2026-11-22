@@ -8,7 +8,7 @@ export const TEXT_API_COPY = Object.freeze({
     provider: '渠道', url: 'Base URL', key: 'API Key', model: 'Model',
     show: '显示', hide: '隐藏', pull: '拉取模型', test: '测试连接', testing: '测试中…',
     testOk: '生成测试成功', pulling: '拉取中…', manual: '手动填写',
-    requestTimeout: '请求超时（秒）', requestTimeoutHint: '单次生成请求的最长等待时间，仅对当前功能生效；出字慢的模型可调大',
+    requestTimeout: '请求超时（秒）',
     stream: '流式输出', temperature: 'Temperature', maxTokens: '最大输出 Token',
     sampling: '生成参数', prefix: '路径前缀', autoPrefix: '自动', customPrefix: '自定义',
     reasoning: 'Reasoning 模式', effort: '思考强度', budget: '思考 Token 预算',

@@ -5,7 +5,7 @@ import { upgradeAgentSettings } from '../settings-migration.js';
 import { loadSharedAgentSettings, saveSharedAgentSettings } from '../settings-repository.js';
 import { resolveActiveProviderConfig } from '../provider-resolution.js';
 import { AGENT_SETTINGS_CONFIG_VERSION } from '../config.js';
-import { applyPresetAction, createPreset, TEXT_API_VERSION } from '../../text-api/model.js';
+import { applyPresetAction, createPreset, hostPresetOptions, TEXT_API_VERSION } from '../../text-api/model.js';
 
 // Acceptance (lost configuration / wrong credentials): an actual v1 record,
 // with credentials/addresses/model names redacted, retains its selected fields;
@@ -66,7 +66,7 @@ test('pre-version top-level provider settings convert only at the read boundary'
 test('Text API saving another channel retains every field including inactive Vertex options', () => {
     const preset = createPreset('a', 'A', { provider: 'google-vertex', baseUrl: 'https://relay.invalid', apiKey: 'fixture', model: 'alias',
         modelListAuth: 'x-goog-api-key', vertex: { authMode: 'relay', serviceAccountJson: 'fixture-json', streamFunctionCallArguments: false } });
-    const state = { version: TEXT_API_VERSION, presets: [preset], bindings: { summary: 'a', planner: 'a', outline: 'a' } };
+    const state = { version: TEXT_API_VERSION, presets: [preset], bindings: { summary: 'a', planner: 'a', outline: 'a' }, hostPreset: hostPresetOptions() };
     const changed = applyPresetAction(state, 'summary', { type: 'save', id: 'a', preset: { ...preset, provider: 'anthropic' } });
     assert.deepEqual(changed.presets[0], { ...preset, provider: 'anthropic' });
 });
