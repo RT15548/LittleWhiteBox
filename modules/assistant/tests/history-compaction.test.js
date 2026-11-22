@@ -7,6 +7,7 @@ import { buildProviderMessagesFromHistory } from '../../agent-core/runtime/proto
 import { estimateConversationTokens } from '../../agent-core/runtime/context-tokens.js';
 import { readResponseCompletion } from '../../agent-core/runtime/response-completion.js';
 import { settleAssistantRunFailure } from '../app-src/runtime/run-failure.js';
+import { summaryResult, summarySource } from './helpers/summary.js';
 
 // Contracts: preserve the user's instruction and complete newest groups within budget
 // (lost work / invalid provider requests); use one visible operation even for chunked summaries.
@@ -38,7 +39,7 @@ function harness(respond) {
     const controller = createHistoryCompactionController({
         state, render() { stages.push(state.compactionPending); }, persistSession() { saves++; },
         getActiveProviderConfig: () => providerConfig, formatToolResultDisplay: () => ({}),
-        buildTextWithAttachmentSummary: text => text, SUMMARY_SYSTEM_PROMPT: 'Summarize',
+        buildTextWithAttachmentSummary: text => text,
         compactionThreshold: () => 3000, requestInputLimit: () => 4000,
         toProviderMessages: (messages, { historySummary = currentHistorySummary(state) } = {}) => [message('system', historySummary), ...buildProviderMessagesFromHistory(messages)],
         updateContextStats(messages) { state.contextStats = { usedTokens: estimateConversationTokens({ messages, providerConfig }) }; },
@@ -47,9 +48,9 @@ function harness(respond) {
     return { state, requests, stages, run: signal => controller.ensureContextBudget(adapter, signal), saves: () => saves };
 }
 
-for (const reason of ['stop', 'length', undefined]) {
+for (const reason of ['stop', 'tool_calls', undefined]) {
     test(`one checkpoint for all chunks after ${reason || 'missing completion'}; next call continues with original user and tool pair`, async () => {
-        const h = harness((_, n) => ({ ...readResponseCompletion('openai', reason), text: 'merged memory ' + n }));
+        const h = harness((_, n) => ({ ...readResponseCompletion('openai', reason), ...summaryResult('merged memory ' + n) }));
         const messages = await h.run(new AbortController().signal);
         const record = h.state.compactions.at(-1);
         assert.ok(record.after < record.before);
@@ -57,9 +58,9 @@ for (const reason of ['stop', 'length', undefined]) {
         assert.deepEqual(h.stages, [true, false]);
         assert.equal(h.saves(), 1);
         assert.ok(h.requests.length > 1);
-        assert.ok(h.requests[0].messages[0].content.includes('original memory'));
-        assert.ok(h.requests.some(request => request.messages[0].content.includes('previous task finished')));
-        for (let i = 1; i < h.requests.length; i++) assert.ok(h.requests[i].messages[0].content.includes('merged memory ' + i));
+        assert.ok(summarySource(h.requests[0]).includes('original memory'));
+        assert.ok(h.requests.some(request => summarySource(request).includes('previous task finished')));
+        for (let i = 1; i < h.requests.length; i++) assert.ok(summarySource(h.requests[i]).includes('merged memory ' + i));
         assert.deepEqual(messages.map(m => m.role), ['system', 'user', 'assistant', 'tool']);
         assert.equal(messages[1].content, '开始写我的卡');
         assert.equal(messages[3].tool_call_id, 'latest');

@@ -9,7 +9,8 @@ import { estimateConversationTokens } from '../../agent-core/runtime/context-tok
 import { buildProviderMessagesFromHistory } from '../../agent-core/runtime/protocol.js';
 import { deliveredText } from '../plugins/delivery/history.js';
 import { selectCompactionRange } from '../app-src/runtime/compaction-range.js';
-import { APPROVAL_RESULT, DEFAULT_REQUIREMENTS, DELIVERY_CHECKLIST, DELIVERY_FINAL_STEP, READ_RESULT, SILENT_EFFORT, TOOL_APPROVAL, TOOL_DELIVER, TOOL_READ } from '../plugins/delivery/protocol.js';
+import { APPROVAL_RESULT, DEFAULT_REQUIREMENTS, DELIVERY_CHECKLIST, DELIVERY_FINAL_STEP, READ_RESULT, TOOL_APPROVAL, TOOL_DELIVER, TOOL_READ } from '../plugins/delivery/protocol.js';
+import { SILENT_EFFORT } from '../shared/direct-output.js';
 
 const deliveryTools = [TOOL_READ, TOOL_APPROVAL, TOOL_DELIVER];
 const makeCall = (id, body) => ({ id, name: TOOL_DELIVER, arguments: JSON.stringify({ body }) });

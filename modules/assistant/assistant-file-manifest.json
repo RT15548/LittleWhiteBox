@@ -1581,7 +1581,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/main.js",
       "relativePath": "modules/assistant/app-src/main.js",
       "extension": ".js",
-      "sizeBytes": 85257
+      "sizeBytes": 85203
     },
     {
       "source": "littlewhitebox",
@@ -1592,17 +1592,24 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/prompts/summary-prompt.js",
+      "relativePath": "modules/assistant/app-src/prompts/summary-prompt.js",
+      "extension": ".js",
+      "sizeBytes": 3331
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/prompts/system-prompt.js",
       "relativePath": "modules/assistant/app-src/prompts/system-prompt.js",
       "extension": ".js",
-      "sizeBytes": 16682
+      "sizeBytes": 14121
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime.js",
       "relativePath": "modules/assistant/app-src/runtime.js",
       "extension": ".js",
-      "sizeBytes": 39435
+      "sizeBytes": 39373
     },
     {
       "source": "littlewhitebox",
@@ -1637,7 +1644,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime/history-compaction.js",
       "relativePath": "modules/assistant/app-src/runtime/history-compaction.js",
       "extension": ".js",
-      "sizeBytes": 11220
+      "sizeBytes": 10740
     },
     {
       "source": "littlewhitebox",
@@ -1659,6 +1666,13 @@
       "relativePath": "modules/assistant/app-src/runtime/streaming-messages.js",
       "extension": ".js",
       "sizeBytes": 102
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime/summary-request.js",
+      "relativePath": "modules/assistant/app-src/runtime/summary-request.js",
+      "extension": ".js",
+      "sizeBytes": 4690
     },
     {
       "source": "littlewhitebox",
@@ -1714,7 +1728,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/ui/activity-copy.js",
       "relativePath": "modules/assistant/app-src/ui/activity-copy.js",
       "extension": ".js",
-      "sizeBytes": 3032
+      "sizeBytes": 3201
     },
     {
       "source": "littlewhitebox",
@@ -1903,7 +1917,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/plugins/delivery/protocol.js",
       "relativePath": "modules/assistant/plugins/delivery/protocol.js",
       "extension": ".js",
-      "sizeBytes": 6435
+      "sizeBytes": 6399
     },
     {
       "source": "littlewhitebox",
@@ -1981,6 +1995,13 @@
       "relativePath": "modules/assistant/shared/config.js",
       "extension": ".js",
       "sizeBytes": 44
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/direct-output.js",
+      "relativePath": "modules/assistant/shared/direct-output.js",
+      "extension": ".js",
+      "sizeBytes": 99
     },
     {
       "source": "littlewhitebox",
@@ -2183,14 +2204,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/compaction-continuation.test.js",
       "relativePath": "modules/assistant/tests/compaction-continuation.test.js",
       "extension": ".js",
-      "sizeBytes": 4730
+      "sizeBytes": 4884
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/compaction-integrity.test.js",
       "relativePath": "modules/assistant/tests/compaction-integrity.test.js",
       "extension": ".js",
-      "sizeBytes": 8504
+      "sizeBytes": 8928
     },
     {
       "source": "littlewhitebox",
@@ -2211,7 +2232,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/delivery-runtime.test.js",
       "relativePath": "modules/assistant/tests/delivery-runtime.test.js",
       "extension": ".js",
-      "sizeBytes": 17130
+      "sizeBytes": 17175
     },
     {
       "source": "littlewhitebox",
@@ -2264,6 +2285,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/helpers/summary.js",
+      "relativePath": "modules/assistant/tests/helpers/summary.js",
+      "extension": ".js",
+      "sizeBytes": 650
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/helpers/workspace-host.js",
       "relativePath": "modules/assistant/tests/helpers/workspace-host.js",
       "extension": ".js",
@@ -2274,7 +2302,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/history-compaction.test.js",
       "relativePath": "modules/assistant/tests/history-compaction.test.js",
       "extension": ".js",
-      "sizeBytes": 5600
+      "sizeBytes": 5634
     },
     {
       "source": "littlewhitebox",
@@ -2337,7 +2365,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/skill-activation-session.test.js",
       "relativePath": "modules/assistant/tests/skill-activation-session.test.js",
       "extension": ".js",
-      "sizeBytes": 7634
+      "sizeBytes": 7656
     },
     {
       "source": "littlewhitebox",
@@ -2359,6 +2387,13 @@
       "relativePath": "modules/assistant/tests/state3-authoring.test.ts",
       "extension": ".ts",
       "sizeBytes": 7996
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/summary-request.test.js",
+      "relativePath": "modules/assistant/tests/summary-request.test.js",
+      "extension": ".js",
+      "sizeBytes": 6136
     },
     {
       "source": "littlewhitebox",

@@ -60,7 +60,6 @@ import {
 import { injectAssistantStyles } from './styles.js';
 import {
     HISTORY_SUMMARY_PREFIX,
-    SUMMARY_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
     buildPermissionModePrompt,
 } from './prompts/system-prompt.js';
@@ -1313,7 +1312,6 @@ const runtime = createAssistantRuntime({
     getEphemeralUserContextText,
     flushPendingWorkspaceChanges,
     SYSTEM_PROMPT,
-    SUMMARY_SYSTEM_PROMPT,
     HISTORY_SUMMARY_PREFIX,
     MAX_CONTEXT_TOKENS,
     SUMMARY_TRIGGER_TOKENS,

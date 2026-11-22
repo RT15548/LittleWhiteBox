@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createAssistantRuntime } from '../app-src/runtime.js';
 import { TOOL_NAMES, TOOL_DEFINITIONS, formatToolResultDisplay } from '../app-src/tooling.js';
+import { SUMMARY_TOOLS } from '../app-src/runtime/summary-request.js';
+import { summaryResult, summarySource } from './helpers/summary.js';
 
 // Contract: a single user action writes once, compacts, then reads and answers in the same run.
 // Breaking this loses the user's task or re-executes an already committed write.
@@ -18,10 +20,10 @@ for (const { sessions, skip } of [{sessions: false}, {sessions: true}, {sessions
     const adapter = {
         supportsSessionToolLoop: sessions,
         async chat(request) {
-            if (!request.tools.length) {
+            if (request.tools.some(tool => tool.function.name === SUMMARY_TOOLS.submit)) {
                 assert.equal(state.compactionPending, true);
                 summaries++;
-                return { text: skip && request.messages[0].content.includes('END-OF-WRITE') ? 'm'.repeat(28000) : 'The island definition has been written.' };
+                return summaryResult(skip && summarySource(request).includes('END-OF-WRITE') ? 'm'.repeat(28000) : 'The island definition has been written.');
             }
             main.push(request);
             if (main.length === 1) return call('Write', { filePath: 'local/island.json', content: 'x'.repeat(24000) + 'END-OF-WRITE' });
@@ -46,7 +48,7 @@ for (const { sessions, skip } of [{sessions: false}, {sessions: true}, {sessions
         normalizeAttachments: () => [], normalizeThoughtBlocks: () => [], normalizeSlashSkillTrigger: () => '',
         getActiveProviderConfig: () => ({ provider: 'openai-compatible', maxTokens: 1000 }),
         getToolDefinitions: () => TOOL_DEFINITIONS.filter(tool => ['Write', 'Read'].includes(tool.function.name)),
-        SYSTEM_PROMPT: 'Fixture', SUMMARY_SYSTEM_PROMPT: 'Summarize', HISTORY_SUMMARY_PREFIX: 'Memory',
+        SYSTEM_PROMPT: 'Fixture', HISTORY_SUMMARY_PREFIX: 'Memory',
         MAX_CONTEXT_TOKENS: 15000, SUMMARY_TRIGGER_TOKENS: 5000, REQUEST_TIMEOUT_MS: 1200,
         isAbortError: error => error.name === 'AbortError', createAdapter: () => adapter,
     });

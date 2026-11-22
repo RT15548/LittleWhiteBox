@@ -8,6 +8,7 @@ import { buildProviderMessagesFromHistory } from '../../agent-core/runtime/proto
 import { estimateConversationTokens } from '../../agent-core/runtime/context-tokens.js';
 import db, { sessionsTable } from '../shared/session-db.js';
 import { loadedSkillIds } from '../shared/skill-tools.js';
+import { summaryResult, summarySource } from './helpers/summary.js';
 
 // Contract: destructive compaction checkpoints confirmed skill IDs, never prose, in the same persisted session.
 // Reopening preserves both compacted and active receipts; clear rotates the session and drops activation.
@@ -29,7 +30,7 @@ async function harness() {
     compaction = createHistoryCompactionController({
         state, render() {}, showToast() {}, persistSession: store.persistSession,
         getActiveProviderConfig: () => ({}), formatToolResultDisplay: () => ({}), buildTextWithAttachmentSummary: text => text,
-        trimForSummary: text => text, SUMMARY_SYSTEM_PROMPT: '', compactionThreshold: () => 100, requestInputLimit: () => 2300,
+        compactionThreshold: () => 100, requestInputLimit: () => 6000,
         toProviderMessages: (messages, { historySummary = currentHistorySummary(state) } = {}) => [
             { role: 'system', content: historySummary }, ...buildProviderMessagesFromHistory(messages)],
         updateContextStats(messages) { state.contextStats = { usedTokens: estimateConversationTokens({ messages }) }; },
@@ -49,7 +50,7 @@ for (const failed of [false, true]) test(`confirmed skill receipts survive ${fai
     const original = structuredClone(state.messages);
     const compact = compaction.ensureContextBudget({ async chat() {
         if (failed) throw new Error('fixture summary outage');
-        return { text: 'A prose summary mentions builtin-planning but contains no skill receipt.' };
+        return summaryResult('A prose summary mentions builtin-planning but contains no skill receipt.');
     } }, new AbortController().signal);
     if (failed) await assert.rejects(compact, { code: 'assistant_summary_failed' });
     else await compact;
@@ -92,7 +93,7 @@ test('cancelled compaction leaves receipts and checkpoint unchanged', async () =
     const controller = new AbortController();
     await assert.rejects(compaction.ensureContextBudget({ async chat() {
         controller.abort();
-        return { text: 'Late summary.' };
+        return summaryResult('Late summary.');
     } }, controller.signal), { name: 'AbortError' });
     assert.deepEqual(state.archivedSkillIds, []);
     assert.deepEqual(state.messages, original);
@@ -107,8 +108,8 @@ for (const keepUser of [false, true]) test('rewind mixed and repeated checkpoint
         { role: 'user', content: 'Earlier color: green.' }, current, ...receipt('builtin-live-page', 'new'),
         { role: 'assistant', content: 'island-draft '.repeat(500) }];
     const adapter = { async chat(request) {
-        const source = request.messages[0].content;
-        return { text: ['harbor', 'green', 'island-draft'].filter(fact => source.includes(fact)).join(' ') };
+        const source = summarySource(request);
+        return summaryResult(['harbor', 'green', 'island-draft'].filter(fact => source.includes(fact)).join(' '));
     } };
     await compaction.ensureContextBudget(adapter);
     state.messages.push({ role: 'assistant', content: 'island-draft '.repeat(500), compactionEpoch: 1 });

@@ -1,6 +1,7 @@
 import { resetMessageWindow } from '../../../agent-core/ui/message-windowing.js';
 import { currentHistorySummary } from '../state/compaction-history.js';
 import { selectCompactionRange } from './compaction-range.js';
+import { buildSummaryRequest, readSubmittedSummary } from './summary-request.js';
 import { ACTIVITY_COPY } from '../ui/activity-copy.js';
 import { loadedSkillIds } from '../../shared/skill-tools.js';
 import { dropInvalidatedThinkingFromMessage } from '../../../agent-core/runtime/protocol.js';
@@ -35,7 +36,6 @@ export function createHistoryCompactionController(deps) {
         getActiveProviderConfig,
         formatToolResultDisplay,
         buildTextWithAttachmentSummary,
-        SUMMARY_SYSTEM_PROMPT,
         compactionThreshold,
         requestInputLimit,
         updateContextStats,
@@ -116,24 +116,13 @@ export function createHistoryCompactionController(deps) {
 
         try {
             for (const lines of buildSummaryChunks(splitMessagesIntoTurns(messages))) {
-                const request = {
-                    systemPrompt: SUMMARY_SYSTEM_PROMPT,
-                    messages: [{ role: 'user', content: buildSummarySource(lines, summary) }],
-                    tools: [],
-                    toolChoice: 'none',
-                    temperature: Math.min(providerConfig.temperature ?? 0.2, 0.2),
-                    maxTokens: providerConfig.maxTokens,
-                    reasoning: { mode: 'inherit', output: 'hide' },
-                    signal,
-                };
+                const request = buildSummaryRequest(buildSummarySource(lines, summary), providerConfig, signal);
                 const inputTokens = estimateConversationTokens({ messages: [{ role: 'system', content: request.systemPrompt }, ...request.messages],
                     tools: request.tools, providerConfig });
                 if (inputTokens > requestInputLimit()) throw new Error(ACTIVITY_COPY.summaryOverBudget(inputTokens, requestInputLimit()));
                 const result = await adapter.chat(request);
                 signal?.throwIfAborted();
-                const nextSummary = String(result.text || '').trim();
-                if (!nextSummary) throw new Error(ACTIVITY_COPY.summaryEmpty);
-                summary = nextSummary;
+                summary = readSubmittedSummary(result);
             }
             return summary;
         } catch (error) {
