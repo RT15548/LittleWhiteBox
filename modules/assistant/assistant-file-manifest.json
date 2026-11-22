@@ -2512,7 +2512,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/SKILL.md",
       "relativePath": "modules/card-workspace/skill/frontend/SKILL.md",
       "extension": ".md",
-      "sizeBytes": 6492
+      "sizeBytes": 7054
     },
     {
       "source": "littlewhitebox",
@@ -2758,6 +2758,13 @@
       "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/面谈与入会.md",
       "extension": ".md",
       "sizeBytes": 5646
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/visual-review.md",
+      "relativePath": "modules/card-workspace/skill/frontend/visual-review.md",
+      "extension": ".md",
+      "sizeBytes": 1679
     },
     {
       "source": "littlewhitebox",

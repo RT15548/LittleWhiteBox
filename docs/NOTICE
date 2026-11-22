@@ -104,3 +104,21 @@ Apache License 2.0
 Repository: https://github.com/google/material-design-icons
 Used for: Tavern status panel, scene map, and atlas shared icon font and codepoints name list
 Local license copy: libs/material-symbols/LICENSE
+
+CHARACTER-CARD FRONTEND DESIGN GUIDANCE
+======================================
+
+The visual guidance in modules/card-workspace/skill/frontend/SKILL.md and
+visual-review.md in the same directory was adapted into Chinese by
+LittleWhiteBox. The examples and scope were changed for roleplaying cards.
+The upstream material retains the licenses below.
+
+Unslop by Damir Sokolovsky (@heydamir)
+Source: https://github.com/heydamir/unslop (SKILL.md and references/signs.md)
+License: CC BY 4.0, https://creativecommons.org/licenses/by/4.0/
+Local copy: modules/card-workspace/skill/frontend/licenses/unslop/LICENSE
+
+Impeccable, Copyright 2025 Paul Bakaus
+Source: https://github.com/pbakaus/impeccable (quieter, layout, mode-read and mode-operate)
+License: Apache License 2.0
+Local copy: modules/card-workspace/skill/frontend/licenses/impeccable/LICENSE
