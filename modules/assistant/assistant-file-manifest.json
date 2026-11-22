@@ -5809,7 +5809,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/ena-planner/ena-planner.js",
       "relativePath": "modules/ena-planner/ena-planner.js",
       "extension": ".js",
-      "sizeBytes": 27613
+      "sizeBytes": 27531
     },
     {
       "source": "littlewhitebox",
@@ -6516,7 +6516,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/generate/llm.js",
       "relativePath": "modules/story-summary/generate/llm.js",
       "extension": ".js",
-      "sizeBytes": 7383
+      "sizeBytes": 7345
     },
     {
       "source": "littlewhitebox",
@@ -10632,14 +10632,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/text-api/copy.js",
       "relativePath": "modules/text-api/copy.js",
       "extension": ".js",
-      "sizeBytes": 1964
+      "sizeBytes": 2129
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/text-api/host.js",
       "relativePath": "modules/text-api/host.js",
       "extension": ".js",
-      "sizeBytes": 2288
+      "sizeBytes": 2490
     },
     {
       "source": "littlewhitebox",
@@ -10653,7 +10653,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/text-api/model.js",
       "relativePath": "modules/text-api/model.js",
       "extension": ".js",
-      "sizeBytes": 5098
+      "sizeBytes": 6264
     },
     {
       "source": "littlewhitebox",
@@ -10688,7 +10688,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/text-api/settings-ui.js",
       "relativePath": "modules/text-api/settings-ui.js",
       "extension": ".js",
-      "sizeBytes": 18683
+      "sizeBytes": 19764
     },
     {
       "source": "littlewhitebox",
@@ -10703,6 +10703,13 @@
       "relativePath": "modules/text-api/tests/repository.test.js",
       "extension": ".js",
       "sizeBytes": 11167
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/text-api/tests/request-timeout.test.js",
+      "relativePath": "modules/text-api/tests/request-timeout.test.js",
+      "extension": ".js",
+      "sizeBytes": 2687
     },
     {
       "source": "littlewhitebox",
