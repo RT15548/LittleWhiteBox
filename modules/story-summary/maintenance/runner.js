@@ -2,7 +2,7 @@ import { loadSharedAgentSettings } from '../../agent-core/settings-repository.js
 import { resolveActiveProviderConfig, isSillyTavernProvider } from '../../agent-core/provider-resolution.js';
 import { buildProviderAssistantToolCallMessage, buildProviderToolResultMessage, resolveResultToolCalls, dropInvalidatedThinkingFromMessage } from '../../agent-core/runtime/protocol.js';
 import { getMemoryMaintenancePrompt, getMemoryChatPrompt, MEMORY_RESPONSE_REPAIR, MEMORY_SAVE_RECOVERY } from './prompt.js';
-import { MEMORY_TOOLS, READ_MAINTENANCE_TOOL, RECOVER_MAINTENANCE_SAVE_TOOL } from './tools.js';
+import { memoryChatTools, MEMORY_TOOLS, READ_MAINTENANCE_TOOL, RECOVER_MAINTENANCE_SAVE_TOOL, GRAPH_VISIBILITY_TOOL } from './tools.js';
 import { normalizeToolArguments, validateToolArguments } from './arguments.js';
 import { MemoryMaintenanceError, requireMemory } from './errors.js';
 import { REVIEW_LIMITS, OPENING_TOKENS } from './limits.js';
@@ -27,10 +27,11 @@ export const memoryRunId = () => Array.from(crypto.getRandomValues(new Uint8Arra
 /** A turn owns its provider session and write baseline; chat history is only material. */
 export async function runMemoryAgent(session, { adapter, config, signal, onCall = () => {}, onProgress = () => {},
     onStream = () => {}, onContext = () => {}, mode = 'auto', question = '', history = [], readMaintenance,
-    onFinish, onRecover, readCurrent, summaryStyle, limits: requestedLimits = REVIEW_LIMITS, runId = memoryRunId(), createSummaryAdapter, countTokens } = {}) {
+    onFinish, onRecover, readCurrent, setGraphVisibility, summaryStyle, limits: requestedLimits = REVIEW_LIMITS, runId = memoryRunId(), createSummaryAdapter, countTokens } = {}) {
     const limits = { ...REVIEW_LIMITS, ...requestedLimits };
     const calls = [], receipts = [];
-    const tools = [...(session ? MEMORY_TOOLS : []), ...(mode === 'chat' || readMaintenance ? [READ_MAINTENANCE_TOOL] : [])];
+    const tools = mode === 'chat' ? memoryChatTools(session, !!setGraphVisibility)
+        : [...MEMORY_TOOLS, ...(readMaintenance ? [READ_MAINTENANCE_TOOL] : [])];
     const basePrompt = mode === 'chat' ? getMemoryChatPrompt(summaryStyle) : getMemoryMaintenancePrompt(summaryStyle);
     let systemPrompt = basePrompt, lastRequestPrompt;
     let messages = [], responses = null, outcome = { status: 'turn_limit', summary: '' }, failure = null;
@@ -40,7 +41,8 @@ export async function runMemoryAgent(session, { adapter, config, signal, onCall 
     // Recovery belongs to this execution, not reusable or summarized conversation history.
     const requestPrompt = () => recovery
         ? `${systemPrompt}\n\n${MEMORY_SAVE_RECOVERY}\n${JSON.stringify({ saveState: recovery })}` : systemPrompt;
-    const savedCount = () => session?.savedCount || 0;
+    let savedGraphActions = 0;
+    const savedCount = () => (session?.savedCount || 0) + savedGraphActions;
     const stagedCount = () => session?.stagedCount || 0;
     const progress = action => onProgress({ runId, action, calls: calls.length, saved: savedCount(), staged: stagedCount() });
     const finishPayload = () => ({ session, calls, runId, mode });
@@ -144,6 +146,20 @@ export async function runMemoryAgent(session, { adapter, config, signal, onCall 
         const definition = tools.find(tool => tool.function.name === toolCall.name);
         requireMemory(definition, 'unknown_tool', toolCall.name, 'name');
         const args = JSON.parse(toolCall.arguments);
+        if (definition === GRAPH_VISIBILITY_TOOL) {
+            requireMemory(!recovery && !finalized, 'save_recovery_required');
+            const input = normalizeToolArguments(args, definition.function.parameters);
+            validateToolArguments(input, definition.function.parameters);
+            try {
+                const result = await setGraphVisibility(input.names.map(name => ({ name, visible: input.visible })));
+                if (result.status === 'saved') savedGraphActions++;
+                return result;
+            }
+            catch (error) {
+                if (error.code === 'graph_person_missing') throw new MemoryMaintenanceError('record_missing');
+                throw error;
+            }
+        }
         if (['ReadMaintenance', 'RecoverMaintenanceSave'].includes(toolCall.name)) {
             const normalized = normalizeToolArguments(args, definition.function.parameters);
             validateToolArguments(normalized, definition.function.parameters);

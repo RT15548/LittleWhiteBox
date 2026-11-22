@@ -20,7 +20,7 @@ export const MEMORY_CHAT_COPY = Object.freeze({
     statuses: { queued: '等待处理', running: '正在处理', completed: '已回复', failed: '本轮未完成', cancelled: '已停止', unconfirmed: '保存结果尚未确认', ...MEMORY_RESULT_COPY },
     saved: MEMORY_COPY.saved, staged: MEMORY_COPY.staged,
     tools: count => `工作过程 · ${count} 次工具调用`, toolsShown: count => `显示最近 ${count} 次`,
-    toolNames: { ReadMemory: '读取记忆', ReadSource: '读取原文', SearchSource: '搜索原文', EditMemory: '修改记忆', CompleteMaintenance: '记录维护进度', ReadMaintenance: '查询维护记录', RecoverMaintenanceSave: '核对保存' },
+    toolNames: { ReadMemory: '读取记忆', ReadSource: '读取原文', SearchSource: '搜索原文', EditMemory: '修改记忆', SetRelationGraphVisibility: '调整关系图人物', CompleteMaintenance: '记录维护进度', ReadMaintenance: '查询维护记录', RecoverMaintenanceSave: '核对保存' },
     toolStatuses: { running: '进行中', pending: '等待中', staged: '本轮已暂存', completed: '完成', success: '完成', saved: '已保存', confirmed: '已确认保存', not_saved: '尚未保存', unknown: '等待核对', unchanged: '无需修改', failed: '失败', error: '失败', needs_fix: '需要修正', not_executed: '未执行', cancelled: '已停止', unconfirmed: '保存待确认' },
     errorHeading: '未完成原因', errorCode: '错误标识', errorStage: '发生阶段', errorMessage: '详细原因',
     context: '上下文用量', contextEmpty: '发送前将计算本轮输入用量。', contextEstimated: '约',

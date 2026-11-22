@@ -1,7 +1,7 @@
 import { estimateConversationTokens } from '../../agent-core/runtime/context-tokens.js';
 import { dropInvalidatedThinkingFromMessage } from '../../agent-core/runtime/protocol.js';
 import { getMemoryChatPrompt, MEMORY_REGENERATION_PROMPT } from './prompt.js';
-import { MEMORY_TOOLS, READ_MAINTENANCE_TOOL } from './tools.js';
+import { memoryChatTools } from './tools.js';
 import { REVIEW_LIMITS } from './limits.js';
 
 export function memoryChatMaterial(task, callsRemaining) {
@@ -26,10 +26,10 @@ export function buildMemoryChatMessages(question, history = []) {
 }
 
 /** Local preview only. Send-time measurement remains the execution authority. */
-export function estimateMemoryChatContext({ question = '', history = [], task = null, config = {}, summaryStyle } = {}) {
+export function estimateMemoryChatContext({ question = '', history = [], task = null, graphAvailable = false, config = {}, summaryStyle } = {}) {
     const prompt = getMemoryChatPrompt(summaryStyle);
     const messages = [...memoryChatHistory(history), { role: 'user', content: question }];
-    const tools = [...(task ? MEMORY_TOOLS : []), READ_MAINTENANCE_TOOL];
+    const tools = memoryChatTools(task, graphAvailable);
     const material = memoryChatMaterial(task, REVIEW_LIMITS.turns);
     const count = (items, definitions = []) => estimateConversationTokens({ messages: items, tools: definitions, providerConfig: config });
     const rules = count([{ role: 'system', content: prompt }], tools);
@@ -46,10 +46,10 @@ export function estimateMemoryChatContext({ question = '', history = [], task = 
  */
 export function createMemoryChatContextEstimator() {
     let previousHistory, previousTask, previousConfig, previousStyle, base;
-    return ({ question = '', history = [], task = null, config = {}, summaryStyle } = {}) => {
-        const taskKey = JSON.stringify(task), configKey = JSON.stringify(config);
+    return ({ question = '', history = [], task = null, graphAvailable = false, config = {}, summaryStyle } = {}) => {
+        const taskKey = JSON.stringify([task, graphAvailable]), configKey = JSON.stringify(config);
         if (!base || previousHistory !== history || previousTask !== taskKey || previousConfig !== configKey || previousStyle !== summaryStyle) {
-            base = estimateMemoryChatContext({ history, task, config, summaryStyle });
+            base = estimateMemoryChatContext({ history, task, graphAvailable, config, summaryStyle });
             previousHistory = history; previousTask = taskKey; previousConfig = configKey;
             previousStyle = summaryStyle;
         }

@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { beforeEach, after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
+import { applyGraphChoices, relationGraph } from '../data/relation-graph.js';
 import { runInNewContext } from 'node:vm';
 import { parse } from 'acorn';
 import { setImmediate as nextTurn } from 'node:timers/promises';
@@ -27,6 +28,8 @@ import { summaryFailureReason } from '../summary-failure.js';
 import { createSummaryDiagnostics } from '../summary-diagnostics.js';
 import { getChatIdentity } from '../data/chat-identity.js';
 import { applySummarySectionEdit } from '../data/section-edits.js';
+import { stampEditedCharacters } from '../data/character-edits.js';
+import { sameMemory } from '../maintenance/domain.js';
 import { mergeEditedFactsWithTimestamps } from '../data/fact-edits.js';
 import { createMetrics } from '../vector/retrieval/metrics.js';
 import { createEmbeddingFailureError } from '../vector/llm/embedding-failure.js';
@@ -152,6 +155,94 @@ async function importFixture() {
     await mod.commitSummaryMemory(host.context.chatId, next);
     return structuredClone(ext().storySummary.json);
 }
+
+// An empty summary still belongs to the chat: manual additions must reach its file.
+test('the empty panel can create the first person after clearing a summary', async () => {
+    await importFixture();
+    await mod.clearSummaryData(host.context.chatId);
+    let frame;
+    const panel = entry(['sendFrameFullData', 'saveRelationGraph', 'buildFramePayload', 'getCurrentFloorHint'], {
+        ...mod, structuredClone, getChatIdentity, applyGraphChoices, throwIfSignalAborted,
+        getContext: () => host.context, runVectorWriteTask: vectorWrites.runVectorWriteTask,
+        VECTOR_WRITE_SCOPES: vectorWrites.VECTOR_WRITE_SCOPES, postToFrame: value => { frame = value; },
+        applySummarySectionEdit, stampEditedCharacters, sameMemory, cancelActiveSummaryExecution() {}, cancelRecallAndClearPrompt() {},
+    });
+    panel.sendFrameFullData(disk().storySummary, host.context.chat.length);
+    const empty = { main: [], relationships: [] };
+    await panel.saveRelationGraph(frame.payload.chatIdentity, [],
+        { previous: empty, data: { ...empty, main: [{ name: '队长' }] } });
+    assert.equal(disk().storySummary.json.characters.main[0].name, '队长');
+    assert.deepEqual(relationGraph(frame.payload).people.map(person => person.name), ['队长']);
+});
+
+// Removing a graph person must survive a confirmed save and later summaries without
+// deleting history. An abandoned/failed/cross-chat save must never alter another graph.
+test('relationship graph choices are confirmed per chat without editing historical memory', async () => {
+    const person = '桥头守卫';
+    host.fixture.json.events[0].participants.push(person);
+    host.fixture.json.facts.push({ id: 'graph-link', s: '夏实', p: '对旅人的看法', o: '朋友', since: 3 });
+    const original = await importFixture();
+    const panel = entry(['saveRelationGraph', 'buildFramePayload'], {
+        ...mod, structuredClone, getChatIdentity, applyGraphChoices, throwIfSignalAborted,
+        getContext: () => host.context, runVectorWriteTask: vectorWrites.runVectorWriteTask,
+        VECTOR_WRITE_SCOPES: vectorWrites.VECTOR_WRITE_SCOPES, postToFrame() {},
+    });
+    const graph = () => relationGraph(panel.buildFramePayload(disk().storySummary));
+    const identity = getChatIdentity(host.context);
+    const change = (name, visible, owner = identity) => panel.saveRelationGraph(owner, [{ name, visible }]);
+    const shown = name => graph().people.some(p => p.name === name);
+    const endpoint = original.facts.find(f => mod.extractRelationshipsFromFacts([f]).length).s;
+    assert.ok(shown(person) && shown(endpoint));
+    await change(person, false);
+    await change(endpoint, false);
+    assert.ok(!shown(person) && !shown(endpoint));
+    assert.ok(graph().relationships.every(r => r.from !== endpoint && r.to !== endpoint));
+    assert.deepEqual(disk().storySummary.json, original);
+    const reads = host.writes;
+    await change(person, false);
+    assert.equal(host.writes, reads);
+    await assert.rejects(change(person, true, identity + 'other'), { code: 'summary_chat_changed_before_save' });
+    host.mode = 'old';
+    await assert.rejects(change(person, true));
+    assert.ok(!shown(person));
+    host.mode = 'save';
+    host.context.chat.push({ mes: '守卫交班了。', is_user: true }, { mes: '伙伴见到了守卫。', is_user: false });
+    host.generate = async () => JSON.stringify({ events: [], newCharacters: [person],
+        factUpdates: [{ s: '伙伴', p: '对桥头守卫的看法', o: '可靠', isState: false, trend: '投缘' }] });
+    const generation = await mod.runSummaryGeneration(25, { trigger: { delayFloors: 0 } });
+    assert.ok(generation.success && !generation.noContent, generation.error?.cause?.message || JSON.stringify(generation));
+    assert.equal(disk().storySummary.lastSummarizedMesId, 25);
+    assert.ok(!shown(person) && !shown(endpoint));
+    assert.equal((await mod.rollbackSummaryOnce(host.context.chatId)).success, true);
+    assert.ok(!shown(person) && !shown(endpoint));
+    const next = mod.readSummaryMemory();
+    next.storySummary.json.events[0].participants.push('新面孔');
+    next.storySummary.json.characterAliases.push({ from: person, to: '队长', evidence: '身份揭晓' });
+    await mod.commitSummaryMemory(host.context.chatId, next);
+    assert.ok(!shown('队长') && shown('新面孔'));
+    await change('队长', true);
+    assert.ok(shown('队长') && !shown(endpoint));
+    await change('队长', false);
+    const unlinked = mod.readSummaryMemory();
+    unlinked.storySummary.json.characters.main.push({ name: '队长' });
+    unlinked.storySummary.json.characterAliases = unlinked.storySummary.json.characterAliases.filter(alias => alias.from !== person);
+    await mod.commitSummaryMemory(host.context.chatId, unlinked);
+    assert.ok(!shown('队长') && shown(person));
+    await change('队长', true);
+    const imported = mod.prepareImportedSummary(mod.readSummaryMemory(), original, host.fixture.cutoff);
+    assert.equal(imported.storySummary.removedGraphPeople, undefined);
+    const owner = host.context;
+    host.context = { ...owner, chatId: 'another-chat', characters: [{ ...owner.characters[0], chat: 'another-chat' }] };
+    host.metadata = { extensions: { LittleWhiteBox: {} } };
+    host.files.set(host.context.chatId, structuredClone(host.metadata));
+    mod.reload(); await importFixture();
+    assert.ok(shown(person) && shown(endpoint));
+    assert.deepEqual(host.files.get(owner.chatId).extensions.LittleWhiteBox.storySummary.removedGraphPeople, [endpoint]);
+    host.context = owner;
+    host.metadata = structuredClone(host.files.get(owner.chatId)); mod.reload();
+    await mod.clearSummaryData(host.context.chatId);
+    assert.equal(disk().storySummary.removedGraphPeople, undefined);
+});
 
 // Acceptance: hidden variants occupy their original floors but supply no new
 // source. Unhide is observed at the next read, without rewriting past memory.

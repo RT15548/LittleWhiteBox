@@ -190,3 +190,7 @@
 @media (prefers-reduced-motion: reduce) {
     .archive *, .archive-drawer * { transition: none !important; animation: none !important; }
 }
+.graph-choice-row { align-items: end; }
+.graph-choice-row label { display: grid; flex: 1; min-width: 0; gap: .3rem; }
+.graph-choice-row select { width: 100%; }
+.graph-choice-row button { flex: none; }

@@ -12,6 +12,12 @@ const strings = { type: 'array', items: string };
 const collection = { type: 'string', enum: MEMORY_COLLECTIONS, description: 'Memory section containing the record.' };
 const object = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const tool = (name, description, properties, required = []) => ({ type: 'function', function: { name, description, parameters: object(properties, required) } });
+export const GRAPH_VISIBILITY_TOOL = tool('SetRelationGraphVisibility', 'Remove named people from this chat’s relationship graph or restore them at the user’s request. Their memories, relationships and event history stay intact. Accepts known names or aliases. Returns status saved once confirmed, or unchanged when already in the requested state.', {
+    names: { type: 'array', items: string, minItems: 1 }, visible: { type: 'boolean', description: 'False removes from the graph; true restores.' },
+}, ['names', 'visible']);
+export function memoryChatTools(task, graphAvailable) {
+    return [...(task ? MEMORY_TOOLS : []), READ_MAINTENANCE_TOOL, ...(graphAvailable ? [GRAPH_VISIBILITY_TOOL] : [])];
+}
 const fields = {
     events: {
         title: { ...string, description: 'Recognizable episode title.' }, timeLabel: { ...string, description: 'Supported date or established event-relative time.' },

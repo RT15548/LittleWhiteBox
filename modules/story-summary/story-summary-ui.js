@@ -8,7 +8,9 @@ import { createSummaryAgentSettings } from './maintenance/api-settings.js';
 // story-summary-ui.js
 // iframe 内 UI 逻辑
 
-import { ARCHIVE_COPY, createSummaryArchive, getArchiveCharacters, getArchiveStateFacts } from './archive-view.js';
+import { ARCHIVE_COPY, createSummaryArchive, getArchiveStateFacts } from './archive-view.js';
+import { getArchiveCharacters, relationGraph } from './data/relation-graph.js';
+import { createRelationGraphEditor } from './relation-graph-editor.js';
 import { EVENT_MEMORY_ROLES, projectEditedSummaryEvents } from './data/events.js';
 import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './data/summary-delay.js';
 import { DEFAULT_RECALL_TIMEOUT_SEC, DEFAULT_RERANK_TIMEOUT_SEC, DEFAULT_QUERY_EMBEDDING_TIMEOUT_SEC, MAX_RECALL_TIMEOUT_SEC, normalizeRecallTimeoutSec, normalizeRerankTimeoutSec, normalizeQueryEmbeddingTimeoutSec } from './data/recall-settings.js';
@@ -369,6 +371,7 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
     let relationChart = null;
     let relationChartFullscreen = null;
     let currentEditSection = null;
+    let graphEditor = null, graphSaveId = 0;
     let currentEditBaseline = null;
     let currentCharacterId = null;
     let allNodes = [];
@@ -1607,9 +1610,7 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
         if (!relationChart) relationChart = initChart(dom);
         const theme = getRelationTheme();
 
-        const rels = data?.relationships || [];
-        const allNames = new Set(getArchiveCharacters(summaryData).map(character => character.name));
-        rels.forEach(r => { if (r.from) allNames.add(r.from); if (r.to) allNames.add(r.to); });
+        const { people, relationships: rels } = relationGraph(summaryData);
 
         const degrees = {};
         rels.forEach(r => {
@@ -1625,7 +1626,7 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
             return (rank / sortedDegs.length) * 100;
         };
 
-        allNodes = Array.from(allNames).map(name => {
+        allNodes = people.map(({ name }) => {
             const deg = degrees[name] || 0;
             const pct = getPercentile(deg);
             let col, fontWeight;
@@ -1669,6 +1670,7 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
             };
         });
 
+        if ($('rel-fs-modal').classList.contains('active')) renderFullscreenGraph();
         if (!allNodes.length) { relationChart.clear(); return; }
 
         const updateChart = (nodes, links, focusId = null) => {
@@ -1860,7 +1862,11 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
         $('rel-fs-modal').classList.add('active');
         const dom = $('relation-chart-fullscreen');
         if (!relationChartFullscreen) relationChartFullscreen = initChart(dom);
+        renderFullscreenGraph();
+        postMsg('FULLSCREEN_OPENED');
+    }
 
+    function renderFullscreenGraph() {
         if (!allNodes.length) {
             relationChartFullscreen.clear();
             return;
@@ -1886,7 +1892,6 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
         });
 
         setTimeout(() => relationChartFullscreen.resize(), 100);
-        postMsg('FULLSCREEN_OPENED');
     }
 
     function closeRelationsFullscreen() {
@@ -2104,8 +2109,9 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
 
         const es = $('editor-struct');
         setHtml(es, `
+            <div class="struct-item" id="relation-graph-choices"></div>
             <div class="struct-item">
-                <div class="struct-row"><strong>角色列表</strong></div>
+                <div class="struct-row"><strong>主要人物资料</strong></div>
                 <div id="char-main-list">
                     ${(main.length ? main : ['']).map(n => `<div class="struct-row char-main-item"><input type="text" class="char-main-name" placeholder="角色名" value="${h(n || '')}"></div>`).join('')}
                 </div>
@@ -2127,6 +2133,7 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
             </div>
         `);
 
+        graphEditor = { ...createRelationGraphEditor($('relation-graph-choices'), summaryData), identity: summaryData.chatIdentity };
         es.querySelectorAll('.char-main-item,.char-rel-item').forEach(addDeleteHandler);
 
         $('char-main-add').onclick = () => {
@@ -2228,6 +2235,10 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
     }
 
     function closeEditor() {
+        if (currentEditSection === 'characters') {
+            graphEditor = null;
+            setGraphSaving(false);
+        }
         $('editor-modal').classList.remove('active');
         currentEditSection = null;
         currentEditBaseline = null;
@@ -2344,16 +2355,33 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
             return;
         }
 
+        if (section === 'characters') {
+            if (graphEditor.pending) return;
+            const changes = graphEditor.changes();
+            const edit = JSON.stringify(currentEditBaseline) === JSON.stringify(parsed) ? null : { previous: currentEditBaseline, data: parsed };
+            if (!changes.length && !edit) { closeEditor(); return; }
+            graphEditor.pending = ++graphSaveId;
+            setGraphSaving(true);
+            postMsg('SAVE_RELATION_GRAPH', { requestId: graphEditor.pending, identity: graphEditor.identity, changes, edit });
+            return;
+        }
         if (section === 'aliases') postMsg('UPDATE_CHARACTER_ALIASES', { aliases: parsed });
         else postMsg('UPDATE_SECTION', { section, previous: currentEditBaseline, data: parsed });
 
         if (section === 'keywords') renderKeywords(parsed);
         else if (section === 'events') { renderTimeline(parsed, { scrollMode: 'preserve' }); $('stat-events').textContent = parsed.length; }
-        else if (section === 'characters') renderRelations(parsed);
         else if (section === 'arcs') renderArcs(parsed);
         else if (section === 'facts') renderFacts(parsed);
 
         closeEditor();
+    }
+
+    function setGraphSaving(saving) {
+        for (const id of ['editor-save', 'editor-close', 'editor-cancel']) $(id).disabled = saving;
+        $('editor-save-label').hidden = saving;
+        $('editor-saving-label').hidden = !saving;
+        $('editor-struct').inert = saving;
+        $('editor-err').classList.remove('visible');
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -2367,6 +2395,16 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
         if (!d || d.source !== 'LittleWhiteBox') return;
 
         switch (d.type) {
+            case 'RELATION_GRAPH_SAVED':
+                if (!graphEditor?.pending || graphEditor.pending !== d.requestId) break;
+                graphEditor.pending = null;
+                setGraphSaving(false);
+                if (!d.error) closeEditor();
+                else {
+                    $('editor-err').textContent = d.error;
+                    $('editor-err').classList.add('visible');
+                }
+                break;
             case 'SUMMARY_AGENT_SETTINGS_RESULT':
                 agentSettings.receive(d);
                 break;
@@ -2405,6 +2443,9 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
             case 'SUMMARY_FULL_DATA':
                 if (d.payload) {
                     const p = d.payload;
+                    if (graphEditor && graphEditor.identity !== p.chatIdentity) closeEditor();
+                    summaryData.chatIdentity = p.chatIdentity;
+                    summaryData.removedGraphPeople = p.removedGraphPeople;
                     const nextChatId = typeof p.chatId === 'string' ? p.chatId : '';
                     memoryMaintenancePage.setChat(nextChatId);
                     if (nextChatId !== currentTimelineChatId) {
@@ -2445,12 +2486,14 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
                 break;
 
             case 'SUMMARY_CLEARED': {
+                const chatIdentity = d.payload.chatIdentity;
+                if (graphEditor && (graphEditor.identity !== chatIdentity || getArchiveCharacters(summaryData).length)) closeEditor();
                 const t = d.payload?.totalFloors || 0;
                 $('stat-events').textContent = 0;
                 $('stat-summarized').textContent = 0;
                 $('stat-pending').textContent = t;
                 $('summarized-count').textContent = 0;
-                summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [], facts: [], characterAliases: [] };
+                summaryData = { chatIdentity, keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [], facts: [], characterAliases: [] };
                 currentTimelineChatId = '';
                 tlUnfilteredPage = null;
                 currentCharacterId = null;
@@ -2609,7 +2652,7 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
         $$('.sec-btn[data-section]').forEach(b => b.onclick = () => openEditor(b.dataset.section));
 
         // Editor modal
-        $('editor-backdrop').onclick = closeEditor;
+        $('editor-backdrop').onclick = () => { if (!graphEditor?.pending) closeEditor(); };
         $('editor-close').onclick = closeEditor;
         $('editor-cancel').onclick = closeEditor;
         $('editor-save').onclick = saveEditor;

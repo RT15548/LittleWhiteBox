@@ -67,6 +67,7 @@ export function applyImportedSummaryBoundary(store, boundary) {
 export function prepareImportedSummary(previous, json, boundary) {
     const next = structuredClone(previous);
     const store = next.storySummary;
+    delete store.removedGraphPeople;
     store.json = structuredClone(json);
     store.json.facts = assignImportedFactIds(store.json.facts);
     delete store.summaryInvalid;

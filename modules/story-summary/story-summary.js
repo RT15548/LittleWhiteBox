@@ -217,6 +217,8 @@ import { orphanVectorIds } from './vector/utils/vector-source.js';
 import { createMessageSourceTracker } from './data/message-sources.js';
 import { getChatIdentity } from './data/chat-identity.js';
 import { applySummarySectionEdit } from './data/section-edits.js';
+import { applyGraphChoices, getArchiveCharacters } from './data/relation-graph.js';
+import { sameMemory } from './maintenance/domain.js';
 import { retainSourceChange, synchronizeSourceCaches } from './data/source-sync.js';
 import { observeAsyncCallback, observeBackgroundTask } from '../../shared/common/async-errors.js';
 
@@ -241,6 +243,8 @@ const serviceTests = createServiceTests({
 });
 const summaryDiagnostics = createSummaryDiagnostics();
 const memoryMaintenance = createMemoryMaintenanceHost({
+    hasGraphPeople: store => !!store.removedGraphPeople?.length || getArchiveCharacters(buildFramePayload(store)).length > 0,
+    saveGraphChoices: (identity, changes, signal) => saveRelationGraph(identity, changes, null, signal),
     prepareInput: ensureHideOwnership,
     readSummaryDiagnostics: args => summaryDiagnostics.read(getChatIdentity(getContext()), args),
     isEnabled: () => isStorySummaryEnabledForCurrentChat(),
@@ -281,7 +285,7 @@ async function sendMemoryMaintenanceResults(offset = 0) {
 const messageButtonOwnership = createMessageButtonOwnership();
 let saveChatSummaryState = context => context.saveMetadata();
 const iframePath = `${extensionFolderPath}/modules/story-summary/story-summary.html`;
-const VALID_SECTIONS = ["keywords", "events", "characters", "arcs", "facts"];
+const VALID_SECTIONS = ["keywords", "events", "arcs", "facts"];
 const MESSAGE_EVENT = "message";
 const AUTO_SUMMARY_MAX_ATTEMPTS = 3;
 let chatSummaryStateChanging = false;
@@ -2433,7 +2437,7 @@ function sendFrameFullData(store, totalFloors) {
             payload: buildFramePayload(store),
         });
     } else {
-        postToFrame({ type: "SUMMARY_CLEARED", payload: { totalFloors } });
+        postToFrame({ type: "SUMMARY_CLEARED", payload: { totalFloors, chatIdentity: getChatIdentity(getContext()) } });
     }
 }
 
@@ -2442,6 +2446,8 @@ function buildFramePayload(store) {
     const facts = json.facts || [];
     return {
         chatId: getContext().chatId || '',
+        chatIdentity: getChatIdentity(getContext()),
+        removedGraphPeople: store?.removedGraphPeople || [],
         keywords: json.keywords || [],
         events: json.events || [],
         characters: {
@@ -2873,6 +2879,48 @@ function mergeCharacterRelationshipsIntoFacts(existingFacts, relationships, floo
     }
 
     return [...nonRelationFacts, ...newRelationFacts];
+}
+
+async function saveRelationGraph(identity, changes, edit, signal) {
+    const { chatId } = getContext();
+    const checkOwner = () => {
+        throwIfSignalAborted(signal);
+        if (!identity || getChatIdentity(getContext()) !== identity) {
+            throw Object.assign(new Error('summary_chat_changed_before_save'), { code: 'summary_chat_changed_before_save' });
+        }
+    };
+    checkOwner();
+    if (edit) {
+        cancelActiveSummaryExecution();
+        cancelRecallAndClearPrompt('summary-edited');
+    }
+    const result = await runVectorWriteTask({ chatId, kind: 'relation-graph-edit', scope: VECTOR_WRITE_SCOPES.CONSISTENCY }, async () => {
+        do { await waitForMemoryCommit(signal); } while (getMemoryCommitState() === 'saving');
+        checkOwner();
+        assertMemoryWritable(chatId);
+        const previous = readSummaryMemory();
+        const next = structuredClone(previous);
+        const store = next.storySummary;
+        const data = buildFramePayload(store);
+        const changed = applyGraphChoices(store, data, changes);
+        if (edit) {
+            const edited = applySummarySectionEdit('characters', edit.previous, edit.data, data.characters);
+            store.json ||= {};
+            if (!sameMemory(edit.previous.main, edit.data.main)) {
+                store.json.characters = stampEditedCharacters(store.json.characters,
+                    { ...store.json.characters, main: edited.main }, getCurrentFloorHint());
+            }
+            if (!sameMemory(edit.previous.relationships, edit.data.relationships)) {
+                store.json.facts = mergeCharacterRelationshipsIntoFacts(store.json.facts, edited.relationships, getCurrentFloorHint());
+            }
+            store.updatedAt = Date.now();
+        }
+        if (changed || edit) await commitSummaryMemory(chatId, next, { previous, validate: checkOwner });
+        return { status: changed || edit ? 'saved' : 'unchanged' };
+    });
+    if (!result) throw new Error('metadata_commit_cancelled');
+    if (getChatIdentity(getContext()) === identity) postToFrame({ type: 'SUMMARY_FULL_DATA', payload: buildFramePayload(readPublishedSummaryMemory().storySummary) });
+    return result;
 }
 
 function getCurrentFloorHint() {
@@ -3692,6 +3740,15 @@ async function handleFrameMessage(event) {
             hideOverlay();
             break;
 
+        case 'SAVE_RELATION_GRAPH': {
+            try {
+                await saveRelationGraph(data.identity, data.changes, data.edit);
+                postToFrame({ type: 'RELATION_GRAPH_SAVED', requestId: data.requestId });
+            } catch (error) {
+                postToFrame({ type: 'RELATION_GRAPH_SAVED', requestId: data.requestId, error: memorySaveError(error) });
+            }
+            break;
+        }
         case "UPDATE_SECTION": {
             if (!VALID_SECTIONS.includes(data.section)) break;
             const context = getContext();
@@ -3716,16 +3773,11 @@ async function handleFrameMessage(event) {
                     const oldFacts = store.json.facts || [];
                     const edited = applySummarySectionEdit(data.section, data.previous, data.data,
                         buildFramePayload(previous.storySummary)[data.section]);
-                    store.json[data.section] = data.section === "characters"
-                        ? stampEditedCharacters(store.json.characters, edited, getCurrentFloorHint())
-                        : data.section === "events" ? projectEditedSummaryEvents(edited) : edited;
+                    store.json[data.section] = data.section === "events" ? projectEditedSummaryEvents(edited) : edited;
                     if (data.section === "facts") store.json.facts = [
                         ...oldFacts.filter(fact => fact.retracted),
                         ...mergeEditedFactsWithTimestamps(oldFacts, edited.filter(fact => !fact.retracted), getCurrentFloorHint()),
                     ];
-                    if (data.section === "characters") {
-                        store.json.facts = mergeCharacterRelationshipsIntoFacts(store.json.facts, edited.relationships, getCurrentFloorHint());
-                    }
                     store.updatedAt = Date.now();
                     await commitSummaryMemory(chatId, next, { previous, invalidate: async () => {
                         if (oldEvents) {

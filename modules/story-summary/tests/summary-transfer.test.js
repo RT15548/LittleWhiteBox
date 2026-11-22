@@ -28,7 +28,7 @@ test('downloaded JSON round-trips memory without carrying old floor ownership', 
     const api = entry(['downloadSummaryMemoryPackage', 'buildSummaryExportPackage', 'cloneSummaryJsonForPortability',
         'stripFloorMarker', 'normalizeInternalFact', 'normalizePortableFact', 'serializePortableFact', 'extractSummaryImportJson'], {
         SUMMARY_TRANSFER_COPY, SUMMARY_MEMORY_PACKAGE, readSummaryPackageData, normalizeCharacterAliases, normalizeEventMemoryRole,
-        getContext: () => ({ chatId: '测试/聊天' }), getSummaryStore: () => ({ json }), Blob,
+        getContext: () => ({ chatId: '测试/聊天' }), getSummaryStore: () => ({ json, removedGraphPeople: ['小雪'] }), Blob,
         URL: { createObjectURL(value) { blob = value; return 'blob:test'; }, revokeObjectURL() { revoked = true; } },
         document: { createElement: () => link, body: { appendChild() {} } },
     });
@@ -47,6 +47,7 @@ test('downloaded JSON round-trips memory without carrying old floor ownership', 
     });
     assert.equal(imported.events[0].summary, '在桥上相逢。');
     assert.equal(JSON.stringify(payload).includes('_addedAt'), false);
+    assert.equal(Object.hasOwn(payload.data, 'removedGraphPeople'), false);
     assert.deepEqual(json, before);
 });
 

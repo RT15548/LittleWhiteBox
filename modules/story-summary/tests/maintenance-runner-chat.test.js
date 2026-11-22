@@ -42,6 +42,38 @@ function assertPaired(messages) {
     }
 }
 
+// A graph cleanup is an explicit user choice. It cannot erase story facts or
+// be performed by automatic maintenance; the model sees success only after save.
+test('chat graph action awaits confirmation and is unavailable to automatic maintenance', async () => {
+    for (const [mode, hasBoundary] of [['chat', true], ['chat', false], ['auto', true]]) {
+        const h = harness(), before = structuredClone(h.current.json);
+        const name = 'SetRelationGraphVisibility';
+        let requested = false, saved = false;
+        const result = await runMemoryAgent(hasBoundary ? h.session : null, { ...h.options, mode, question: '从关系网移除守卫',
+            setGraphVisibility: async changes => {
+                assert.deepEqual(changes, [{ name: '守卫', visible: false }]);
+                await Promise.resolve(); saved = true; return { status: 'saved' };
+            },
+            adapter: { chat: async request => {
+                assert.equal(request.tools.some(t => t.function.name === name), mode === 'chat');
+                assert.equal(request.tools.some(t => t.function.name === 'EditMemory'), hasBoundary);
+                if (mode === 'chat' && !requested) {
+                    requested = true; return { toolCalls: [call('graph', name, { names: ['守卫'], visible: false })] };
+                }
+                if (mode === 'chat') {
+                    assert.ok(saved);
+                    assert.equal(JSON.parse(request.messages.at(-1).content).status, 'saved');
+                }
+                return { text: '完成' };
+            } },
+        });
+        assert.equal(result.error, undefined);
+        assert.equal(saved, mode === 'chat');
+        assert.equal(result.saved, Number(saved));
+        assert.deepEqual(h.current.json, before);
+    }
+});
+
 // Acceptance: a confirmed save whose source changed reports only remaining results,
 // never retries the old draft or blocks the next turn. Completion-only work is valid.
 // Cost: false saved/completed feedback or duplicate writes after a successful save.

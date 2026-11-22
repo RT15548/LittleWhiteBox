@@ -801,6 +801,7 @@ export async function clearSummaryData(chatId) {
     const next = structuredClone(retired);
     const store = next.storySummary;
     delete store.json;
+    delete store.removedGraphPeople;
     store.lastSummarizedMesId = -1;
     store.summaryHistory = [];
     delete store.pendingImportBoundary;

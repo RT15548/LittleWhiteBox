@@ -16,7 +16,7 @@ function controllerFixture(t, execute = async () => ({ status: 'completed', summ
         interact: (task, run) => run(task, new AbortController().signal, () => {}) };
     const chat = createMemoryChatController({ identity: () => identity, chatId: () => identity,
         scheduler, execute, status: () => ({ automatic: { status: 'idle' }, ranges: { cutoff: 0, completed: [], pending: [] } }),
-        previewTask: () => { previews++; return null; }, changed() {} });
+        previewAccess: () => { previews++; return { task: null, graphAvailable: false }; }, changed() {} });
     t.after(() => chat.reset({ preview: false }));
     return { chat, request: text => ({ identity: chat.identity, text }), previews: () => previews,
         switch: next => { identity = next; } };

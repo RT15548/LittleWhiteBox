@@ -8,6 +8,7 @@ export const MEMORY_DATA_COPY = Object.freeze({
     notSaved: '本次记忆修改未能保存，请重试本次操作。',
     sourceChanged: '原文已变化，本次锚点结果不再适用；请针对当前正文重新补齐。',
     conflict: '记忆内容已发生变化，本次修改未保存；请重新打开面板，核对后再修改。',
+    graphPersonMissing: '人物名单已变化，请重新打开「编辑关系」核对人物。',
     cacheFailed: '原文对应的旧锚点已停用，但本地检索缓存未清理完成；请重试“补齐缺漏”。',
     anchorsFailed: '本次锚点补齐未能保存，请在“记忆锚点”中重试；详情见日志。',
 });
@@ -15,6 +16,7 @@ export const MEMORY_DATA_COPY = Object.freeze({
 export function memorySaveError(error, operation = 'memory') {
     if (error?.uncertain || error?.code === 'metadata_unconfirmed') return MEMORY_DATA_COPY.unconfirmed;
     if (error?.code === 'metadata_saving') return MEMORY_DATA_COPY.saving;
+    if (error?.code === 'graph_person_missing') return MEMORY_DATA_COPY.graphPersonMissing;
     if (error?.code === 'source_boundary_invalid') return MEMORY_DATA_COPY.sourceInvalid;
     if (['history_discontinuous', 'summary_history_invalid'].includes(error?.code)) return MEMORY_DATA_COPY.historyInvalid;
     if (error?.code === 'metadata_source_changed') return MEMORY_DATA_COPY.sourceChanged;
