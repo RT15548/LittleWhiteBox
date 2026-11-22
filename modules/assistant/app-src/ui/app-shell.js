@@ -1,3 +1,4 @@
+import { deliveryPanelMarkup } from '../../plugins/delivery/panel.js';
 import { buildAgentSettingsPanelMarkup } from '../../../agent-core/ui/settings-markup.js';
 import { ACTIVITY_COPY as C } from './activity-copy.js';
 import { chromeIcon } from './chrome-icons.js';
@@ -24,7 +25,7 @@ export function buildAppMarkup(state) {
                 </div>
             </header>
             <aside class="xb-assistant-sidebar ${state.sidebarCollapsed ? 'is-collapsed' : ''}" id="xb-assistant-sidebar">
-                <div class="xb-assistant-api-entry">
+                <div class="xb-assistant-sidebar-entries"><div class="xb-assistant-api-entry">
                     <button id="xb-assistant-api-summary" type="button" class="xb-assistant-api-summary" aria-haspopup="dialog" aria-expanded="false" aria-controls="xb-assistant-api-popover">
                         <span class="xb-assistant-api-summary-icon" aria-hidden="true">${chromeIcon('settings')}</span>
                         <span class="xb-assistant-api-summary-text">
@@ -50,6 +51,8 @@ export function buildAppMarkup(state) {
                             })}
                         </div>
                     </section>
+                </div>
+                ${deliveryPanelMarkup()}
                 </div>
                 <div class="xb-assistant-sidebar-tree" id="xb-assistant-workspace-nav"></div>
             </aside>

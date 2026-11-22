@@ -279,6 +279,7 @@ function createGoogleStreamAccumulator(task, effectiveReasoning, config = {}) {
             return {
                 text,
                 toolCalls,
+                toolCallsAreNative: true,
                 thoughts,
                 ...readResponseCompletion('google', finishReason),
                 model,

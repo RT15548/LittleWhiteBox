@@ -284,6 +284,7 @@ function parseContentResult(content = [], options = {}) {
     return {
         text,
         toolCalls,
+        toolCallsAreNative: true,
         thoughts,
         ...readResponseCompletion('anthropic', options.finishReason),
         model: options.model || '',

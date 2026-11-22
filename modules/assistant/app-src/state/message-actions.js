@@ -1,3 +1,5 @@
+import { deliveredText } from '../../plugins/delivery/history.js';
+
 function isAssistantTextMessage(message) {
     return message?.role === 'assistant'
         && !message.approvalRequest
@@ -13,9 +15,12 @@ export function getMessageActions(messages, messageIndex) {
     if (message.role === 'user') {
         return messageIndex === lastUserIndex ? ['copy', 'edit', 'reroll', 'delete'] : [];
     }
-    if (!isAssistantTextMessage(message)) return [];
-    const lastReplyIndex = messages.findLastIndex(isAssistantTextMessage);
-    return messageIndex === lastReplyIndex && messageIndex > lastUserIndex
+    const delivery = deliveredText(messages, messageIndex) !== undefined;
+    if (!delivery && !isAssistantTextMessage(message)) return [];
+    const lastReplyIndex = messages.findLastIndex((item, i) => isAssistantTextMessage(item) || deliveredText(messages, i) !== undefined);
+    const latest = messageIndex === lastReplyIndex && messageIndex > lastUserIndex;
+    if (delivery) return latest ? ['copy', 'reroll'] : ['copy'];
+    return latest
         ? ['copy', 'edit', 'reroll', 'delete']
         : ['copy', 'edit'];
 }

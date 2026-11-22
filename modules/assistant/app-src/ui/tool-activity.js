@@ -1,4 +1,5 @@
 import { describeToolCall, isWebTool, TOOL_NAMES } from '../tooling.js';
+import { deliveryActivityLabels } from '../../plugins/delivery/history.js';
 import { ACTIVITY_COPY } from './activity-copy.js';
 
 const shortText = value => String(value ?? '').replace(/\s+/gu, ' ').trim().slice(0, 160);
@@ -47,6 +48,7 @@ export function createToolActivityProjection(getActivity = () => null) {
     const calls = new WeakMap(), receipts = new WeakMap();
 
     function label(call) {
+        if (deliveryActivityLabels.has(call.name)) return deliveryActivityLabels.get(call.name);
         const cached = calls.get(call);
         if (cached?.arguments === call.arguments) return cached.label;
         const args = parseRecord(call.arguments) || {};

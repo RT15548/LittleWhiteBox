@@ -535,6 +535,7 @@ export class AnthropicAdapter {
         return {
             text,
             toolCalls,
+            toolCallsAreNative: true,
             thoughts,
             ...completion,
             usage,

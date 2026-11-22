@@ -29,7 +29,8 @@ test('keep the three fitting batches and never round up to take a large fourth b
 });
 
 function harness(respond) {
-    const state = { messages: [message('user', 'historical '.repeat(2000)), message('user', '开始写我的卡'), ...batch('latest')],
+    const state = { messages: [message('user', 'historical '.repeat(2000)), ...batch('old-call'), message('assistant', 'previous task finished'),
+        message('user', '开始写我的卡'), ...batch('latest')],
         compactions: [{ summary: 'original memory' }], contextStats: {} };
     const requests = [], stages = [];
     let saves = 0;
@@ -57,9 +58,11 @@ for (const reason of ['stop', 'length', undefined]) {
         assert.equal(h.saves(), 1);
         assert.ok(h.requests.length > 1);
         assert.ok(h.requests[0].messages[0].content.includes('original memory'));
+        assert.ok(h.requests.some(request => request.messages[0].content.includes('previous task finished')));
         for (let i = 1; i < h.requests.length; i++) assert.ok(h.requests[i].messages[0].content.includes('merged memory ' + i));
         assert.deepEqual(messages.map(m => m.role), ['system', 'user', 'assistant', 'tool']);
         assert.equal(messages[1].content, '开始写我的卡');
+        assert.equal(messages[3].tool_call_id, 'latest');
         const count = h.requests.length;
         await h.run(new AbortController().signal);
         assert.equal(h.requests.length, count);

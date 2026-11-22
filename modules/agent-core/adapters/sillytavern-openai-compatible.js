@@ -216,6 +216,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         return {
             text: cleanedText,
             toolCalls: [...standardToolCalls, ...taggedToolCalls],
+            toolCallsAreNative: !options.taggedMode && standardToolCalls.length > 0,
             thoughts: isReasoningOutputVisible(effectiveReasoning) ? thoughts : [],
             ...readResponseCompletion('openai', lastFinishReason, !!assistantSnapshot.refusal, undefined, getStreamedSnapshotText(assistantSnapshot)),
             model: lastModel,
@@ -244,6 +245,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         return {
             text: cleanedText,
             toolCalls: [...standardToolCalls, ...taggedToolCalls],
+            toolCallsAreNative: !options.taggedMode && standardToolCalls.length > 0,
             thoughts: isReasoningOutputVisible(effectiveReasoning) ? thoughts : [],
             ...readResponseCompletion('openai', choice.finish_reason, !!message.refusal, undefined, contentText),
             model: response.model || this.config.model,
@@ -263,6 +265,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
         const hasTools = Array.isArray(task.tools) && task.tools.length > 0;
         const run = async (payload, options = {}) => {
+            const { taggedMode } = options;
             let requestInspection = null;
             const onRequest = (request) => {
                 requestInspection = this.buildRequestInspection(request, task, effectiveReasoning);
@@ -272,8 +275,9 @@ export class SillyTavernOpenAICompatibleAdapter {
                     ? await this.streamChat(task, payload, effectiveReasoning, {
                         onRequest,
                         onResponseAccepted: options.onResponseAccepted,
+                        taggedMode,
                     })
-                    : await this.nonStreamingChat(task, payload, effectiveReasoning, { onRequest });
+                    : await this.nonStreamingChat(task, payload, effectiveReasoning, { onRequest, taggedMode });
                 return {
                     ...result,
                     requestInspection,
@@ -288,7 +292,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         const payload = this.buildPayload(task, isTaggedMode, effectiveReasoning);
 
         try {
-            return await run(payload);
+            return await run(payload, { taggedMode: isTaggedMode });
         } catch (error) {
             if (task.allowToolProtocolFallback === false
                 || isTaggedMode
@@ -307,6 +311,6 @@ export class SillyTavernOpenAICompatibleAdapter {
             });
         }
         const fallbackPayload = this.buildPayload(task, true, effectiveReasoning);
-        return await run(fallbackPayload);
+        return await run(fallbackPayload, { taggedMode: true });
     }
 }

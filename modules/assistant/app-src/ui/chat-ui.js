@@ -1,3 +1,4 @@
+import { deliveredText } from '../../plugins/delivery/history.js';
 import { isTimelineCompaction } from '../state/compaction-history.js';
 import { compactionRow } from './compaction-row.js';
 import { buildMarkdownFragment } from '../../../agent-core/ui/message-markdown.js';
@@ -383,17 +384,18 @@ export function createChatUi(deps) {
         return bubble;
     }
 
-    function createMessageRenderUnit(message, messageIndex) {
+    function createMessageRenderUnit(message, messageIndex, deliveryBody) {
+        const display = deliveryBody === undefined ? message : { ...message, role: 'assistant', content: deliveryBody };
         const signature = JSON.stringify({
             type: 'message',
             messageIndex,
-            message: getRenderableMessageSignature(message, messageIndex),
+            message: getRenderableMessageSignature(display, messageIndex),
         });
         return {
             key: message,
             signature,
             build: () => {
-                const node = buildMessageBubble(message, messageIndex);
+                const node = buildMessageBubble(display, messageIndex);
                 node.dataset.renderSignature = signature;
                 return node;
             },
@@ -436,9 +438,13 @@ export function createChatUi(deps) {
                 if (index === firstTool) {
                     units.push(createProcessUnit(state.messages.slice(firstTool, processEnd),
                         !!state.isBusy && end === state.messages.length));
-                    index = processEnd - 1;
-                } else if (state.messages[index].role !== 'tool' && !state.messages[index].approvalRequest) {
-                    units.push(createMessageRenderUnit(state.messages[index], index));
+                }
+                const message = state.messages[index];
+                const body = deliveredText(state.messages, index);
+                if (body !== undefined) {
+                    units.push(createMessageRenderUnit(message, index, body));
+                } else if ((index < firstTool || index >= processEnd) && message.role !== 'tool' && !message.approvalRequest) {
+                    units.push(createMessageRenderUnit(message, index));
                 }
             }
             start = end;

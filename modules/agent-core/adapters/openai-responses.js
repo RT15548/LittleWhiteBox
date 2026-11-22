@@ -628,6 +628,7 @@ export class OpenAIResponsesAdapter {
         return {
             text: parsed.text,
             toolCalls: parsed.toolCalls,
+            toolCallsAreNative: true,
             thoughts: parsed.thoughts,
             ...readResponseCompletion('responses', response.incomplete_details?.reason || response.status,
                 parsed.output.some(item => item?.type === 'message' && Array.isArray(item.content)

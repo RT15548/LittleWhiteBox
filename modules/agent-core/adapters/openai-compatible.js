@@ -1287,6 +1287,7 @@ export class OpenAICompatibleAdapter {
         return {
             text: cleanedText,
             toolCalls,
+            toolCallsAreNative: standardToolCalls.length > 0,
             thoughts: visibleThoughts(effectiveReasoning, thoughts),
             ...readResponseCompletion('openai', lastFinishReason, !!assistantSnapshot.refusal, describeStreamedResponse(assistantSnapshot, lastFinishReason, lastModel), getStreamedSnapshotText(assistantSnapshot)),
             model: lastModel,
@@ -1388,6 +1389,7 @@ export class OpenAICompatibleAdapter {
             return {
                 text: cleanedText,
                 toolCalls,
+                toolCallsAreNative: false,
                 thoughts: visibleThoughts(effectiveReasoning, thoughts),
                 ...readResponseCompletion('openai', lastFinishReason, !!finalMessage.refusal, finalCompletion
                     ? describeCompletionResponse(finalCompletion, finalChoice || {}, finalMessage)
@@ -1422,6 +1424,7 @@ export class OpenAICompatibleAdapter {
         return {
             text: cleanedText,
             toolCalls,
+            toolCallsAreNative: !isTaggedMode && standardToolCalls.length > 0,
             thoughts: visibleThoughts(effectiveReasoning, thoughts),
             ...readResponseCompletion('openai', choice.finish_reason, !!message.refusal, describeCompletionResponse(response, choice, message), contentText),
             model: response.model || this.config.model,

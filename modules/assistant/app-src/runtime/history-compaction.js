@@ -149,7 +149,8 @@ export function createHistoryCompactionController(deps) {
         signal?.throwIfAborted();
         const context = getActiveContextMessages();
         const original = toProviderMessages(context, options);
-        updateContextStats(original);
+        const tools = options.requestTools ?? getToolDefinitions();
+        updateContextStats(original, tools);
         const before = state.contextStats.usedTokens;
         if (before <= compactionThreshold()) return original;
 
@@ -157,14 +158,15 @@ export function createHistoryCompactionController(deps) {
         const checkLimit = used => {
             if (used > limit) throw Object.assign(new Error(ACTIVITY_COPY.contextFull(used, limit)), { code: 'assistant_context_over_budget' });
         };
-        const tools = getToolDefinitions(), providerConfig = getActiveProviderConfig();
+        const providerConfig = getActiveProviderConfig();
         const count = messages => estimateConversationTokens({ messages, tools, providerConfig });
         const pinned = context.findLast(message => message.role === 'user');
-        const fixed = count(toProviderMessages(pinned ? [pinned] : [], { ...options, historySummary: '' }));
+        const pinnedMessages = options.pinnedMessages ?? [];
+        const fixed = count(toProviderMessages([...(pinned ? [pinned] : []), ...pinnedMessages], { ...options, historySummary: '' }));
         checkLimit(fixed);
         const costs = estimateMessageTokenCosts(original, tools, providerConfig);
         const tailCapacity = Math.max(0, limit - fixed - (providerConfig.maxTokens || 0));
-        const { archived, retained, priorCount } = selectCompactionRange(context, costs.slice(costs.length - context.length), limit, tailCapacity);
+        const { archived, retained, priorCount } = selectCompactionRange(context, costs.slice(costs.length - context.length), limit, tailCapacity, pinnedMessages);
         if (!archived.length || skippedThrough.get(adapter) === archived.at(-1)) {
             checkLimit(before);
             return original;

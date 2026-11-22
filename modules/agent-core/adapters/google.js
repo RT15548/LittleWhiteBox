@@ -844,6 +844,7 @@ export class GoogleAdapter {
         return {
             text,
             toolCalls: normalizedToolCalls,
+            toolCallsAreNative: true,
             thoughts,
             ...readResponseCompletion('google', finishReason),
             model: response.modelVersion || this.config.model,

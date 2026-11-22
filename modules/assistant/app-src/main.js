@@ -36,7 +36,11 @@ import { locateFile } from '../../card-workspace/files.js';
 import { COPY as CARD_COPY } from '../../card-workspace/copy.js';
 import { createAttachmentsManager } from './attachments.js';
 import { applyWorkspaceLayout, renderAppChrome, renderContextHint, resolveWorkspaceWidth } from './ui/app-chrome.js';
-import { bindApiPopover, setApiPopoverOpen } from './ui/api-entry.js';
+import { createSettingsPopoverGroup } from './ui/settings-popover-group.js';
+import { bindDeliveryPanel } from '../plugins/delivery/panel.js';
+import { deliverySettingsForRun, loadDeliverySettings, saveDeliverySettings } from '../plugins/delivery/settings.js';
+import { deliveredText } from '../plugins/delivery/history.js';
+import { bindApiPopover } from './ui/api-entry.js';
 import { bindContextMeter, renderContextMeter } from './ui/context-meter.js';
 import { buildAppMarkup as buildAssistantAppMarkup } from './ui/app-shell.js';
 import { createChatUi } from './ui/chat-ui.js';
@@ -1322,10 +1326,9 @@ const {
     resetCompactionState,
     buildContextMeterLabel,
     compactionThreshold,
-    updateContextStats,
+    updateDisplayContextStats,
     pushMessage,
     cancelActiveRun,
-    toProviderMessages,
     getActiveContextMessages,
     runAssistantLoop,
     callHostTool,
@@ -1341,6 +1344,8 @@ sessionStore = createSessionStore({
     normalizeThoughtBlocks,
     getActiveContextMessages,
 });
+
+let deliveryPanel, openApiPopover;
 
 function applyConfig(config) {
     const nextConfig = normalizeAssistantConfig(config || {});
@@ -1367,6 +1372,7 @@ async function createAssistantRun() {
     };
     state.activeRun = run;
     try {
+        run.deliverySettings = deliverySettingsForRun(showToast);
         run.userContextSnapshotText = await getRunUserContextSnapshotText();
         return run.controller.signal.aborted ? null : run;
     } catch (error) {
@@ -1422,7 +1428,7 @@ function renderCurrentContextMeter(root = document.getElementById(ROOT_ID)) {
 function runContextStatsUpdateForRender() {
     contextStatsRenderTimer = null;
     lastContextStatsRenderAt = Date.now();
-    updateContextStats(toProviderMessages(getActiveContextMessages()));
+    updateDisplayContextStats(deliveryPanel?.savedSettings);
     renderCurrentContextMeter();
 }
 
@@ -1472,6 +1478,7 @@ function render() {
         syncConfigToForm(root);
         state.configFormSyncPending = false;
     }
+    deliveryPanel.refreshStatus();
     scheduleContextStatsUpdateForRender();
     ensureWorkspaceSelection();
     renderActivity();
@@ -1635,7 +1642,10 @@ function bindEvents(root) {
         post('xb-assistant:minimize');
     });
 
-    bindApiPopover(root);
+    const bindPopover = createSettingsPopoverGroup(root);
+    openApiPopover = bindApiPopover(root, bindPopover);
+    deliveryPanel = bindDeliveryPanel(root, { load: loadDeliverySettings, save: saveDeliverySettings,
+        getProviderConfig: getActiveProviderConfig, bindPopover, onSaved: scheduleContextStatsUpdateForRender });
 
     root.querySelector('#xb-assistant-workspace-backdrop')?.addEventListener('click', () => {
         closeWorkspace();
@@ -1728,7 +1738,7 @@ function bindEvents(root) {
         if (requiredAction !== action && state.editingMessageIndex !== messageIndex) return;
 
         if (action === 'copy') {
-            const copied = await copyText(String(message.content || ''));
+            const copied = await copyText(deliveredText(state.messages, messageIndex) ?? String(message.content || ''));
             flashMessageActionButton(messageIndex, action, copied);
             showToast(copied ? MESSAGE_ACTION_COPY.copied : MESSAGE_ACTION_COPY.error.label);
             return;
@@ -1826,6 +1836,7 @@ function bindEvents(root) {
     root.querySelector('#xb-assistant-chat').addEventListener('click', handleAssistantPanelClick);
     root.querySelector('#xb-assistant-approval-slot')?.addEventListener('click', handleAssistantPanelClick);
     bindSettingsPanelEvents(root);
+    root.querySelector('#xb-assistant-tool-mode').addEventListener('change', deliveryPanel.refreshStatus);
 
     root.querySelector('#xb-assistant-clear').addEventListener('click', async () => {
         if (state.isClosingAssistant || state.isBusy || state.isPreparingRun || state.isClearingConversation) return;
@@ -2074,7 +2085,7 @@ window.addEventListener('message', (event) => {
     if (data.type === 'xb-assistant:open-settings') {
         state.sidebarCollapsed = false;
         render();
-        setApiPopoverOpen(document.getElementById(ROOT_ID), true);
+        openApiPopover?.();
         return;
     }
 

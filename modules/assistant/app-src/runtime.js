@@ -22,6 +22,7 @@ import { createStreamingMessageController } from './runtime/streaming-messages.j
 import { settleAssistantRunFailure } from './runtime/run-failure.js';
 import { callReadableWorkspaceTool } from '../shared/workspace-tool-paths.js';
 import { filterSkillTools, isSkillTool, loadedSkillIds } from '../shared/skill-tools.js';
+import { createResponseDelivery, DELIVERY_FINAL_STEP, isDeliveryTool, TOOL_DELIVER } from '../plugins/delivery/protocol.js';
 
 const JSAPI_MANIFEST_URL = pluginAsset('modules/assistant/st-jsapi-manifest.json');
 let jsApiManifestPromise = null;
@@ -219,7 +220,7 @@ export function createAssistantRuntime(deps) {
         SUMMARY_TRIGGER_TOKENS,
     });
 
-    function pushMessage(message) {
+    function appendMessage(message) {
         state.messages.push({
             ...compactionPosition(state),
             ...message,
@@ -228,6 +229,10 @@ export function createAssistantRuntime(deps) {
                 ? filterThoughtsForCurrentTurn(message.thoughts)
                 : normalizeThoughtBlocks(message.thoughts),
         });
+    }
+
+    function pushMessage(message) {
+        appendMessage(message);
         persistSession();
     }
 
@@ -308,6 +313,7 @@ export function createAssistantRuntime(deps) {
                     ? String(getEphemeralUserContextText() || '').trim()
                     : ''
             );
+        if (options.delivery) messages.push({ role: 'system', content: options.delivery.instructions });
         messages.push(...buildProviderMessagesFromHistory(baseMessages, {
             includeMessage: (message) => !message?.approvalRequest,
             buildUserContent: (message) => buildUserContentParts({
@@ -457,6 +463,13 @@ export function createAssistantRuntime(deps) {
     }
 
     async function executeAssistantToolCall(toolCall, parsedArguments, run, options = {}) {
+        if (isDeliveryTool(toolCall.name)) {
+            if (!options.delivery || !options.allowedToolNames?.has(toolCall.name)) {
+                return { ok: false, error: 'response_delivery_unavailable' };
+            }
+            if (toolCall.name !== TOOL_DELIVER && !options.toolCallsAreNative) return { ok: false, error: 'response_delivery_requires_native_tool_call' };
+            return options.delivery.execute(toolCall.name, parsedArguments);
+        }
         const slashCommand = toolCall.name === TOOL_NAMES.RUN_SLASH_COMMAND
             ? normalizeSlashCommand(parsedArguments.command)
             : '';
@@ -642,9 +655,35 @@ export function createAssistantRuntime(deps) {
         }
     }
 
+    function recordDeliveryPrelude(delivery, signal) {
+        signal.throwIfAborted();
+        const start = state.messages.length;
+        for (const { name, content } of delivery.prelude) {
+            const id = createRequestId('delivery');
+            const toolResult = delivery.execute(name);
+            appendMessage({ role: 'assistant', content, toolCalls: [{ name, id, arguments: '{}' }] });
+            appendMessage(buildToolResultMessage({ toolCallId: id, toolName: name, toolResult }));
+        }
+        persistSession();
+        return state.messages.slice(start);
+    }
+
+    function mainRequestContext(delivery, options = {}) {
+        const tools = resolveToolDefinitions({ role: 'main' });
+        return { ...options, delivery, requestTools: delivery ? [...tools, ...delivery.definitions] : tools };
+    }
+
+    function updateDisplayContextStats(savedSettings) {
+        const run = state.activeRun;
+        const options = run?.requestContext ?? mainRequestContext(createResponseDelivery(run?.deliverySettings ?? savedSettings, getActiveProviderConfig()));
+        return updateContextStats(toProviderMessages(getActiveContextMessages(), options), options.requestTools);
+    }
+
     async function runAssistantLoop(run) {
         const webResults = createWebResults(createRequestId);
         const adapter = createAdapter();
+        const delivery = createResponseDelivery(run.deliverySettings, getActiveProviderConfig());
+        const pinnedMessages = delivery?.prelude.length ? recordDeliveryPrelude(delivery, run.controller.signal) : [];
         let rounds = 0;
         let pendingToolResponses = null;
         let pendingFinalAnswerReminderText = '';
@@ -685,7 +724,12 @@ export function createAssistantRuntime(deps) {
                 scheduleStreamRender();
             };
 
-            const requestTools = resolveToolDefinitions({ role: 'main' });
+            const options = mainRequestContext(delivery, {
+                ...providerMessageOptions, pinnedMessages,
+                finalAnswerReminderText: pendingFinalAnswerReminderText || providerMessageOptions.finalAnswerReminderText,
+            });
+            run.requestContext = options;
+            const { requestTools } = options;
             const allowedToolNames = new Set(requestTools.map(definition => definition.function.name));
             const toolSignature = JSON.stringify([...allowedToolNames].sort());
             let result;
@@ -702,10 +746,7 @@ export function createAssistantRuntime(deps) {
                 };
 
                 const checkpointsBeforeBudget = state.compactions;
-                const budgetMessages = await ensureContextBudget(adapter, run.controller.signal, {
-                    ...providerMessageOptions,
-                    finalAnswerReminderText: pendingFinalAnswerReminderText || providerMessageOptions.finalAnswerReminderText,
-                });
+                const budgetMessages = await ensureContextBudget(adapter, run.controller.signal, options);
                 run.controller.signal.throwIfAborted();
                 // Provider sessions retain their initial tools, so both history and tools must still match.
                 const continueSession = adapter?.supportsSessionToolLoop
@@ -788,6 +829,7 @@ export function createAssistantRuntime(deps) {
                 render();
 
                 const toolResponses = [];
+                let delivered = false;
                 for (const toolCall of calls) {
                     if (run.controller.signal.aborted) {
                         throw new Error('assistant_aborted');
@@ -795,7 +837,11 @@ export function createAssistantRuntime(deps) {
                     const parsedArguments = safeJsonParse(toolCall.arguments, {});
                     state.progressLabel = '工具中';
                     advanceToolActivity(toolCall, run, 'preparing');
-                    const toolResult = await executeAssistantToolCall(toolCall, parsedArguments, run, { webResults, allowedToolNames });
+                    // Only the adapter knows how this batch arrived; call arguments and replay payloads cannot prove provenance.
+                    const toolResult = await executeAssistantToolCall(toolCall, parsedArguments, run, {
+                        webResults, allowedToolNames, delivery, toolCallsAreNative: result.toolCallsAreNative === true,
+                    });
+                    if (toolCall.name === TOOL_DELIVER && toolResult?.ok === true) delivered = true;
                     pushMessage(buildToolResultMessage({
                         toolCallId: toolCall.id,
                         toolName: toolCall.name,
@@ -811,6 +857,11 @@ export function createAssistantRuntime(deps) {
                     });
                     render();
                 }
+                if (delivered) {
+                    state.progressLabel = '';
+                    render();
+                    return;
+                }
                 if (adapter?.supportsSessionToolLoop) {
                     pendingToolResponses = toolResponses;
                 }
@@ -820,7 +871,8 @@ export function createAssistantRuntime(deps) {
             pendingToolResponses = null;
             if (!hasVisibleText(result.text) && sawToolExecution && !finalAnswerReminderSent) {
                 finalAnswerReminderSent = true;
-                const finalAnswerReminderText = '你已经拿到了本轮全部工具结果。现在不要再调用任何工具，直接用自然语言给出最终答复。';
+                const finalAnswerReminderText = delivery ? DELIVERY_FINAL_STEP
+                    : '你已经拿到了本轮全部工具结果。现在不要再调用任何工具，直接用自然语言给出最终答复。';
                 if (adapter?.supportsSessionToolLoop) {
                     pendingFinalAnswerReminderText = finalAnswerReminderText;
                     providerMessageOptions.finalAnswerReminderText = '';
@@ -860,7 +912,7 @@ export function createAssistantRuntime(deps) {
         resetCompactionState,
         buildContextMeterLabel,
         compactionThreshold,
-        updateContextStats,
+        updateDisplayContextStats,
         pushMessage,
         cancelActiveRun,
         toProviderMessages,
