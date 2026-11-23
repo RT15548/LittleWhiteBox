@@ -1,5 +1,5 @@
 {
-  "buildId": "926a6acac9872643ec1b",
+  "buildId": "a76c18affe0d103a9501",
   "entries": {
     "apps/assistant": {
       "file": "apps/assistant-BUnkm0ui.js",
@@ -361,7 +361,7 @@
         "shared/host-CFkvazDV.js",
         "shared/slash-command-policy-S6D-XN4G.js",
         "shared/copy-tFNU-pou.js",
-        "shared/tavern-IjL6bvuw.js",
+        "shared/tavern-KLFky3r-.js",
         "shared/debug-panel-Cb4K3vXO.js"
       ],
       "css": []
@@ -1813,7 +1813,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/tavern-IjL6bvuw.js": {
+    "shared/tavern-KLFky3r-.js": {
       "imports": [
         "shared/preload-helper-BdDHxvum.js",
         "shared/build-assets-CzCSC94G.js",

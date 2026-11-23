@@ -5,6 +5,12 @@ import type {
     TavernSubstituteParamsResult,
 } from '../shared/substitute-params';
 
+// ST 1.14 uses positional arguments; 1.18 accepts them when the second argument isn't an options object.
+const substituteByPosition = substituteParams as unknown as (
+    content: string, userName: string | null, characterName?: string, original?: string,
+    group?: string, replaceCharacterCard?: boolean,
+) => string;
+
 function asRecord(value: unknown): Record<string, unknown> {
     return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -33,7 +39,9 @@ export function applyTavernSubstituteParams(input: unknown): TavernSubstitutePar
         const item = asRecord(rawItem) as unknown as TavernSubstituteParamsItem;
         const id = text(item.id).trim() || `item-${index}`;
         const original = text(item.text);
-        const textValue = substituteParams(original, normalizeOptions(item.options) as Record<string, unknown>);
+        const options = normalizeOptions(item.options);
+        const textValue = substituteByPosition(original, options.name1Override ?? null, options.name2Override,
+            options.original, undefined, options.replaceCharacterCard);
         const changed = textValue !== original;
         if (changed) {changedCount += 1;}
         return {

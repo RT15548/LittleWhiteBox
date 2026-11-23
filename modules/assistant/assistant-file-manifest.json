@@ -9946,7 +9946,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/host/regex.ts",
       "relativePath": "modules/tavern/host/regex.ts",
       "extension": ".ts",
-      "sizeBytes": 18405
+      "sizeBytes": 18855
     },
     {
       "source": "littlewhitebox",
@@ -9967,7 +9967,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/host/substitute-params.ts",
       "relativePath": "modules/tavern/host/substitute-params.ts",
       "extension": ".ts",
-      "sizeBytes": 1941
+      "sizeBytes": 2390
     },
     {
       "source": "littlewhitebox",
@@ -9981,7 +9981,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/host/worldbooks.ts",
       "relativePath": "modules/tavern/host/worldbooks.ts",
       "extension": ".ts",
-      "sizeBytes": 66111
+      "sizeBytes": 66630
     },
     {
       "source": "littlewhitebox",
@@ -13572,7 +13572,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/dice/host/generation-adapter.ts",
       "relativePath": "modules/xiaobai-os/apps/dice/host/generation-adapter.ts",
       "extension": ".ts",
-      "sizeBytes": 33560
+      "sizeBytes": 33844
     },
     {
       "source": "littlewhitebox",
@@ -20411,7 +20411,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/host/sillytavern-runtime-adapters.ts",
       "relativePath": "modules/xiaobai-os/host/sillytavern-runtime-adapters.ts",
       "extension": ".ts",
-      "sizeBytes": 7484
+      "sizeBytes": 7536
     },
     {
       "source": "littlewhitebox",
@@ -20719,7 +20719,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/storage/chat-binding-lifecycle.ts",
       "relativePath": "modules/xiaobai-os/storage/chat-binding-lifecycle.ts",
       "extension": ".ts",
-      "sizeBytes": 4862
+      "sizeBytes": 4927
     },
     {
       "source": "littlewhitebox",
@@ -21993,7 +21993,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/vite.plugin.config.mjs",
       "relativePath": "vite.plugin.config.mjs",
       "extension": ".mjs",
-      "sizeBytes": 5636
+      "sizeBytes": 6069
     },
     {
       "source": "littlewhitebox",

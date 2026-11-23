@@ -157,7 +157,7 @@ export function createChatBindingEventAdapter() {
         },
         names: {
             chatChanged: event_types.CHAT_CHANGED,
-            chatRenamed: event_types.CHAT_RENAMED,
+            chatRenamed: (event_types as typeof event_types & { CHAT_RENAMED?: string }).CHAT_RENAMED,
             chatDeleted: event_types.CHAT_DELETED,
             groupChatDeleted: event_types.GROUP_CHAT_DELETED,
             characterRenamed: event_types.CHARACTER_RENAMED,

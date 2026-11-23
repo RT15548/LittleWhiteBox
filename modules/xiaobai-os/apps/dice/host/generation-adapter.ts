@@ -156,7 +156,9 @@ export function createDiceGenerationAdapter(enabled: () => boolean, frequency: (
                 try {
                     if (target.source.groupId && !is_group_generating) {
                         // Generate's outer group branch does not forward depth; the exported wrapper does.
-                        await generateGroupWrapper(false, 'continue', options);
+                        // ST 1.14 handles 'continue' explicitly, but its untyped default is inferred as null.
+                        const groupGenerate = generateGroupWrapper as (automatic: boolean, type: string | null, params: typeof options) => ReturnType<typeof generateGroupWrapper>;
+                        await groupGenerate(false, 'continue', options);
                     } else {
                         await diceHostContext().generate('continue', options);
                     }

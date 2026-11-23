@@ -11,6 +11,7 @@ import { createLicenseSupplementPlugin } from './scripts/build/license-supplemen
 
 const posix = value => value.replaceAll('\\', '/');
 const inside = value => { const resolved = path.resolve(value); return resolved === root || resolved.startsWith(`${root}${path.sep}`); };
+const browserLicense = 'THIRD-PARTY-LICENSES.md';
 
 export default defineConfig({
     root,
@@ -25,7 +26,8 @@ export default defineConfig({
         resolveId(source, importer) {
             if (!importer || !source.startsWith('.')) return;
             let resolved = path.resolve(path.dirname(importer.split('?')[0]), source.split('?')[0]);
-            if (!inside(resolved)) return { id: `/__st__/${posix(path.relative(path.resolve(root, '../../../../..'), resolved))}`, external: true };
+            // Keep the marker intact on Linux as well as Windows until generateBundle rewrites it.
+            if (!inside(resolved)) return { id: `/__st__/${posix(path.relative(path.resolve(root, '../../../../..'), resolved))}`, external: 'absolute' };
             if (fs.existsSync(path.join(outputRoot, path.relative(root, resolved)))) return posix(resolved);
             if (resolved.endsWith('.js') && fs.existsSync(resolved.slice(0, -3) + '.ts')) return posix(resolved.slice(0, -3) + '.ts');
         },
@@ -43,6 +45,9 @@ export default defineConfig({
     }, {
         name: 'plugin-build-manifest',
         generateBundle: { order: 'post', handler(_, bundle) {
+            // Vite copies dependency licenses verbatim; Git checks this text asset out with LF.
+            const license = bundle[browserLicense];
+            if (license?.type === 'asset' && typeof license.source === 'string') license.source = license.source.replaceAll('\r\n', '\n');
             const chunks = Object.values(bundle).filter(item => item.type === 'chunk');
             const manifest = { buildId: '', entries: {}, resources: {}, pages };
             const audit = {};
@@ -70,7 +75,7 @@ export default defineConfig({
     define: { 'process.env.NODE_ENV': JSON.stringify('production'), global: 'globalThis' },
     build: {
         outDir: path.join(outputRoot, 'dist'), emptyOutDir: true, target: 'es2022', minify: 'esbuild', sourcemap: false,
-        license: { fileName: 'THIRD-PARTY-LICENSES.md' },
+        license: { fileName: browserLicense },
         cssCodeSplit: true, modulePreload: false,
         rollupOptions: { input: Object.fromEntries(Object.entries(entries).map(([id, file]) => [id, path.join(root, file)])), preserveEntrySignatures: 'strict', output: {
             entryFileNames: info => info.name === 'host/plugin' ? 'host/plugin.js' : '[name]-[hash].js',

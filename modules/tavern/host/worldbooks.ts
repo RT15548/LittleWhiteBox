@@ -201,7 +201,9 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function getNativeMaxPromptTokens(): number {
-    return Number(stScript.getMaxPromptTokens?.())
+    const maxPrompt = 'getMaxPromptTokens' in stScript && typeof stScript.getMaxPromptTokens === 'function'
+        ? stScript.getMaxPromptTokens() : undefined;
+    return Number(maxPrompt)
         || Number(stScript.getMaxContextSize?.())
         || Number(asRecord(getContext?.() || {}).maxContext)
         || 4096;
@@ -210,7 +212,7 @@ function getNativeMaxPromptTokens(): number {
 function applyGlobalWorldbookSelection(selected: string[]): void {
     const settings = nativeWorldInfo.getWorldInfoSettings();
 
-    if (typeof nativeWorldInfo.updateWorldInfoSettings === 'function') {
+    if ('updateWorldInfoSettings' in nativeWorldInfo && typeof nativeWorldInfo.updateWorldInfoSettings === 'function') {
         nativeWorldInfo.updateWorldInfoSettings(settings, selected);
         const worldInfo = asRecord(nativeWorldInfo.world_info);
         worldInfo.globalSelect = [...selected];
@@ -872,6 +874,11 @@ function buildActivatedPromptEntries(
     }).filter((entry) => !!normalizeText(entry.content));
 }
 
+// ST replaces chat_metadata on a chat switch; read the live binding rather than caching the object.
+function currentWorldInfoMetadata() {
+    return chat_metadata as { [METADATA_KEY]?: string; timedWorldInfo?: unknown };
+}
+
 function captureRuntimeState(): {
     selectedWorldInfo: string[];
     chatLore: string;
@@ -884,12 +891,12 @@ function captureRuntimeState(): {
 } {
     return {
         selectedWorldInfo: Array.isArray(selected_world_info) ? [...selected_world_info] : [],
-        chatLore: normalizeText(chat_metadata?.[METADATA_KEY]),
+        chatLore: normalizeText(currentWorldInfoMetadata()?.[METADATA_KEY]),
         personaLore: normalizeText(power_user?.persona_description_lorebook),
         // Only capture ST's current native character pointer so temporary native switches can be restored.
         nativeCharacterId: normalizeText(this_chid),
         characterName: normalizeText(name2),
-        timedState: normalizeTimedState(chat_metadata?.timedWorldInfo),
+        timedState: normalizeTimedState(currentWorldInfoMetadata()?.timedWorldInfo),
         extensionPrompts: captureExtensionPrompts(),
         emit: eventSource?.emit,
     };
@@ -907,17 +914,18 @@ function applyRuntimeState(input: {
     replaceSelectedWorldInfo(globalNames);
     const chatLore = input.sources.find((source) => source.sourceType === 'chat')?.name || '';
     const personaLore = input.sources.find((source) => source.sourceType === 'persona')?.name || '';
+    const metadata = currentWorldInfoMetadata();
     if (chatLore) {
-        chat_metadata[METADATA_KEY] = chatLore;
+        metadata[METADATA_KEY] = chatLore;
     } else {
-        delete chat_metadata[METADATA_KEY];
+        delete metadata[METADATA_KEY];
     }
     power_user.persona_description_lorebook = personaLore || '';
     setCharacterId(normalizeText(input.context.character?.nativeCharacterId) || undefined);
     if (normalizeText(input.context.character?.name)) {
         setCharacterName(normalizeText(input.context.character?.name));
     }
-    chat_metadata.timedWorldInfo = cloneJson(normalizeTimedState(input.timedState));
+    metadata.timedWorldInfo = cloneJson(normalizeTimedState(input.timedState));
     if (eventSource && typeof eventSource.emit === 'function') {
         eventSource.emit = async () => undefined;
     }
@@ -937,15 +945,16 @@ function applyAuthorNoteInjectScanPrompt(context: XbTavernContext = {}, currentU
 
 function restoreRuntimeState(snapshot: ReturnType<typeof captureRuntimeState>): void {
     replaceSelectedWorldInfo(snapshot.selectedWorldInfo);
+    const metadata = currentWorldInfoMetadata();
     if (snapshot.chatLore) {
-        chat_metadata[METADATA_KEY] = snapshot.chatLore;
+        metadata[METADATA_KEY] = snapshot.chatLore;
     } else {
-        delete chat_metadata[METADATA_KEY];
+        delete metadata[METADATA_KEY];
     }
     power_user.persona_description_lorebook = snapshot.personaLore || '';
     setCharacterId(snapshot.nativeCharacterId || undefined);
     setCharacterName(snapshot.characterName || '');
-    chat_metadata.timedWorldInfo = cloneJson(snapshot.timedState);
+    metadata.timedWorldInfo = cloneJson(snapshot.timedState);
     restoreExtensionPrompts(snapshot.extensionPrompts);
     if (eventSource) {
         eventSource.emit = snapshot.emit as typeof eventSource.emit;
@@ -1472,7 +1481,7 @@ export async function getTavernWorldbookRuntime(input: unknown = {}): Promise<Xb
                         .map(([key, value]) => [key, normalizeStringList(value)])
                         .filter(([, value]) => value.length),
                 ),
-                timedState: normalizeTimedState(chat_metadata?.timedWorldInfo),
+                timedState: normalizeTimedState(currentWorldInfoMetadata()?.timedWorldInfo),
             };
         } finally {
             restoreRuntimeState(snapshot);

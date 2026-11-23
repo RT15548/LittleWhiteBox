@@ -10,7 +10,7 @@ export interface ChatBindingEventSource {
 
 export interface ChatBindingEventNames {
     chatChanged: string;
-    chatRenamed: string;
+    chatRenamed?: string;
     chatDeleted: string;
     groupChatDeleted: string;
     characterRenamed: string;
@@ -95,7 +95,7 @@ export function createChatBindingLifecycle(options: ChatBindingLifecycleOptions)
         active = true;
         generation += 1;
         events.on(eventNames.chatChanged, handleRefresh);
-        events.on(eventNames.chatRenamed, handleRefresh);
+        if (eventNames.chatRenamed) { events.on(eventNames.chatRenamed, handleRefresh); }
         events.on(eventNames.chatDeleted, handleChatDeleted);
         events.on(eventNames.groupChatDeleted, handleChatDeleted);
         events.on(eventNames.characterRenamed, handleCharacterRenamed);
@@ -111,7 +111,7 @@ export function createChatBindingLifecycle(options: ChatBindingLifecycleOptions)
         generation += 1;
         refreshRequested = false;
         events.removeListener(eventNames.chatChanged, handleRefresh);
-        events.removeListener(eventNames.chatRenamed, handleRefresh);
+        if (eventNames.chatRenamed) { events.removeListener(eventNames.chatRenamed, handleRefresh); }
         events.removeListener(eventNames.chatDeleted, handleChatDeleted);
         events.removeListener(eventNames.groupChatDeleted, handleChatDeleted);
         events.removeListener(eventNames.characterRenamed, handleCharacterRenamed);

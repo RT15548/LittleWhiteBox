@@ -31,7 +31,10 @@ const {
     saveScriptsByType,
     SCRIPT_TYPES,
     substitute_find_regex,
-} = nativeRegexEngine as Omit<typeof nativeRegexEngine, 'saveScriptsByType' | 'runRegexScript'> & {
+} = nativeRegexEngine as Omit<typeof nativeRegexEngine, 'saveScriptsByType' | 'runRegexScript' | 'allowScopedScripts' | 'isScopedScriptsAllowed'> & {
+    // ST 1.14 and 1.18 only read character.avatar to grant or check scoped regex permission.
+    allowScopedScripts(character: { avatar?: unknown }): void;
+    isScopedScriptsAllowed(character: { avatar?: unknown }): boolean;
     // Native regex depth bounds accept null as unbounded, despite host JSDoc's number type.
     saveScriptsByType(scripts: TavernRegexScript[], scriptType: number): Promise<void>;
     runRegexScript(script: TavernRegexScript, text: string, options?: Record<string, unknown>): string;
@@ -260,7 +263,9 @@ function buildGroup(scriptType: number, key: string, label: string, nativeCharac
 
 async function syncNativeRegexUiAfterWrite(): Promise<void> {
     try {
-        nativeRegexEngine.RegexProvider?.instance?.clear?.();
+        // 1.14 has no regex cache provider to invalidate.
+        const engine = nativeRegexEngine as typeof nativeRegexEngine & { RegexProvider?: { instance?: { clear(): void } } };
+        engine.RegexProvider?.instance?.clear?.();
         saveSettingsDebounced?.();
         const chatId = getCurrentChatId?.();
         const chatChangedEvent = event_types?.CHAT_CHANGED;
