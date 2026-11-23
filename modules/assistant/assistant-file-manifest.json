@@ -5403,7 +5403,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/provider-request-retry.test.js",
       "relativePath": "modules/draw/shared/tests/provider-request-retry.test.js",
       "extension": ".js",
-      "sizeBytes": 12596
+      "sizeBytes": 12775
     },
     {
       "source": "littlewhitebox",
@@ -6163,10 +6163,10 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/preset-lifecycle.test.js",
-      "relativePath": "modules/scheduled-tasks/preset-lifecycle.test.js",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/preset-lifecycle.host.test.js",
+      "relativePath": "modules/scheduled-tasks/preset-lifecycle.host.test.js",
       "extension": ".js",
-      "sizeBytes": 175361
+      "sizeBytes": 174233
     },
     {
       "source": "littlewhitebox",
@@ -6247,10 +6247,10 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/tests/save-receipt.test.js",
-      "relativePath": "modules/scheduled-tasks/tests/save-receipt.test.js",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/tests/save-receipt.host.test.js",
+      "relativePath": "modules/scheduled-tasks/tests/save-receipt.host.test.js",
       "extension": ".js",
-      "sizeBytes": 6074
+      "sizeBytes": 6306
     },
     {
       "source": "littlewhitebox",
@@ -21223,7 +21223,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/build/README.md",
       "relativePath": "scripts/build/README.md",
       "extension": ".md",
-      "sizeBytes": 15893
+      "sizeBytes": 16292
     },
     {
       "source": "littlewhitebox",
@@ -21391,7 +21391,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/host/official.mjs",
       "relativePath": "scripts/host/official.mjs",
       "extension": ".mjs",
-      "sizeBytes": 5557
+      "sizeBytes": 5962
     },
     {
       "source": "littlewhitebox",
@@ -21399,6 +21399,13 @@
       "relativePath": "scripts/host/official.test.mjs",
       "extension": ".mjs",
       "sizeBytes": 2224
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/host/test-host.mjs",
+      "relativePath": "scripts/host/test-host.mjs",
+      "extension": ".mjs",
+      "sizeBytes": 893
     },
     {
       "source": "littlewhitebox",
@@ -21440,7 +21447,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/test-preload.mjs",
       "relativePath": "scripts/test-preload.mjs",
       "extension": ".mjs",
-      "sizeBytes": 327
+      "sizeBytes": 1102
     },
     {
       "source": "littlewhitebox",
@@ -21468,7 +21475,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/test.mjs",
       "relativePath": "scripts/test.mjs",
       "extension": ".mjs",
-      "sizeBytes": 2834
+      "sizeBytes": 3065
     },
     {
       "source": "littlewhitebox",

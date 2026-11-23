@@ -19,6 +19,7 @@ Object.assign(globalThis, { window, document });
 const stubs = {
     'drawing-runtime-client.js': 'exports.drawingRuntimeHeaders=()=>({});exports.DRAWING_RUNTIME_ABI=1;exports.prepareDrawingRuntime=async()=>({});',
     'extensions.js': 'exports.getContext=()=>({chat:[],characters:[]});',
+    '../../../../../variables.js': 'exports.getLocalVariable=exports.setLocalVariable=()=>{throw Error("Unexpected host variable access");};',
     'script.js': 'exports.getRequestHeaders=()=>({});',
     'utils.js': 'exports.uuidv4=()=>"retry-fixture";',
     'user.js': 'exports.getCurrentUserHandle=()=>"retry-user";',
@@ -40,7 +41,7 @@ const bundle = await build({
     bundle: true, write: false, platform: 'node', format: 'esm',
     plugins: [{ name: 'retry-host-boundaries', setup(builder) {
         builder.onResolve({ filter: /\.js$/ }, ({ path }) => {
-            const name = path.split('/').at(-1);
+            const name = Object.hasOwn(stubs, path) ? path : path.split('/').at(-1);
             return Object.hasOwn(stubs, name) ? { path: name, namespace: 'host' } : null;
         });
         builder.onLoad({ filter: /.*/, namespace: 'host' }, ({ path }) => ({ contents: stubs[path] }));

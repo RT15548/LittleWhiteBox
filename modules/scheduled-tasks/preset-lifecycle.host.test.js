@@ -8,25 +8,19 @@ import { transformSync } from 'esbuild';
 import { parse } from 'acorn';
 import { parseHTML } from 'linkedom';
 import path from 'node:path';
-import process from 'node:process';
 import { pathToFileURL } from 'node:url';
-import { createRequire } from 'node:module';
+import { installedHostRoot } from '../../scripts/host/official.mjs';
 import { tmpdir } from 'node:os';
 import { Buffer } from 'node:buffer';
 import { StorageFile } from '../../core/storage-file.js';
 import { gzipSync, gunzipSync, strFromU8 } from '../../libs/fflate.mjs';
 
 // Use the real supported host controller, not a browser AbortController substitute.
-const controllerUrl = process.env.LWB_HOST_ROOT
-    ? pathToFileURL(path.join(process.env.LWB_HOST_ROOT, 'public/scripts/slash-commands/SlashCommandAbortController.js'))
-    : new URL('../../../../../slash-commands/SlashCommandAbortController.js', import.meta.url);
+const controllerUrl = pathToFileURL(path.join(installedHostRoot(), 'public/scripts/slash-commands/SlashCommandAbortController.js'));
 // eslint-disable-next-line no-unsanitized/method -- test runner selects a trusted local host checkout, not application input.
 const { SlashCommandAbortController } = await import(controllerUrl.href);
 // Exercise the host's awaited import event contract, not Node's synchronous emit.
 const hostEventCode = transformSync(fs.readFileSync(new URL('../../lib/eventemitter.js', controllerUrl), 'utf8'), { format: 'cjs' }).code;
-const hostPresetEndpointUrl = new URL('../../../src/endpoints/presets.js', controllerUrl);
-const hostPresetEndpointCode = transformSync(fs.readFileSync(hostPresetEndpointUrl, 'utf8'), { format: 'cjs' }).code;
-const hostRequire = createRequire(hostPresetEndpointUrl);
 
 // Keep the host's event ordering and chat-local mutations in the regression
 // checks. Only unrelated rendering/storage dependencies are replaced.
@@ -45,23 +39,8 @@ function presetFile(t) {
     const directory = fs.mkdtempSync(path.join(tmpdir(), 'lwb-preset-import-'));
     const file = path.join(directory, 'A.json');
     t.after(() => { if (fs.existsSync(file)) fs.unlinkSync(file); fs.rmdirSync(directory); });
-    const routes = new Map();
-    // Run the actual host save handler. Unrelated restore/content routes are not called.
-    vm.runInNewContext(hostPresetEndpointCode, {
-        module: { exports: {} },
-        require(name) {
-            if (name === 'express') return { Router: () => ({ post: (url, handler) => routes.set(url, handler) }) };
-            if (name === './content-manager.js') return {};
-            return hostRequire(name);
-        },
-    });
     return {
-        write(preset) {
-            return routes.get('/save')({ body: { apiId: 'openai', name: 'A', preset }, user: { directories: { openAI_Settings: directory } } }, {
-                send: value => value,
-                sendStatus: status => { throw new Error(`Preset write failed: ${status}`); },
-            });
-        },
+        write: preset => fs.writeFileSync(file, JSON.stringify(preset)),
         read: () => JSON.parse(fs.readFileSync(file, 'utf8')),
     };
 }

@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
+import path from 'node:path';
 import vm from 'node:vm';
 import { setImmediate } from 'node:timers';
 import { parse } from 'acorn';
 import { gzipSync, strFromU8, gunzipSync } from '../../../libs/fflate.mjs';
 import { observeHostSettingsSave } from '../host-settings-save.js';
+import { installedHostRoot } from '../../../scripts/host/official.mjs';
 
 // Contracts: native 1.14/1.18 serializers and compressed requests must receive
 // their own actual acknowledgement, never another autosave's (silent data loss).
@@ -15,9 +17,11 @@ const settings = { tasks: { globalTasks: [{ id: 'task', scriptId: 'candidate' }]
 const matches = payload => payload?.extension_settings?.test?.tasks?.globalTasks?.[0]?.scriptId === 'candidate';
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 
-function hostSave(version, compressed) {
-    const url = new URL(`../../../../../../../../../SillyTavern-${version}/public/script.js`, import.meta.url);
-    const source = fs.readFileSync(url, 'utf8');
+const hostRoot = installedHostRoot();
+const hostSource = fs.readFileSync(path.join(hostRoot, 'public/script.js'), 'utf8');
+const supportsCompression = fs.existsSync(path.join(hostRoot, 'public/scripts/request-compression.js'));
+function hostSave(compressed) {
+    const source = hostSource;
     const ast = parse(source, { ecmaVersion: 'latest', sourceType: 'module' });
     const declaration = ast.body.find(node => node.type === 'ExportNamedDeclaration' && node.declaration?.id?.name === 'saveSettings').declaration;
     const context = {
@@ -33,18 +37,19 @@ function hostSave(version, compressed) {
 }
 
 test('actual supported host serializers are observed without a second request', async t => {
-    for (const version of ['1.14.0', '1.18.0']) for (const compressed of version === '1.18.0' ? [false, true] : [false]) {
-        await t.test(`${version}/${compressed}`, async t => {
+    for (const compressed of supportsCompression ? [false, true] : [false]) {
+        await t.test(compressed ? 'gzip' : 'plain JSON', async t => {
             const original = globalThis.fetch; t.after(() => { globalThis.fetch = original; });
             const calls = [];
             globalThis.fetch = (input, init) => {
                 calls.push(input);
+                assert.equal(init.headers['Content-Encoding'] === 'gzip', compressed);
                 const payload = typeof init.body === 'string' ? JSON.parse(init.body) : JSON.parse(strFromU8(gunzipSync(init.body)));
                 assert.equal(matches(payload), true);
                 assert.ok(Object.hasOwn(payload, 'accountStorage'));
                 return Promise.resolve(Response.json({ result: 'ok' }));
             };
-            await observeHostSettingsSave(hostSave(version, compressed), matches);
+            await observeHostSettingsSave(hostSave(compressed), matches);
             assert.deepEqual(calls, ['/api/settings/save']);
         });
     }

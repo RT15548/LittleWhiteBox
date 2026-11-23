@@ -7,6 +7,7 @@ import ignore from 'ignore';
 export const pluginRoot = path.resolve(import.meta.dirname, '../..');
 export const official = JSON.parse(fs.readFileSync(new URL('./official.json', import.meta.url), 'utf8'));
 const remote = `https://github.com/${official.repository}.git`;
+const objectCache = commit => path.join(pluginRoot, 'output/official-host', commit);
 
 function git(directory, args, options = {}) {
     const result = spawnSync('git', ['--no-replace-objects', '-C', directory, ...args], {
@@ -28,7 +29,7 @@ export function referenceFor(version) {
         if (!resolved) throw new Error(`No official SillyTavern ref: ${version}`);
         commit = resolved[0];
     }
-    const directory = path.join(pluginRoot, 'output/official-host', commit);
+    const directory = objectCache(commit);
     fs.mkdirSync(directory, { recursive: true });
     if (!fs.existsSync(path.join(directory, 'HEAD'))) git(directory, ['init', '--bare']);
     const present = spawnSync('git', ['--no-replace-objects', '-C', directory, 'cat-file', '-e', `${commit}^{commit}`]);
@@ -51,7 +52,13 @@ export function installedHostRoot() {
 }
 
 export function readOfficialFile(reference, file) {
-    return git(path.join(pluginRoot, 'output/official-host', reference.commit), ['show', `${reference.commit}:${file}`]);
+    return git(objectCache(reference.commit), ['show', `${reference.commit}:${file}`]);
+}
+
+// Export the real browser sources without installing or starting a second host.
+export function exportTestHost(reference, directory) {
+    git(objectCache(reference.commit), [`--work-tree=${directory}`, 'restore', `--source=${reference.commit}`, '--worktree', '--', 'package.json', 'public'],
+        { env: { ...process.env, GIT_INDEX_FILE: path.join(directory, '.test-index') } });
 }
 
 export function installedHostReference(directory) {

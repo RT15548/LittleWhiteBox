@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { availableParallelism } from 'node:os';
 import { discoverTests, sourceGraph, typescriptTests, selectTests } from './test-selection.mjs';
+import { withTestHost } from './host/test-host.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 export { discoverTests };
@@ -37,13 +38,15 @@ export function runTests(args = [], options = {}) {
     }
     if (!files.length) return { status: 0 };
     const started = performance.now();
-    const result = spawnSync(process.execPath, [
+    const execute = host => spawnSync(process.execPath, [
         '--import', './scripts/test-preload.mjs', '--test', `--test-concurrency=${concurrency}`,
         '--test-reporter=./scripts/test-reporter.mjs', ...files.map(file => path.relative(root, file)),
     ], {
         cwd: root, stdio: 'inherit', ...options,
-        env: { ...process.env, ...options.env, LWB_TEST_TYPESCRIPT: JSON.stringify(typedFiles.map(file => path.relative(root, file))) },
+        env: { ...process.env, ...options.env, ...(host && { LWB_HOST_ROOT: host }),
+            LWB_TEST_TYPESCRIPT: JSON.stringify(typedFiles.map(file => path.relative(root, file))) },
     });
+    const result = files.some(file => /\.host\.test\./.test(path.basename(file))) ? withTestHost(execute) : execute();
     console.log(`测试运行耗时：${((performance.now() - started) / 1000).toFixed(2)}s`);
     return result;
 }
