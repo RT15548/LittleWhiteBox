@@ -3,8 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { exportTestHost, installedHostRoot, official, referenceFor } from './official.mjs';
 
-// Only *.host.test.* suites use real SillyTavern source. Outside an installation,
-// materialize their inputs from the same pinned Git objects used by the build.
+// Suites marked *.host.test.* run against one selected installation. Outside a
+// host, materialize its inputs from the same pinned Git objects used by the build.
 export function withTestHost(run) {
     const installed = installedHostRoot();
     if (installed) return run(installed);

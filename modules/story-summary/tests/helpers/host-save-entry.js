@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { parse } from 'acorn';
-import { readOfficialFile, referenceFor } from '../../../../scripts/host/official.mjs';
+import { official, readOfficialFile, referenceFor } from '../../../../scripts/host/official.mjs';
 
-const sources = new Map();
 function functions(source, names) {
     const declarations = parse(source, { sourceType: 'module', ecmaVersion: 'latest' }).body
         .map(node => node.declaration || node)
@@ -12,21 +11,25 @@ function functions(source, names) {
     return declarations.map(node => source.slice(node.start, node.end)).join('\n');
 }
 
+// A cold checkout may need to download the official code. Prepare it before
+// starting the scenarios' deadlines and installing their fake clocks.
+export const hostSaveVersions = Object.keys(official.verificationVersions);
+const sources = new Map(hostSaveVersions.map(version => {
+    const reference = referenceFor(version);
+    const constants = readOfficialFile(reference, 'public/scripts/constants.js');
+    const debounce = parse(constants, { sourceType: 'module', ecmaVersion: 'latest' }).body
+        .map(node => node.declaration || node).find(node => node.type === 'VariableDeclaration'
+            && node.declarations.some(item => item.id.name === 'debounce_timeout'));
+    const timeout = vm.runInNewContext(`${constants.slice(debounce.start, debounce.end)}; debounce_timeout.relaxed`);
+    return [version, { timeout, code: [
+        functions(readOfficialFile(reference, 'public/script.js'), ['saveMetadata', 'saveChatConditional', 'saveChat']),
+        functions(readOfficialFile(reference, 'public/scripts/utils.js'), ['waitUntilCondition']),
+    ].join('\n') }];
+}));
+
 // Execute pinned official host code, including the wait before target selection.
 // Only network, compression, cache/UI boundaries and the active chat are supplied.
 export function hostSaveEntry(version, { read, metadata, fetch }) {
-    if (!sources.has(version)) {
-        const reference = referenceFor(version);
-        const constants = readOfficialFile(reference, 'public/scripts/constants.js');
-        const debounce = parse(constants, { sourceType: 'module', ecmaVersion: 'latest' }).body
-            .map(node => node.declaration || node).find(node => node.type === 'VariableDeclaration'
-                && node.declarations.some(item => item.id.name === 'debounce_timeout'));
-        const timeout = vm.runInNewContext(`${constants.slice(debounce.start, debounce.end)}; debounce_timeout.relaxed`);
-        sources.set(version, { timeout, code: [
-            functions(readOfficialFile(reference, 'public/script.js'), ['saveMetadata', 'saveChatConditional', 'saveChat']),
-            functions(readOfficialFile(reference, 'public/scripts/utils.js'), ['waitUntilCondition']),
-        ].join('\n') });
-    }
     const errors = [];
     const context = vm.createContext({
         get chat_metadata() { return metadata(); },

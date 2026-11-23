@@ -16,7 +16,7 @@ import 'fake-indexeddb/auto';
 import { maintenanceFixture, joinedEventPatch } from './fixtures/memory-maintenance.js';
 import { memoryPolicy } from '../data/memory-policy.js';
 import { entry } from './helpers/story-summary-entry.js';
-import { hostSaveEntry } from './helpers/host-save-entry.js';
+import { hostSaveEntry, hostSaveVersions } from './helpers/host-save-entry.js';
 import { createHideStateController, HIDE_OWNERSHIP_CLAIMED_KEY } from '../hide-state.js';
 import { memorySaveError } from '../data/memory-copy.js';
 import { shouldNotifyMemoryFailure } from '../user-feedback.js';
@@ -3100,7 +3100,7 @@ test('automatic preparation waits for an active save but never recovers an uncer
 
 // Acceptance: pinned native saves carry automatic metadata, without a preceding plugin save.
 // Cost: lost L0 or extra whole-chat traffic on supported hosts.
-for (const version of ['1.14.0', '1.18.0']) test(`official ST ${version} saves live swipe retirement and automatic extraction together`, async () => {
+for (const version of hostSaveVersions) test(`official ST ${version} saves live swipe retirement and automatic extraction together`, async () => {
     await seedAnchors();
     const { chatId, chat } = host.context;
     const posted = [];

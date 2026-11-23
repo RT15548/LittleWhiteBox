@@ -16,7 +16,7 @@ import { maintenanceRanges } from '../maintenance/ranges.js';
 import { readMaintenanceDiagnostics } from '../maintenance/diagnostics.js';
 import { getChatIdentity } from '../data/chat-identity.js';
 import { entry } from './helpers/story-summary-entry.js';
-import { hostSaveEntry } from './helpers/host-save-entry.js';
+import { hostSaveEntry, hostSaveVersions } from './helpers/host-save-entry.js';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const host = globalThis.__maintenanceSchedulerTest = {};
@@ -955,7 +955,7 @@ for (const queued of [false, true]) test(`import cancels completion without repo
 // Acceptance: switching cancels unsaved work, never mixes chats or buys another
 // model call; a submitted/unknown save keeps its true status. Same-chat appends
 // still save normally. Cost: lost work, false success, duplicate paid requests.
-for (const version of ['1.14.0', '1.18.0']) for (const mode of ['auto', 'chat']) for (const scenario of [
+for (const version of hostSaveVersions) for (const mode of ['auto', 'chat']) for (const scenario of [
     { name: 'chat switch before first poll', kind: 'chat' },
     { name: 'character switch behind save lock', kind: 'character', locked: true },
     { name: 'chat switch after submission', kind: 'chat', submitted: true },

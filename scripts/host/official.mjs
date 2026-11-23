@@ -18,6 +18,28 @@ function git(directory, args, options = {}) {
     return result.stdout;
 }
 
+function ensureReference(directory, commit) {
+    const hasCommit = () => fs.existsSync(path.join(directory, 'HEAD')) &&
+        spawnSync('git', ['--no-replace-objects', '-C', directory, 'cat-file', '-e', `${commit}^{commit}`]).status === 0;
+    if (hasCommit()) return;
+    // Concurrent suites may request the same cold reference. Publish only a
+    // complete repository, so readers never share a fetch or its shallow.lock.
+    const parent = path.dirname(directory);
+    fs.mkdirSync(parent, { recursive: true });
+    const incoming = fs.mkdtempSync(path.join(parent, 'fetch-'));
+    try {
+        git(incoming, ['init', '--bare']);
+        git(incoming, ['fetch', '--depth=1', remote, commit]);
+        try {
+            fs.renameSync(incoming, directory);
+        } catch (error) {
+            if (!hasCommit()) throw error;
+        }
+    } finally {
+        fs.rmSync(incoming, { recursive: true, force: true });
+    }
+}
+
 export function referenceFor(version) {
     if (!/^[\w.-]+$/.test(version)) throw new Error('Invalid official host version or ref');
     let commit = official.verificationVersions[version];
@@ -30,10 +52,7 @@ export function referenceFor(version) {
         commit = resolved[0];
     }
     const directory = objectCache(commit);
-    fs.mkdirSync(directory, { recursive: true });
-    if (!fs.existsSync(path.join(directory, 'HEAD'))) git(directory, ['init', '--bare']);
-    const present = spawnSync('git', ['--no-replace-objects', '-C', directory, 'cat-file', '-e', `${commit}^{commit}`]);
-    if (present.status !== 0) git(directory, ['fetch', '--depth=1', remote, commit]);
+    ensureReference(directory, commit);
     const entries = git(directory, ['ls-tree', '-r', '-l', '-z', commit]).split('\0').filter(Boolean).map(line => {
         const [metadata, file] = line.split('\t');
         const [mode, type, hash, size] = metadata.trim().split(/\s+/);
