@@ -17,12 +17,13 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm test
+      - run: npm test -- standalone
   references:
     runs-on: ubuntu-latest
     outputs:
       hosts: ${{ steps.references.outputs.hosts }}
       repository: ${{ steps.references.outputs.repository }}
+      indexVersion: ${{ steps.references.outputs.indexVersion }}
     steps:
       - uses: actions/checkout@v4
       - id: references
@@ -31,7 +32,7 @@ jobs:
           node --input-type=module -e '
             import fs from "node:fs";
             const config = JSON.parse(fs.readFileSync("scripts/host/official.json"));
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, `repository=${config.repository}\nhosts=${JSON.stringify(Object.entries(config.verificationVersions).map(([version, commit]) => ({version, commit})))}\n`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `repository=${config.repository}\nindexVersion=${config.indexVersion}\nhosts=${JSON.stringify(Object.entries(config.verificationVersions).map(([version, commit]) => ({version, commit})))}\n`);
           '
   check:
     needs: references
@@ -58,5 +59,12 @@ jobs:
       - run: npm ci
         working-directory: host/public/scripts/extensions/third-party/LittleWhiteBox
       # Do not build first: doing so would hide stale committed artifacts.
-      - run: npm run check
+      - run: npm run check -- build
+        if: matrix.host.version == needs.references.outputs.indexVersion
+        working-directory: host/public/scripts/extensions/third-party/LittleWhiteBox
+      # The common build already checks types against the reference host.
+      - run: node scripts/typecheck.mjs
+        if: matrix.host.version != needs.references.outputs.indexVersion
+        working-directory: host/public/scripts/extensions/third-party/LittleWhiteBox
+      - run: npm run check -- host
         working-directory: host/public/scripts/extensions/third-party/LittleWhiteBox

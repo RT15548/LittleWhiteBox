@@ -657,7 +657,7 @@ export function createAssistantRuntime(deps) {
     function recordDeliveryPrelude(delivery, signal) {
         signal.throwIfAborted();
         const start = state.messages.length;
-        for (const { name, content } of delivery.prelude) {
+        for (const { name, content } of delivery.createPrelude()) {
             const id = createRequestId('delivery');
             const toolResult = delivery.execute(name);
             appendMessage({ role: 'assistant', content, toolCalls: [{ name, id, arguments: '{}' }] });
@@ -682,7 +682,7 @@ export function createAssistantRuntime(deps) {
         const webResults = createWebResults(createRequestId);
         const adapter = createAdapter();
         const delivery = createResponseDelivery(run.deliverySettings, getActiveProviderConfig());
-        const pinnedMessages = delivery?.prelude.length ? recordDeliveryPrelude(delivery, run.controller.signal) : [];
+        const pinnedMessages = delivery?.createPrelude ? recordDeliveryPrelude(delivery, run.controller.signal) : [];
         let rounds = 0;
         let pendingToolResponses = null;
         let pendingFinalAnswerReminderText = '';

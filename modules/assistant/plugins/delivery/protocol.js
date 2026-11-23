@@ -15,6 +15,32 @@ export const TOOL_DELIVER = 'deliver_response';
 export const TOOL_READ = 'read_work_requirements';
 export const TOOL_APPROVAL = 'request_approval';
 
+const READ_PRELUDE_LINES = [
+    "An interesting task. I'll take another look at the brief.",
+    'An intriguing task. Let me take another look at the brief.',
+    "A challenging task. I'll check the brief again before starting.",
+    'An interesting request. Let me look over the brief once more.',
+    "A thought-provoking task. I'll take a look at the brief first.",
+    "An intriguing request. I'll review the brief before proceeding.",
+    'Quite an interesting task. Let me check the brief again.',
+    "A nontrivial task. I'll take another look at the work requirements.",
+    'An engaging task. Let me revisit the brief before I begin.',
+    "A challenging request. I'll look through the brief once more.",
+];
+const APPROVAL_PRELUDE_LINES = [
+    "The task and requirements are clear. Requesting approval to deliver this task's result.",
+    'The brief and requirements are clear. Requesting approval to deliver the response.',
+    'I have the task and requirements in view. Requesting approval to deliver this result.',
+    'The scope and work requirements are clear. Requesting approval to proceed with delivery.',
+    "The brief is clear and ready to apply. Requesting approval to deliver this task's response.",
+    'The requirements for this task are clear. Requesting approval to deliver the final result.',
+    'Everything in the brief is clear. Requesting approval to deliver the response for this task.',
+    'The task direction and requirements are clear. Requesting approval to deliver the result.',
+    "I've reviewed the brief and requirements. Requesting approval to deliver this task's result.",
+    'The work requirements are clear and aligned. Requesting approval to deliver the response.',
+];
+const pickPreludeLine = lines => lines[Math.floor(Math.random() * lines.length)];
+
 export const READ_RESULT = [
     `LOADED. The work requirements are mounted in the ${TOOL_READ} tool description.`,
     'The current session context, active tool declarations, and response delivery channel are ready for this turn.',
@@ -83,9 +109,10 @@ export function createResponseDelivery(settings, providerConfig) {
         systemPrefix: tagged ? '' : SILENT_EFFORT,
         instructions: tagged ? DELIVERY_FINAL_STEP : DELIVERY_CHECKLIST,
         definitions: tagged ? [finalReplyTool(requirements === DEFAULT_REQUIREMENTS ? '' : requirements)] : deliveryDefinitions(requirements),
-        prelude: tagged ? [] : [
-            { name: TOOL_READ, content: "An interesting task. I'll take another look at the brief." },
-            { name: TOOL_APPROVAL, content: "The task and requirements are clear. Requesting approval to deliver this task's result." },
+        // Draw only when recording a new turn, not while estimating or replaying context.
+        createPrelude: tagged ? null : () => [
+            { name: TOOL_READ, content: pickPreludeLine(READ_PRELUDE_LINES) },
+            { name: TOOL_APPROVAL, content: pickPreludeLine(APPROVAL_PRELUDE_LINES) },
         ],
         execute(name, args) {
             if (name === TOOL_READ) return { ok: true, status: READ_RESULT };

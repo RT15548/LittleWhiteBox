@@ -2,13 +2,15 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { availableParallelism } from 'node:os';
-import { discoverTests, sourceGraph, typescriptTests, selectTests } from './test-selection.mjs';
+import { discoverTests, sourceGraph, typescriptTests, selectTests, isHostTest } from './test-selection.mjs';
 import { withTestHost } from './host/test-host.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 export { discoverTests };
-const help = `用法：npm test -- [full | changed | 模块名/目录/测试文件 ...] [--list] [--concurrency=N]
+const help = `用法：npm test -- [full | changed | standalone | host | 模块名/目录/测试文件 ...] [--list] [--concurrency=N]
   npm test                              全量测试
+  npm test -- standalone                不依赖所选酒馆版本的测试
+  npm test -- host                      所选酒馆版本的兼容测试
   npm test -- variables/state3          变量 3.0
   npm test -- draw story-summary        多个模块
   npm test -- changed --list            查看未提交改动对应的测试范围
@@ -46,7 +48,7 @@ export function runTests(args = [], options = {}) {
         env: { ...process.env, ...options.env, ...(host && { LWB_HOST_ROOT: host }),
             LWB_TEST_TYPESCRIPT: JSON.stringify(typedFiles.map(file => path.relative(root, file))) },
     });
-    const result = files.some(file => /\.host\.test\./.test(path.basename(file))) ? withTestHost(execute) : execute();
+    const result = files.some(isHostTest) ? withTestHost(execute) : execute();
     console.log(`测试运行耗时：${((performance.now() - started) / 1000).toFixed(2)}s`);
     return result;
 }

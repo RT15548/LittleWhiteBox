@@ -6,6 +6,7 @@ import { collectSourceFiles } from './workspace-files.mjs';
 const extensions = new Set(['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.tsx', '.vue']);
 const typed = /\.[cm]?tsx?$/;
 const testName = /\.test\.[cm]?[jt]s$/;
+export const isHostTest = file => /\.host\.test\.[cm]?[jt]s$/.test(path.basename(file));
 const slash = value => value.split(path.sep).join('/');
 const inside = (file, directory) => file === directory || file.startsWith(`${directory}/`);
 const owner = file => file.startsWith('modules/') ? file.split('/').slice(0, 2).join('/') : null;
@@ -69,8 +70,14 @@ export function gitChanges(root) {
 
 export function selectTests(root, tests, scopes, { changes, graph } = {}) {
     if (!scopes.length || scopes.length === 1 && scopes[0] === 'full') return { files: tests, reason: '全量' };
-    if (scopes.includes('full') || scopes.includes('changed') && scopes.length !== 1) {
-        throw new Error('full / changed 不能与其他范围混用。');
+    if (scopes.some(scope => ['full', 'changed', 'standalone', 'host'].includes(scope)) && scopes.length !== 1) {
+        throw new Error('full / changed / standalone / host 不能与其他范围混用。');
+    }
+    if (scopes[0] === 'standalone' || scopes[0] === 'host') {
+        const host = scopes[0] === 'host';
+        const files = tests.filter(file => isHostTest(file) === host);
+        if (!files.length) throw new Error(`此范围没有测试：${scopes[0]}`);
+        return { files, reason: host ? '宿主兼容' : '独立测试' };
     }
     if (scopes[0] !== 'changed') {
         const selected = new Set();

@@ -13,6 +13,33 @@ const {
 const { createPlanLedger } = await import('../../agent-core/plan-ledger.js');
 const { buildProviderMessagesFromHistory } = await import('../../agent-core/runtime/protocol.js');
 const { settleAssistantRunFailure } = await import('../app-src/runtime/run-failure.js');
+const { createResponseDelivery } = await import('../plugins/delivery/protocol.js');
+
+// Contract (changed history / lost prompt cache): reopening preserves the actual
+// sampled assistant text and its paired tool results, without sampling again.
+test('delivery preparation reopens as the same provider messages after a database reconnect', async t => {
+    await resetDb();
+    const state = createState(), store = createStore(state);
+    await store.restoreSession();
+    let sample = 0.05;
+    t.mock.method(Math, 'random', () => sample);
+    const delivery = createResponseDelivery({ enabled: true }, { provider: 'google' });
+    state.messages = [{ role: 'user', content: 'First question.' }];
+    for (const { name, content } of delivery.createPrelude()) {
+        const id = `prelude-${name}`;
+        state.messages.push({ role: 'assistant', content, toolCalls: [{ id, name, arguments: '{}' }] },
+            { role: 'tool', toolCallId: id, toolName: name, content: JSON.stringify(delivery.execute(name)) });
+    }
+    const before = buildProviderMessagesFromHistory(state.messages);
+    assert.equal((await store.persistSession()).ok, true);
+    sample = 0.95;
+    db.close(); await db.open();
+    const restored = createState();
+    await createStore(restored).restoreSession();
+    assert.deepEqual(buildProviderMessagesFromHistory(restored.messages), before);
+    assert.notEqual(createResponseDelivery({ enabled: true }, { provider: 'google' }).createPrelude()[0].content, restored.messages[1].content);
+    assert.deepEqual(buildProviderMessagesFromHistory(restored.messages), before);
+});
 
 // Acceptance: reopening must preserve failed/interrupted replies without reclassifying them as successful.
 test('session reload preserves failure notices and interrupted prose', async () => {

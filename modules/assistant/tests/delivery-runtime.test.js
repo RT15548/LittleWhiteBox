@@ -9,7 +9,7 @@ import { estimateConversationTokens } from '../../agent-core/runtime/context-tok
 import { buildProviderMessagesFromHistory } from '../../agent-core/runtime/protocol.js';
 import { deliveredText } from '../plugins/delivery/history.js';
 import { selectCompactionRange } from '../app-src/runtime/compaction-range.js';
-import { APPROVAL_RESULT, DEFAULT_REQUIREMENTS, DELIVERY_CHECKLIST, DELIVERY_FINAL_STEP, READ_RESULT, TOOL_APPROVAL, TOOL_DELIVER, TOOL_READ } from '../plugins/delivery/protocol.js';
+import { APPROVAL_RESULT, createResponseDelivery, DEFAULT_REQUIREMENTS, DELIVERY_CHECKLIST, DELIVERY_FINAL_STEP, READ_RESULT, TOOL_APPROVAL, TOOL_DELIVER, TOOL_READ } from '../plugins/delivery/protocol.js';
 import { SILENT_EFFORT } from '../shared/direct-output.js';
 
 const deliveryTools = [TOOL_READ, TOOL_APPROVAL, TOOL_DELIVER];
@@ -39,7 +39,7 @@ function harness(t, options = {}) {
         isJsApiEnabled: () => false,
         SYSTEM_PROMPT: systemInstructions, MAX_CONTEXT_TOKENS: 100000, SUMMARY_TRIGGER_TOKENS: 90000,
         TOOL_NAMES: { RUN_JAVASCRIPT_API: 'RunJavaScriptApi', RUN_SLASH_COMMAND: 'RunSlashCommand', DELEGATE_RUN: 'DelegateRun' },
-        createAdapter: config => !config && options.adapter ? options.adapter : ({ supportsSessionToolLoop: true, async chat(task) {
+        createAdapter: config => !config && options.adapter ? options.adapter : ({ supportsSessionToolLoop: options.session !== false, async chat(task) {
             const queue = config ? delegateRequests : requests;
             const steps = config ? options.delegateSteps : options.steps;
             const step = steps[queue.length];
@@ -55,6 +55,75 @@ function harness(t, options = {}) {
 const receipts = (messages, name) => messages.filter(message => message.role === 'tool' && message.toolName === name)
     .map(message => JSON.parse(message.content));
 const toolNames = task => task.tools.map(tool => tool.function.name);
+
+// Contracts (cache loss / changed history): the two choices are independent;
+// only a new native turn draws them, and subsequent requests replay the saved text.
+test('native preparation exposes all 100 independent pairs without changing the request instructions', t => {
+    const draws = [];
+    t.mock.method(Math, 'random', () => {
+        assert.ok(draws.length, 'Only creating the turn prelude may draw a line');
+        return draws.shift();
+    });
+    const readLines = new Set(), approvalLines = new Set(), pairs = new Set();
+    const readByIndex = new Map(), approvalByIndex = new Map();
+    let instructions;
+    for (let read = 0; read < 10; read++) for (let approval = 0; approval < 10; approval++) {
+        const delivery = createResponseDelivery({ enabled: true }, { provider: 'google' });
+        const requestInstructions = JSON.stringify([delivery.systemPrefix, delivery.instructions, delivery.definitions]);
+        instructions ??= requestInstructions;
+        assert.equal(requestInstructions, instructions);
+        draws.push((read + 0.5) / 10, (approval + 0.5) / 10);
+        const prelude = delivery.createPrelude();
+        assert.equal(draws.length, 0);
+        assert.deepEqual(prelude.map(item => item.name), [TOOL_READ, TOOL_APPROVAL]);
+        const [first, second] = prelude.map(item => item.content);
+        assert.ok(typeof first === 'string' && first.length > 0);
+        assert.ok(typeof second === 'string' && second.length > 0);
+        if (readByIndex.has(read)) assert.equal(first, readByIndex.get(read));
+        if (approvalByIndex.has(approval)) assert.equal(second, approvalByIndex.get(approval));
+        readByIndex.set(read, first); approvalByIndex.set(approval, second);
+        readLines.add(first); approvalLines.add(second); pairs.add(JSON.stringify([first, second]));
+    }
+    assert.equal(readLines.size, 10); assert.equal(approvalLines.size, 10); assert.equal(pairs.size, 100);
+    assert.equal(createResponseDelivery({ enabled: false }, { provider: 'google' }), null);
+    assert.equal(createResponseDelivery({ enabled: true }, { provider: 'openai-compatible', toolMode: 'tagged-json' }).createPrelude, null);
+});
+
+for (const session of [false, true]) test(`meter updates, tool continuation and later turns reuse saved preparation; session: ${session}`, async t => {
+    const draws = [0.05, 0.95];
+    t.mock.method(Math, 'random', () => {
+        assert.ok(draws.length, 'Stored preparation must be reused');
+        return draws.shift();
+    });
+    const h = harness(t, { session, settings: { enabled: true }, steps: [task => {
+        assert.deepEqual(task.messages.slice(-4), buildProviderMessagesFromHistory(h.saved.at(-1)).slice(-4));
+        assert.equal(draws.length, 0);
+        h.runtime.updateDisplayContextStats({ enabled: true });
+        return { text: '', toolCallsAreNative: true, toolCalls: [makeCall('invalid', ' ')] };
+    }, ordinaryReply, ordinaryReply] });
+    h.runtime.updateDisplayContextStats({ enabled: true });
+    assert.equal(draws.length, 2, 'An estimate does not create a new turn');
+    await h.start();
+    assert.equal(h.requests.length, 2);
+    const history = structuredClone(h.state.messages);
+    const firstPrelude = buildProviderMessagesFromHistory(history).slice(1, 5);
+    if (session) {
+        assert.equal(h.requests[1].messages, undefined, 'Session continuation must not replay or rebuild the prefix');
+        assert.equal(h.requests[1].toolResponses[0].id, 'invalid');
+    } else {
+        assert.deepEqual(h.requests[1].messages.filter(message => message.role !== 'system').slice(1, 5), firstPrelude);
+    }
+
+    draws.push(0.95, 0.05);
+    h.state.messages.push({ role: 'user', content: 'Next question.' });
+    await h.start();
+    assert.equal(draws.length, 0);
+    assert.deepEqual(h.state.messages.slice(0, history.length), history);
+    const replay = h.requests[2].messages.filter(message => message.role !== 'system');
+    assert.deepEqual(replay.slice(1, 5), firstPrelude);
+    assert.notEqual(replay.at(-4).content, firstPrelude[0].content);
+    assert.notEqual(replay.at(-2).content, firstPrelude[2].content);
+});
 
 test('enabled native delivery records local read and scoped acknowledgement, then commits only one final receipt', async t => {
     const requirements = 'Use short sections.';
@@ -245,6 +314,12 @@ test('SillyTavern tagged retry can deliver immediately without changing ordinary
         assert.equal(requests.length, 2);
         assert.ok(requests[0].tools.some(tool => tool.function.name === TOOL_DELIVER));
         assert.equal(Object.hasOwn(requests[1], 'tools'), false);
+        const preparation = h.state.messages.filter(message => message.toolCalls?.some(call => [TOOL_READ, TOOL_APPROVAL].includes(call.name)));
+        assert.equal(preparation.length, 2);
+        for (const { content } of preparation) {
+            assert.ok(requests[0].messages.some(message => message.content === content));
+            assert.ok(requests[1].messages.some(message => typeof message.content === 'string' && message.content.startsWith(content)), 'Fallback must retain the sampled prose');
+        }
         assert.deepEqual(receipts(h.state.messages, TOOL_DELIVER), [{ ok: true }]);
         if (taggedDelta.content) assert.deepEqual(receipts(h.state.messages, 'RunJavaScriptApi').map(receipt => receipt.error), ['jsapi_permission_denied']);
     }

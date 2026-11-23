@@ -4,16 +4,17 @@ import path from 'node:path';
 import { validateBuild } from './build/validate.mjs';
 
 const host = installedHostRoot();
+const mode = process.argv[2] ?? 'full';
+if (!['full', 'build', 'host'].includes(mode) || process.argv.length > 3) throw new Error('用法：npm run check -- [full | build | host]');
 if (!host) throw new Error('Full acceptance requires an official SillyTavern checkout. Set LWB_HOST_ROOT to select the host under verification.');
 const reference = installedHostReference(host);
 assertOfficialHost(host, reference);
 try {
-    for (const args of [
-        [process.env.npm_execpath, 'run', 'lint'],
-        ['scripts/build.mjs', '--check'],
-        ['scripts/test.mjs'],
-        ['scripts/check-runtime.mjs'],
-    ]) {
+    const steps = [];
+    if (mode !== 'host') steps.push([process.env.npm_execpath, 'run', 'lint'], ['scripts/build.mjs', '--check']);
+    if (mode !== 'build') steps.push(['scripts/test.mjs', ...(mode === 'host' ? ['host'] : [])]);
+    if (mode !== 'host') steps.push(['scripts/check-runtime.mjs']);
+    for (const args of steps) {
         const result = spawnSync(process.execPath, args, { cwd: pluginRoot, stdio: 'inherit' });
         if (result.error) throw result.error;
         if (result.status !== 0) throw new Error(`Acceptance step failed (${result.status}): ${args.join(' ')}`);

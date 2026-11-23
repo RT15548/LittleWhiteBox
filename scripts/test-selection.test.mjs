@@ -8,6 +8,7 @@ import { discoverTests, gitChanges, sourceGraph, typescriptTests, selectTests } 
 
 // Contracts: selection must retain affected consumers; loader choice must retain
 // execution and failure status. Violations silently admit broken product changes.
+// CI groups must cover every test exactly once per applicable environment (missed regressions).
 const projectRoot = path.resolve(import.meta.dirname, '..');
 function fixture(t) {
     fs.mkdirSync(path.join(projectRoot, 'output'), { recursive: true });
@@ -29,14 +30,22 @@ test('full retains all discoveries; scopes include new modules and reject empty 
     const { root, write } = fixture(t);
     const a = write('modules/new/nested/a.test.ts');
     const b = write('modules/other/b.test.js');
+    const host = write('modules/other/serializer.host.test.mjs');
     write('dist/generated.test.js');
     write('output/private.test.js');
     const tests = discoverTests(root);
-    assert.deepEqual(tests, [a, b]);
+    assert.deepEqual(tests, [a, b, host]);
     assert.deepEqual(selectTests(root, tests, []).files, tests);
     assert.deepEqual(selectTests(root, tests, ['full']).files, tests);
-    assert.deepEqual(selectTests(root, tests, ['new/nested', b]).files, tests);
-    for (const scopes of [['ne'], ['new', 'missing'], ['changed', 'new']]) assert.throws(() => selectTests(root, tests, scopes));
+    assert.deepEqual(selectTests(root, tests, ['new/nested', b]).files, [a, b]);
+    const standalone = selectTests(root, tests, ['standalone']).files;
+    const hosted = selectTests(root, tests, ['host']).files;
+    assert.deepEqual(standalone, [a, b]);
+    assert.deepEqual(hosted, [host]);
+    assert.deepEqual([...standalone, ...hosted].sort(), tests);
+    assert.throws(() => selectTests(root, standalone, ['host']));
+    assert.throws(() => selectTests(root, hosted, ['standalone']));
+    for (const scopes of [['ne'], ['new', 'missing'], ['changed', 'new'], ['standalone', 'host'], ['host', 'new']]) assert.throws(() => selectTests(root, tests, scopes));
 });
 
 test('changed includes owners, transitive consumers and generated-bundle integration tests', t => {

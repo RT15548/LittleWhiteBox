@@ -1,8 +1,8 @@
 {
-  "buildId": "a76c18affe0d103a9501",
+  "buildId": "9c760fc592ffe853e70f",
   "entries": {
     "apps/assistant": {
-      "file": "apps/assistant-BUnkm0ui.js",
+      "file": "apps/assistant-DWvL4wLF.js",
       "css": []
     },
     "apps/debug-panel": {
@@ -98,7 +98,7 @@
     }
   },
   "resources": {
-    "apps/assistant-BUnkm0ui.js": {
+    "apps/assistant-DWvL4wLF.js": {
       "imports": [
         "shared/build-assets-CzCSC94G.js",
         "shared/async-errors-C4kfchr9.js",
