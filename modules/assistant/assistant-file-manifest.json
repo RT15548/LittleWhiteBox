@@ -21447,7 +21447,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/test-preload.mjs",
       "relativePath": "scripts/test-preload.mjs",
       "extension": ".mjs",
-      "sizeBytes": 1102
+      "sizeBytes": 1335
     },
     {
       "source": "littlewhitebox",
@@ -21734,7 +21734,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-server/tests/novelai-vibe.test.js",
       "relativePath": "server-plugin/littlewhitebox-server/tests/novelai-vibe.test.js",
       "extension": ".js",
-      "sizeBytes": 9234
+      "sizeBytes": 9551
     },
     {
       "source": "littlewhitebox",

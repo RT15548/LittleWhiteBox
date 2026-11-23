@@ -1,17 +1,20 @@
 import path from 'node:path';
 import { registerHooks } from 'node:module';
 
-// Run the real browser asset resolver with its installation URL, independent
-// of the checkout's filesystem name. Only its module location is substituted.
-const assets = new URL('../core/build-assets.js', import.meta.url).href;
-const installedAssets = 'https://tavern.test/scripts/extensions/third-party/LittleWhiteBox/core/build-assets.js';
+// Browser code that derives asset and backend routes from import.meta.url sees
+// its real installation layout; imports and implementation still come from this checkout.
+const checkout = new URL('../', import.meta.url);
+const installation = 'https://tavern.test/scripts/extensions/third-party/LittleWhiteBox/';
+const browserModules = new Set(['core/build-assets.js', 'modules/draw/shared/drawing-runtime-client.js']
+    .map(file => new URL(file, checkout).href));
+const localUrl = url => url?.startsWith(installation) ? new URL(url.slice(installation.length), checkout).href : url;
 registerHooks({
     resolve(specifier, context, next) {
-        const result = next(specifier, context.parentURL === installedAssets ? { ...context, parentURL: assets } : context);
-        return result.url === assets ? { ...result, url: installedAssets } : result;
+        const result = next(specifier, { ...context, parentURL: localUrl(context.parentURL) });
+        return browserModules.has(result.url) ? { ...result, url: installation + result.url.slice(checkout.href.length) } : result;
     },
     load(url, context, next) {
-        return next(url === installedAssets ? assets : url, context);
+        return next(localUrl(url), context);
     },
 });
 

@@ -3,7 +3,8 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const { test } = require('node:test');
 const { encodeVibe } = require('../../../modules/draw/server/providers/novelai/client.js');
-const { readFileSync } = require('node:fs');
+const { cpSync, mkdtempSync, readFileSync, rmSync } = require('node:fs');
+const { tmpdir } = require('node:os');
 const path = require('node:path');
 const { runInNewContext } = require('node:vm');
 const { parse } = require('acorn');
@@ -65,6 +66,9 @@ test('Vibe browser requests use the existing host with the distributed runtime',
     // changing the running installation or requiring Git history in normal tests.
     const host = require(process.env.LWB_TEST_FROZEN_HOST || '../index.js');
     t.after(() => host.exit());
+    const extensions = mkdtempSync(path.join(tmpdir(), 'lwb-vibe-extensions-'));
+    t.after(() => rmSync(extensions, { recursive: true, force: true }));
+    cpSync(path.resolve(__dirname, '../../../dist/server'), path.join(extensions, 'LittleWhiteBox/dist/server'), { recursive: true });
     const upstreamCalls = [];
     const browserCalls = [];
     const encoding = Buffer.from([0, 1, 255, 42]);
@@ -96,7 +100,7 @@ test('Vibe browser requests use the existing host with the distributed runtime',
             const chunks = [];
             for await (const chunk of req) chunks.push(chunk);
             req.body = chunks.length ? JSON.parse(Buffer.concat(chunks)) : {};
-            req.user = { profile: { handle: 'isolated-vibe-test' }, directories: { extensions: path.resolve(__dirname, '../../../..') } };
+            req.user = { profile: { handle: 'isolated-vibe-test' }, directories: { extensions } };
             res.status = code => { res.statusCode = code; return res; };
             res.send = body => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(body)); return res; };
             const handler = routes.get(`${req.method} ${req.url}`);
