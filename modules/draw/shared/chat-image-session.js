@@ -70,13 +70,13 @@ export function createChatImageSession({ context, provider, changed, report, aut
             // Completion belongs to the floor task; never extend MESSAGE_RECEIVED
             // across provider I/O. Errors still have a visible/reportable owner.
             operation.completed?.catch(error => {
-                if (own.phase !== 'preparing') report(error);
+                if (own.phase !== 'preparing' && error.name !== 'AbortError') report(error);
             });
             await own.prepared;
             own.phase = 'placed';
         } catch (error) {
             own.phase = 'failed'; own.error = error;
-            report(error);
+            if (!nativeMessage || error.name !== 'AbortError') report(error);
         } finally { changed(message); }
     }
 

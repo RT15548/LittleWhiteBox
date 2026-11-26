@@ -6,7 +6,8 @@ import { COPY } from '../ui/copy.js';
 import { EXTENSION_COPY as EC } from '../extensions/copy.js';
 import type { State3Api } from '../runtime/api.js';
 import type { Success } from '../types.js';
-import { OPENING_SOURCE } from '../runtime/history.js';
+import { OPENING_SOURCE, recordResult } from '../runtime/history.js';
+import { modelSource } from '../definition/stages.js';
 
 const result = (value: number, saved = true): Success => ({ ok: true, committed: true, saved,
     state: { coins: value }, changes: [{ path: ['coins'], before: 10, after: value, removed: false }],
@@ -19,10 +20,44 @@ test('opening-only results offer no gameplay undo, while subsequent gameplay can
     const view = createResultDialog({} as State3Api), dialog = document.querySelector('dialog')!;
     dialog.showModal = () => { dialog.open = true; }; t.after(() => view.dispose());
     const start = result(15); start.receipt!.source = OPENING_SOURCE;
-    view.sync([{ index: 0, stage: 'after', result: start }], 0, ready); view.open(0);
-    assert.equal(dialog.querySelectorAll('main button').length, 0);
+    for (const changes of [[], start.changes]) {
+        view.sync([{ index: 0, stage: 'after', result: { ...start, changes } }], 0, ready); view.open(0);
+        assert.equal(dialog.querySelector('main')!.dataset.stage, 'opening');
+        assert.equal(dialog.querySelectorAll('main button').length, 0);
+    }
     view.sync([{ index: 0, stage: 'after', result: result(18) }], 0, ready);
+    assert.equal(dialog.querySelector('main')!.dataset.stage, 'after');
     assert.equal(dialog.querySelectorAll('main button').length, 1);
+});
+
+test('reusing the dialog across projected floors never carries opening identity into gameplay or empty results', t => {
+    const { document } = parseHTML('<html><body></body></html>');
+    const previous = globalThis.document; globalThis.document = document; t.after(() => { globalThis.document = previous; });
+    const view = createResultDialog({} as State3Api), dialog = document.querySelector('dialog')!;
+    dialog.showModal = () => { dialog.open = true; }; t.after(() => view.dispose());
+    const opening = { ...result(10).receipt!, source: OPENING_SOURCE };
+    const gameplay = { ...opening, id: 'gameplay', revision: 2, source: modelSource('after') };
+    const records = [{ entries: [opening] }, { entries: [] }, { entries: [gameplay] }];
+    const projected = recordResult({ coins: 10 }, records, 2)!;
+    const entries = [{ index: 0, stage: 'after' as const, result: recordResult({ coins: 10 }, records, 0)! },
+        { index: 2, stage: 'after' as const, result: projected }];
+    view.sync(entries, 2, ready);
+    for (const index of [0, 2, 0, 2]) {
+        view.open(index);
+        assert.equal(dialog.querySelector('main')!.dataset.stage, index === 0 ? 'opening' : 'after');
+    }
+    // Empty deltas remain gameplay; a failure or pending save also cannot inherit initialization.
+    for (const next of [projected, { ...projected, saved: false }, { ok: false as const, diagnostics: [{ code: 'model-request', cause: { code: 'AGENT_PROVIDER_ERROR' } }] }]) {
+        view.sync([{ index: 2, stage: 'after', result: next }], 2, ready);
+        assert.equal(dialog.querySelector('main')!.dataset.stage, 'after');
+    }
+    view.sync([], 2, ready);
+    assert.equal(dialog.querySelector('main')!.dataset.stage, undefined);
+    // When the same floor has both initialization and gameplay, its newest gameplay owns the result.
+    records[2].entries = [];
+    records[0].entries.push(gameplay);
+    view.sync([{ index: 0, stage: 'after', result: recordResult({ coins: 10 }, records, 0)! }], 0, ready); view.open(0);
+    assert.equal(dialog.querySelector('main')!.dataset.stage, 'after');
 });
 
 test('player failures cannot replay host code; author retesting preserves the original result', async t => {

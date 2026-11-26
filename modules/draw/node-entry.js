@@ -2,6 +2,7 @@ import { compile as compileComfyUi } from './providers/comfyui/compiler.js';
 import { compile as compileNovelAi } from './providers/novelai/compiler.js';
 import { getNovelModelCapability } from './providers/novelai/novel-model-capabilities.js';
 import { compile as compileSdWebUi } from './providers/sd-webui/compiler.js';
+import { compileGemini, compileOpenAi } from './providers/multimodal/compiler.js';
 import {
     assertDrawRunId,
     createDrawRunId,
@@ -13,6 +14,7 @@ import { assertSubmitScenePlanTool } from './shared/scene-plan-contract.js';
 import { assertScenePlannerMessages } from './shared/scene-planner-messages.js';
 import { assertScenePlanRefine } from './shared/scene-plan-refine.js';
 import { hashSceneSource } from './shared/scene-source.js';
+export { assertScenePlannerHandoffTools, assertScenePlannerHandoffContext } from './shared/scene-planner-handoff.js';
 export { assertCustomToolSources } from './shared/custom-tools.js';
 export { buildDisplayMetadata, createProgressDiagnostic } from './server/draw-runs/projection.js';
 import { buildDisplayMetadata } from './server/draw-runs/projection.js';
@@ -34,6 +36,8 @@ const PROVIDER_COMPILERS = Object.freeze({
     novelai: compileNovelAi,
     'sd-webui': compileSdWebUi,
     comfyui: compileComfyUi,
+    gemini: compileGemini,
+    openai: compileOpenAi,
 });
 
 export function compileDrawRunImages(provider, scenePlan, generationRecipe) {

@@ -57,6 +57,7 @@ import {
 } from "./modules/draw/providers/novelai/novel-draw.js";
 import { initSdDraw, cleanupSdDraw, sdPublicGeneration } from "./modules/draw/providers/sd-webui/sd-draw.js";
 import { initComfyDraw, cleanupComfyDraw, comfyPublicGeneration } from "./modules/draw/providers/comfyui/comfy-draw.js";
+import { multimodalProviders } from './modules/draw/providers/multimodal/runtime.js';
 import { createDrawPublicApi } from './modules/draw/shared/public-api.js';
 import { capturePublicGallery } from './modules/draw/shared/public-gallery.js';
 import { setupDrawGenerateInterceptor } from "./modules/draw/shared/draw-common.js";
@@ -138,7 +139,7 @@ const CHAT_SURFACE_MANAGED = isTauriTavernChatSurfaceManaged();
 configureTauriTavernRuntime();
 configureL0ContinuationCheck(isDiceContinuationPending);
 
-const DRAW_PROVIDER_VALUES = new Set(['disabled', 'novelai', 'sdwebui', 'comfyui']);
+const DRAW_PROVIDER_VALUES = new Set(['disabled', 'novelai', 'sdwebui', 'comfyui', ...Object.keys(multimodalProviders)]);
 let tavernModulePromise = null;
 let tavernModule = null;
 let tavernLoadError = null;
@@ -249,23 +250,28 @@ async function cleanupDrawProvider(provider = settings.drawProvider) {
         try { await cleanupSdDraw(); } catch (e) { console.warn({ source: import.meta.url, operation: "cleanupDrawProvider" }, e); }
     } else if (normalized === 'comfyui') {
         try { await cleanupComfyDraw(); } catch (e) { console.warn({ source: import.meta.url, operation: "cleanupDrawProvider" }, e); }
+    } else if (Object.hasOwn(multimodalProviders, normalized)) {
+        multimodalProviders[normalized].cleanup();
     }
 }
 
 async function initActiveDrawProvider() {
     migrateDrawProviderSettings(settings);
     if (!isXiaobaixEnabled) return;
+    const provider = settings.drawProvider;
     try {
-        if (settings.drawProvider === 'novelai') {
+        if (provider === 'novelai') {
             await initNovelDraw();
-        } else if (settings.drawProvider === 'sdwebui') {
+        } else if (provider === 'sdwebui') {
             await initSdDraw();
-        } else if (settings.drawProvider === 'comfyui') {
+        } else if (provider === 'comfyui') {
             await initComfyDraw();
+        } else if (Object.hasOwn(multimodalProviders, provider)) {
+            await multimodalProviders[provider].init();
         }
     } finally {
-        // provider 初始化失败也要启动：分组预设的自动应用不依赖绘图页是否初始化成功（三个 provider 共用一个监听，幂等）。
-        if (['novelai', 'sdwebui', 'comfyui'].includes(settings.drawProvider)) {
+        // 分组预设不依赖画图设置页能否初始化；切换完成后只为当前后端监听。
+        if (isXiaobaixEnabled && provider === settings.drawProvider && provider !== 'disabled') {
             try { startGroupPresetWatcher(); } catch (e) { console.error('[LittleWhiteBox] 启动分组预设监听失败:', e); }
         }
     }
@@ -281,8 +287,20 @@ const publicDrawApi = createDrawPublicApi({
     captureGallery: capturePublicGallery,
     isEnabled: () => isXiaobaixEnabled && normalizeDrawProvider(settings.drawProvider) !== 'disabled',
     getProvider: () => normalizeDrawProvider(settings.drawProvider),
-    providers: { novelai: novelPublicGeneration, sdwebui: sdPublicGeneration, comfyui: comfyPublicGeneration },
+    providers: { novelai: novelPublicGeneration, sdwebui: sdPublicGeneration, comfyui: comfyPublicGeneration,
+        ...Object.fromEntries(Object.entries(multimodalProviders).map(([provider, { publicGeneration }]) => [provider, publicGeneration])) },
 });
+
+function getDrawProviderFacade(provider) {
+    if (provider === 'novelai') return window.xiaobaixNovelDraw;
+    if (provider === 'sdwebui') return window.xiaobaixSdDraw;
+    if (provider === 'comfyui') return window.xiaobaixComfyDraw;
+    if (Object.hasOwn(multimodalProviders, provider)) {
+        const { facade } = multimodalProviders[provider];
+        if (facade.isEnabled()) return facade;
+    }
+    return null;
+}
 
 function installDrawFacade() {
     function joinDrawTags(...parts) {
@@ -294,17 +312,7 @@ function installDrawFacade() {
     }
 
     function getProviderGenerateImagesFromText(provider) {
-        if (provider === 'novelai') return window.xiaobaixNovelDraw?.generateImagesFromText;
-        if (provider === 'sdwebui') return window.xiaobaixSdDraw?.generateImagesFromText;
-        if (provider === 'comfyui') return window.xiaobaixComfyDraw?.generateImagesFromText;
-        return null;
-    }
-
-    function getDrawProviderFacade(provider) {
-        if (provider === 'novelai') return window.xiaobaixNovelDraw;
-        if (provider === 'sdwebui') return window.xiaobaixSdDraw;
-        if (provider === 'comfyui') return window.xiaobaixComfyDraw;
-        return null;
+        return getDrawProviderFacade(provider)?.generateImagesFromText;
     }
 
     function normalizeCharacterPrompts(value) {
@@ -370,6 +378,11 @@ function installDrawFacade() {
             };
         }
 
+        if (Object.hasOwn(multimodalProviders, provider)) {
+            return multimodalProviders[provider].facade.buildPromptData({ ...payload, prompt, negativePrompt,
+                characterPrompts: payload.characterPrompts });
+        }
+
         return {
             tags: prompt,
             positive: prompt,
@@ -379,12 +392,12 @@ function installDrawFacade() {
         };
     }
 
-    function prepareDrawGeneration(input = {}) {
+    async function prepareDrawGeneration(input = {}) {
         const provider = normalizeDrawProvider(settings.drawProvider);
         const payload = typeof input === 'string' ? { prompt: input } : (input || {});
         const promptData = cloneDrawGenerationValue(buildDrawPromptData(payload));
         const providerFacade = getDrawProviderFacade(provider);
-        const providerSnapshot = providerFacade?.getGenerationSnapshot?.(payload) || {};
+        const providerSnapshot = await providerFacade?.getGenerationSnapshot?.(payload) || {};
         const providerConfig = cloneDrawGenerationValue(providerSnapshot.fingerprint || null);
         const generationConfig = providerSnapshot.execution || null;
         return {
@@ -436,6 +449,12 @@ function installDrawFacade() {
                     });
                 }
 
+                if (Object.hasOwn(multimodalProviders, provider) && providerFacade?.isEnabled()) {
+                    return providerFacade.generateImage({ prompt: promptData.tags, positivePrefix: promptData.positivePrefix,
+                        negativePrompt: promptData.negativePrompt, characterPrompts: promptData.characterPrompts,
+                        params: promptData.params, referenceImages: promptData.referenceImages, overrideSize: promptData.overrideSize,
+                        generationConfig, sceneConfig: providerSnapshot.sceneConfig, signal, onQueueStateChange });
+                }
                 throw new Error('未启用画图后端');
             },
         };
@@ -464,17 +483,23 @@ function installDrawFacade() {
         buildPromptData(input = {}) {
             return buildDrawPromptData(input);
         },
+        getProviderSettingsFacade(provider = normalizeDrawProvider(settings.drawProvider)) {
+            const facade = getDrawProviderFacade(provider);
+            if (!facade) return undefined;
+            const { openSettings, getQuickSettings, updateQuickSettings } = facade;
+            return { openSettings, getQuickSettings, updateQuickSettings };
+        },
         mountMessagePanel(element, messageId) {
-            const currentProvider = () => getDrawProviderFacade(normalizeDrawProvider(settings.drawProvider));
-            if (isXiaobaixEnabled) currentProvider()?.mountMessagePanel?.(element, messageId, { force: true });
-            return () => currentProvider()?.releaseMessagePanel?.(element, messageId);
+            const mounted = getDrawProviderFacade(normalizeDrawProvider(settings.drawProvider));
+            if (isXiaobaixEnabled) mounted?.mountMessagePanel?.(element, messageId, { force: true });
+            return () => mounted?.releaseMessagePanel?.(element, messageId);
         },
         prepareGeneration(input = {}) {
             return prepareDrawGeneration(input);
         },
         async generateImage(input = {}) {
             const payload = typeof input === 'string' ? { prompt: input } : (input || {});
-            const plan = prepareDrawGeneration(payload);
+            const plan = await prepareDrawGeneration(payload);
             return await plan.execute({
                 signal: payload.signal,
                 onQueueStateChange: payload.onQueueStateChange,
@@ -949,12 +974,9 @@ async function setupSettings() {
         $("#xiaobaix_draw_open_settings").on("click", function () {
             if (!isXiaobaixEnabled) return;
             const provider = normalizeDrawProvider(settings.drawProvider);
-            if (provider === 'novelai' && window.xiaobaixNovelDraw?.openSettings) {
-                observeBackgroundTask(window.xiaobaixNovelDraw.openSettings(), { source: import.meta.url, operation: "callback" });
-            } else if (provider === 'sdwebui' && window.xiaobaixSdDraw?.openSettings) {
-                observeBackgroundTask(window.xiaobaixSdDraw.openSettings(), { source: import.meta.url, operation: "callback" });
-            } else if (provider === 'comfyui' && window.xiaobaixComfyDraw?.openSettings) {
-                observeBackgroundTask(window.xiaobaixComfyDraw.openSettings(), { source: import.meta.url, operation: "callback" });
+            const facade = getDrawProviderFacade(provider);
+            if (facade?.openSettings) {
+                observeBackgroundTask(facade.openSettings(), { source: import.meta.url, operation: 'openDrawSettings' });
             } else if (provider === 'disabled') {
                 toastr.warning('请先选择画图后端');
             } else {

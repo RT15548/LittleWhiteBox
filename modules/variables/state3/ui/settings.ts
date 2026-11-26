@@ -2,7 +2,7 @@ import { observeBackgroundTask } from '../../../../shared/common/async-errors.js
 import styleText from './styles.css?inline';
 import controlsCss from '../../shared/update-controls.css?inline';
 import { COPY, errorText } from './copy.js';
-import { element, resultLabel, showDiagnostics } from './result.js';
+import { element, resultLabel, resultStage, showDiagnostics } from './result.js';
 import { createResultDialog, type FloorResult } from './result-dialog.js';
 import { notifyInfo } from './notifications.js';
 import { DEFINITION_FILE } from '../definition/format.js';
@@ -242,10 +242,12 @@ export function createState3Page(api: State3Api) {
                         group.append(calculate(COPY.retryCalculation)); if (isBefore) {group.append(skip());}
                     } else if (unsettled) {
                         group.append(calculate(COPY.settle)); if (isBefore) {group.append(skip());}
-                    } else {group.append(calculate(COPY.recompute));}
+                    } else if (resultStage(last) !== 'opening' || updates.includes('after')) {group.append(calculate(resultStage(last) === 'opening' ? COPY.settle : COPY.recompute));}
                     if (last) {group.append(control(COPY.result, () => resultDialog.open(floor)));}
                     group.append(control(COPY.settings, () => this.open()));
-                    const statusLabel = element('span', [COPY.stageNames[isBefore ? 'before' : 'after'],
+                    const stage = resultStage(busy ? undefined : last, isBefore ? 'before' : 'after')!;
+                    group.dataset.stage = stage;
+                    const statusLabel = element('span', [COPY.stageNames[stage],
                         busy ? COPY.phases[status.phase] : item?.edited ? COPY.messageEdited : unsettled ? COPY.unsettled : last ? resultLabel(last) : COPY.unsettled].join(' · '));
                     statusLabel.setAttribute('role', 'status'); group.append(statusLabel);
                     floorTarget.after(group);

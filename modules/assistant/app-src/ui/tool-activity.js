@@ -1,6 +1,7 @@
 import { describeToolCall, isWebTool, TOOL_NAMES } from '../tooling.js';
 import { deliveryActivityLabels } from '../../plugins/delivery/history.js';
 import { ACTIVITY_COPY } from './activity-copy.js';
+import { COPY as CARD_COPY } from '../../../card-workspace/copy.js';
 
 const shortText = value => String(value ?? '').replace(/\s+/gu, ' ').trim().slice(0, 160);
 
@@ -25,7 +26,7 @@ export function toolOutcome(result, toolName = result?.toolName) {
                 ? { status: 'failed', note: ACTIVITY_COPY.searchTimeout }
                 : { status: 'stopped', note: '' };
         }
-        return { status: 'unconfirmed', note: toolName === TOOL_NAMES.RUN_JAVASCRIPT_API ? shortText(result.message) : '' };
+        return { status: 'unconfirmed', note: [TOOL_NAMES.RUN_JAVASCRIPT_API, TOOL_NAMES.DRAW_IMAGE].includes(toolName) ? shortText(result.message) : '' };
     }
     if (result.skipped === true || result.approved === false) return { status: 'skipped', note: '' };
     if (result.execution?.isAborted === true) return {
@@ -35,16 +36,24 @@ export function toolOutcome(result, toolName = result?.toolName) {
     if (toolName === TOOL_NAMES.WEB_FETCH && result.ok === false && (result.results?.length > 0 || result.status === 'partial')) {
         return { status: 'partial', note: shortText(result.message) };
     }
+    if ([TOOL_NAMES.DRAW_IMAGE, TOOL_NAMES.SAVE_DRAW_IMAGES].includes(toolName) && result.ok === false && result.images?.length) {
+        return { status: 'partial', note: shortText(result.message) };
+    }
+    if (result.status === 'partial') return { status: 'partial', note: shortText(result.message) };
     if (result.ok === false || result.execution?.isError === true) {
         return { status: 'failed', note: shortText(result.message || result.execution?.errorMessage || result.error) };
     }
     if (result.skippedFiles > 0) return { status: 'partial', note: '' };
+    if (toolName === TOOL_NAMES.CARD_FILES && result.ok === true && result.previewRefreshFailed === true) {
+        return { status: 'succeeded', note: CARD_COPY.avatarRefreshFailed };
+    }
     // Current read/search tools return their data directly; failures use ok:false
     // or the host error channel. An absent ok field is not a legacy format.
-    return { status: 'succeeded', note: '' };
+    return { status: 'succeeded', note: toolName === TOOL_NAMES.CARD_ASSETS && result.draft && result.requiresWriteback
+        ? result.unchanged ? CARD_COPY.assetDraftUnchanged : CARD_COPY.assetDraftNote : '' };
 }
 
-export function createToolActivityProjection(getActivity = () => null) {
+export function createToolActivityProjection(getActivity = () => null, getActions = () => []) {
     const calls = new WeakMap(), receipts = new WeakMap();
 
     function label(call) {
@@ -85,7 +94,8 @@ export function createToolActivityProjection(getActivity = () => null) {
                 if (value.status === 'succeeded') counts.succeeded++;
                 else if (value.status === 'failed') counts.failed++;
                 else counts.unresolved++;
-                rows.push({ key: call, type: 'tool', label: label(call), ...value });
+                rows.push({ key: call, type: 'tool', label: label(call), ...value,
+                    actions: result && result.toolName === call.name ? getActions(call, parseRecord(result.content)) : [] });
             }
         }
         return { rows, counts };

@@ -18,6 +18,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test -- standalone
+        env:
+          # Use the runner's installed Chrome, not Ubuntu's chromium snap launcher.
+          LWB_TEST_CHROMIUM: /usr/bin/google-chrome
   references:
     runs-on: ubuntu-latest
     outputs:

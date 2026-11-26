@@ -9,6 +9,7 @@ const {
     readJsonResponse,
     readResponseBuffer,
 } = require('../upstream.js');
+const { comfyExecutionError } = require('../../../providers/comfyui/execution-error.cjs');
 
 const SUCCESS_WITHOUT_IMAGE_GRACE_MS = 15_000;
 const CANCEL_REQUEST_TIMEOUT_MS = 5_000;
@@ -71,17 +72,6 @@ function selectOutput(item, preferredSaveImageNodeId, saveImageNodeIds, all = fa
         if (output) return output;
     }
     return null;
-}
-
-function describeExecutionError(status) {
-    const details = Array.isArray(status?.messages)
-        ? status.messages
-            .filter(message => Array.isArray(message) && message[0] === 'execution_error')
-            .map(message => message[1] || {})
-            .map(detail => `${detail.node_type || 'Unknown'} [${detail.node_id || '?'}] ${detail.exception_type || 'Error'}: ${detail.exception_message || ''}`)
-            .join('\n')
-        : '';
-    return `ComfyUI generation failed${details ? `\n\n${details}` : ''}`;
 }
 
 /**
@@ -148,7 +138,7 @@ async function execute({ context, item, signal }) {
                 continue;
             }
             if (historyItem.status?.status_str === 'error') {
-                throw new Error(describeExecutionError(historyItem.status));
+                throw comfyExecutionError(historyItem.status);
             }
             output = selectOutput(historyItem, item.request.preferredSaveImageNodeId, saveImageNodeIds);
             if (output) break;

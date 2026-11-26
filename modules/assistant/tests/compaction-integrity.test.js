@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createModelRequestRetry } from '../app-src/runtime/model-retry.js';
 import { createHistoryCompactionController } from '../app-src/runtime/history-compaction.js';
 import { buildProviderMessagesFromHistory } from '../../agent-core/runtime/protocol.js';
 import { estimateConversationTokens } from '../../agent-core/runtime/context-tokens.js';
 import { currentHistorySummary } from '../app-src/state/compaction-history.js';
 import { summaryResult, summarySource } from './helpers/summary.js';
+import { formatToolResultDisplay, TOOL_NAMES } from '../app-src/tooling.js';
 
 // Acceptance contracts:
 // - Repeated compaction keeps parallel calls and their replies together (broken provider protocol).
@@ -18,23 +20,50 @@ const cycle = (id, size = 6000) => {
     ...calls.map(call => ({ role: 'tool', toolCallId: call.id, toolName: call.name, content: `${id}:` + 'x'.repeat(size / 2) }))];
 };
 
-function harness({ messages, summary = '', threshold = 2500, inputLimit = 5000, respond = () => summaryResult('memory'), saveResult } = {}) {
+function harness({ messages, summary = '', threshold = 2500, inputLimit = 5000, respond = () => summaryResult('memory'), saveResult,
+    format = () => ({}) } = {}) {
     const state = { messages: [{ role: 'user', content: 'Continue the card.' }, ...(messages || Array.from({ length: 5 }, (_, i) => cycle(`c${i}`)).flat())],
         compactions: summary ? [{ summary }] : [], archivedSkillIds: [], contextStats: {} };
     const requests = [], saved = [];
     const providerConfig = { provider: 'anthropic', maxTokens: 1000 };
-    const controller = createHistoryCompactionController({ state, render() {}, persistSession() { saved.push(structuredClone(state)); return saveResult; }, showToast() {},
-        getActiveProviderConfig: () => providerConfig, formatToolResultDisplay: () => ({}), buildTextWithAttachmentSummary: text => text,
+    const controller = createHistoryCompactionController({ createRequestRetry: () => createModelRequestRetry({ wait: async () => {} }), state, render() {}, persistSession() { saved.push(structuredClone(state)); return saveResult; }, showToast() {},
+        getActiveProviderConfig: () => providerConfig, formatToolResultDisplay: format, buildTextWithAttachmentSummary: text => text,
         compactionThreshold: () => threshold, requestInputLimit: () => inputLimit,
         buildContextMeterLabel: () => '',
         toProviderMessages: (messages, { historySummary = currentHistorySummary(state) } = {}) => [...(historySummary ? [{ role: 'system', content: historySummary }] : []), ...buildProviderMessagesFromHistory(messages)],
-        updateContextStats(messages) { state.contextStats = { usedTokens: estimateConversationTokens({ messages, providerConfig }), budgetTokens: 258000 }; },
+        updateContextStats(messages) { state.contextStats = { usedTokens: estimateConversationTokens({ messages, providerConfig }), budgetTokens: 256000 }; },
     });
     const adapter = { chat: async request => {
         requests.push(request); return respond(request, requests.length);
     } };
     return { state, requests, saved, run: signal => controller.ensureContextBudget(adapter, signal) };
 }
+
+test('an archived delegation hands saved paths and unpaid recovery handles to the next model request', async () => {
+    const name = TOOL_NAMES.DELEGATE_RUN;
+    const paths = ['local/images/first.png', 'local/images/second.png'];
+    const receiptId = 'pending-batch-452';
+    const result = { status: 'failed', summary: 'No final answer', toolTrace: [],
+        images: paths.map((path, i) => ({ path, name: path.split('/').at(-1), kind: 'image', blobId: 'blob-' + i })),
+        drawingFailures: [{ error: 'workspace_image_save_failed', receiptId }] };
+    const h = harness({ messages: [{ role: 'assistant', toolCalls: [{ id: 'delegate', name, arguments: '{}' }] },
+        { role: 'tool', toolCallId: 'delegate', toolName: name, content: JSON.stringify(result) }, ...cycle('big', 15000)],
+    format: formatToolResultDisplay });
+    const next = await h.run();
+    const source = h.requests.map(summarySource).join('\n');
+    for (const fact of [...paths, receiptId]) {
+        assert.ok(source.includes(fact), 'summary source has ' + fact);
+        assert.ok(next[0].content.includes(fact), 'next request has ' + fact + ' even when the summarizer returned only prose');
+        assert.ok(currentHistorySummary(h.saved.at(-1)).includes(fact), 'checkpoint restores ' + fact);
+    }
+    h.state.messages.push(...cycle('more-work', 15000));
+    const again = await h.run();
+    assert.ok(again[0].content.includes(paths[0]) && again[0].content.includes(receiptId));
+    const epoch = h.state.compactions.length;
+    h.state.messages.push({ role: 'user', content: 'Unrelated task.', compactionEpoch: epoch }, ...cycle('new-task', 15000));
+    await h.run();
+    assert.equal(h.state.compactions.at(-1).drawingHandoffs, undefined, 'old batches no longer pinned in a different task');
+});
 
 test('compaction retains fitting parallel Anthropic calls with both replies and invalidates old signatures', async () => {
     const h = harness({ messages: [...cycle('big', 12000), ...cycle('c4', 400)] });
@@ -131,4 +160,27 @@ test('an oversized running summary stops before sending another chunk and preser
     assert.equal(currentHistorySummary(h.state), 'original memory');
     assert.deepEqual(h.state.messages, original);
     assert.equal(h.saved.length, 0);
+});
+
+for (const exhaust of [false, true]) test(`summary retries only the failed chunk, preserving earlier work (exhaust=${exhaust})`, async () => {
+    const failure = Object.assign(new Error('fixture server failure'), { status: 500 });
+    const h = harness({ summary: 'prior memory', respond: (_request, n) => {
+        if (n >= 2 && n <= (exhaust ? 5 : 3)) throw failure;
+        return summaryResult('updated memory');
+    } });
+    const original = structuredClone(h.state.messages);
+    if (exhaust) {
+        await assert.rejects(h.run(), error => error.code === 'assistant_summary_failed' && error.cause === failure);
+        assert.equal(h.requests.length, 5);
+        assert.deepEqual(h.state.messages, original);
+        assert.equal(currentHistorySummary(h.state), 'prior memory');
+        assert.equal(h.saved.length, 0);
+    } else {
+        await h.run();
+        assert.equal(h.saved.length, 1);
+        assert.equal(currentHistorySummary(h.state), 'updated memory');
+    }
+    const inputs = h.requests.map(summarySource);
+    assert.equal(inputs.filter(input => input === inputs[0]).length, 1);
+    assert.equal(inputs.filter(input => input === inputs[1]).length, exhaust ? 4 : 3);
 });

@@ -21,10 +21,12 @@ db.version(3).stores({
 }).upgrade(migrateWorkspaceV3);
 
 db.version(4).stores({ workspace: 'id' }).upgrade(migrateCardDocuments);
+db.version(5).stores({ workspaceImageBlobs: 'id' });
 
 export const sessionsTable = db.sessions;
 export const messagesTable = db.messages;
 export const metaTable = db.meta;
 export const plansTable = db.plans;
 export const workspaceTable = db.workspace;
+export const workspaceImageBlobsTable = db.workspaceImageBlobs;
 export default db;

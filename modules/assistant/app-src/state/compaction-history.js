@@ -1,6 +1,11 @@
 // Session-owned checkpoints. Only the most recent successful summary is model context.
+export function checkpointText(record) {
+    if (!record?.summary) return '';
+    return [record.summary, ...(record.drawingHandoffs || []).map(handoff => JSON.stringify(handoff))].join('\n');
+}
+
 export function currentHistorySummary(state) {
-    return state.compactions?.findLast(record => record.summary)?.summary || '';
+    return checkpointText(state.compactions?.findLast(record => record.summary));
 }
 
 // Messages record which checkpoints already existed when they were appended.
@@ -26,7 +31,7 @@ export function rewindUserTurn(state, userIndex, keepUser) {
             archivedSkillIds = record.turnStart.archivedSkillIds;
             break;
         }
-        if (record.summary) priorSummary = record.summary;
+        if (record.summary) priorSummary = checkpointText(record);
     }
     if (priorSummary) compactions.push({ summary: priorSummary });
     return { messages: state.messages.slice(0, userIndex + Number(keepUser)), compactions, archivedSkillIds };

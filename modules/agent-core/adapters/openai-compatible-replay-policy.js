@@ -1,3 +1,4 @@
+import { isToolResultContext } from '../runtime/tool-result-context.js';
 import { resolveRuntimeReasoning } from '../reasoning-capabilities.js';
 
 // Pure replay policy shared by request serialization and pre-request token counting.
@@ -12,7 +13,7 @@ export function shouldPreserveHistoricalReasoning(config = {}, tools = [], reaso
 
 export function getLastUserMessageIndex(messages = []) {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
-        if (messages[index]?.role === 'user') return index;
+        if (messages[index]?.role === 'user' && !isToolResultContext(messages[index])) return index;
     }
     return -1;
 }

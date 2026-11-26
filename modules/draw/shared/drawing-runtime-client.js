@@ -2,6 +2,10 @@ import { SERVER_PLUGIN_BASE } from '../../../shared/server-plugin/identity.js';
 import { DRAWING_RUNTIME_ID, DRAWING_RUNTIME_ABI } from '../../../shared/server-plugin/runtime-build.js';
 export { DRAWING_RUNTIME_ABI };
 
+export function isDrawingRuntimeHostCompatible(status) {
+    return status?.runtimeHostAbi === DRAWING_RUNTIME_ABI;
+}
+
 export function drawingRuntimeHeaders() {
     const match = new URL(import.meta.url).pathname.match(/\/scripts\/extensions\/third-party\/([^/]+)\//);
     if (!match) throw new Error('无法确定小白盒安装目录');

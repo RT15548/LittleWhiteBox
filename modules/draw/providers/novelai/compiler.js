@@ -1,3 +1,4 @@
+import { isNovelFixedDrawSize } from '../../shared/draw-size.js';
 import { createIdentifier as createVibeCacheKey } from '../../../../shared/common/identifier.js';
 import { assembleCharacterPrompts, joinTags } from '../../shared/character-prompts.js';
 import { getNovelModelCapability, isNovelV5Model } from './novel-model-capabilities.js';
@@ -69,9 +70,8 @@ function applySizeOverride(params, overrideSize, orientation) {
     if (size.toLowerCase() === 'auto') {
         size = Object.hasOwn(AUTO_ORIENTATION_SIZE, orientation) ? AUTO_ORIENTATION_SIZE[orientation] : '';
     }
-    const match = size.match(/^(832x1216|1216x832|1024x1024|768x1280|1280x768)$/i);
-    if (!match) return { ...params };
-    const [width, height] = match[1].toLowerCase().split('x').map(Number);
+    if (!isNovelFixedDrawSize(size)) return { ...params };
+    const [width, height] = size.toLowerCase().split('x').map(Number);
     return { ...params, width, height };
 }
 

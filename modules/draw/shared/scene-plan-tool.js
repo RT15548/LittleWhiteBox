@@ -183,6 +183,14 @@ export function createSubmitScenePlanTool(options = {}) {
         },
     };
 
+    if (profile.promptStyle === 'natural') {
+        // A complete description prevents raw character-library/preset text being
+        // appended after the planner has adapted the scene for this image model.
+        charactersSchema.maxItems = 0;
+        charactersSchema.description = 'An empty array. Each scene contains the complete image description, including all visible characters.';
+        charactersSchema.items = { type: 'object', properties: {}, additionalProperties: false };
+        imagesSchema.items.properties.scene.description = 'The complete natural-language image description: visible characters and their appearance, clothing, actions and relationships, setting, composition, light and style. It is sent to the image model as written; the app does not append the character library or generation instructions.';
+    }
     const tool = {
         type: 'function',
         function: {

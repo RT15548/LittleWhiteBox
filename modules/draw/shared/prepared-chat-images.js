@@ -47,8 +47,8 @@ export function prepareNativeChatImages(provider, input) {
 // The two input adapters supply already compiled metadata and the same provider
 // batch runner. This is the only owner of pre-request chat placement for them.
 export async function submitPreparedChatImages({ ctx, message, messageId, sourceText,
-    tasks, metadata, backend, run, signal, onStateChange, onPlacement, nativeMessage = false, onPrepared, placementSource, filePrefix,
-    swipeIndex = message.swipe_id ?? 0, manual = false }) {
+    tasks, metadata, backend, run, prepareItem, signal, onStateChange, onPlacement, nativeMessage = false, onPrepared, placementSource, filePrefix,
+    swipeIndex = message.swipe_id ?? 0, manual = false, followReloadedSlot = false }) {
     const chatId = String(ctx.chatId);
     const chatIdentity = getImageChatIdentity(ctx);
     const ids = tasks.map(task => ({ ...createImageIdentifiers(),
@@ -76,7 +76,10 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
         // remains the delivery target; never write into the newly opened chat.
         if (getImageChatIdentity(live) === chatIdentity) {
             const target = findImageJobDeliverySlot(live.chat, slotId);
-            return !nativeMessage || target?.message === message ? target : null;
+            if (!nativeMessage || target?.message === message) return target;
+            // After the host reloads this chat, its saved slot still belongs to
+            // the original floor even though the message object was replaced.
+            return followReloadedSlot && target?.messageId === messageId && !live.chat.includes(message) ? target : null;
         }
         const original = findImageJobDeliverySlot([message], slotId);
         return original ? { ...original, messageId } : null;
@@ -114,7 +117,7 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
         await materializeDrawSavedPreview(message, task.placement.slotId, { messageId, chatId });
         validateSource();
     }
-    return executePreparedSlots({ items, backend, nativeMessage, onPrepared, manual,
+    return executePreparedSlots({ items, backend, nativeMessage, onPrepared, manual, prepareItem,
         afterDelivered: item => autoSaveDeliveredImage({ imgId: item.imgId, slotId: item.slotId, filePrefix,
             chatTarget: () => {
                 const target = getImageChatIdentity(getContext()) === chatIdentity ? resolveTarget(item.slotId) : null;

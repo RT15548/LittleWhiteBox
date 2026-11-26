@@ -14,7 +14,6 @@ type Docket = {
     claims: Record<string, { id: string; speaker: string; topic: string; stance: string; text: string }>;
     leads: Record<string, { id: string; title: string; opened: boolean }>;
     verdict: { status: string; label: string; accused: string | null; evidenceUsed: string[]; reason: string };
-    note: string;
 };
 const example = new URL('../skill/references/examples/wugang/', import.meta.url);
 const item = parseItemDocument('regex', readFileSync(new URL('regex/雾港：最新一楼卷宗.md', example), 'utf8'));
@@ -126,12 +125,10 @@ test('native JSON refresh renders current trust thresholds, lead titles and full
     d.exhibits['EX-01'].testLabel = '与签押样本吻合 <script>bad()</script>';
     d.leads['L-01'] = { id: 'L-01', title: '舱单时序 <b>矛盾</b>', opened: true };
     d.claims['C-01'] = { id: 'C-01', speaker: 'witness', topic: '归档时间', stance: 'suspect_a', text: '我听见两次钟响。\n<img src=x onerror=alert(1)>' };
-    d.note = '新事实：归档发生在钟响之后。';
     p.controls.root = d;
     p.tick();
     assert.equal(p.element('.clock').dataset.urgency, 'low');
     assert.deepEqual(p.element('.clock strong').textContent!.match(/\d+/g)!.map(Number), [d.clock.minute, d.clock.limit]);
-    assert.equal(p.element('.note').textContent, d.note);
     for (const [id, band] of [['suspect_a', 'cooperative'], ['suspect_b', 'cautious'], ['suspect_c', 'guarded']]) {
         assert.equal(p.element(`[data-person="${id}"]`).dataset.trustBand, band);
         assert.ok(p.element(`[data-person="${id}"] .trust`).textContent!.includes(String(d.people[id].trust)));
@@ -165,7 +162,6 @@ test('native JSON refresh renders current trust thresholds, lead titles and full
 
 test('rewind/external restore removes old facts, while missing state clears and can recover the identical value', t => {
     const d = initial();
-    d.note = '只存在于旧进度';
     d.claims.C1 = { id: 'C1', speaker: 'witness', topic: '晚间', stance: '', text: '只存在于旧证言' };
     d.leads['L-01'] = { id: 'L-01', title: '只存在于旧线索', opened: true };
     const p = panel(d);
@@ -173,7 +169,6 @@ test('rewind/external restore removes old facts, while missing state clears and 
     p.controls.root = initial();
     p.tick();
     assert.equal(p.current().querySelectorAll('[data-claim], [data-lead]').length, 0);
-    assert.equal(p.element('.note').textContent, initial().note);
     const restored = p.current().textContent;
     for (const missing of ['', undefined, null]) {
         p.controls.root = missing;

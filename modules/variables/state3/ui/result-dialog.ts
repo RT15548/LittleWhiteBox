@@ -1,6 +1,6 @@
 import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 import { COPY, errorText, playerErrorText } from './copy.js';
-import { element, showCheck, showResult, showDiagnostics } from './result.js';
+import { element, showCheck, showResult, showDiagnostics, resultStage } from './result.js';
 import { showExtensionDetails } from './extension-results.js';
 import type { Definition, Result, UpdateStage } from '../types.js';
 import type { Draft } from '../definition/authoring.js';
@@ -40,7 +40,9 @@ export function createResultDialog(api: State3Api) {
         main.replaceChildren();
         const item = results.find(item => item.index === selected);
         const result = selected === undefined ? standalone : item?.result;
-        title.textContent = selected !== undefined ? [COPY.floorResult(selected), item?.stage && COPY.stageNames[item.stage], COPY.result].filter(Boolean).join(' · ') : check ? COPY.checkTitle : result?.ok && !result.committed ? COPY.previewTitle : COPY.result;
+        const displayedStage = resultStage(selected === busyIndex ? undefined : result, item?.stage);
+        if (displayedStage) {main.dataset.stage = displayedStage;} else {delete main.dataset.stage;}
+        title.textContent = selected !== undefined ? [COPY.floorResult(selected), displayedStage && COPY.stageNames[displayedStage], COPY.result].filter(Boolean).join(' · ') : check ? COPY.checkTitle : result?.ok && !result.committed ? COPY.previewTitle : COPY.result;
         if (selected === busyIndex) {main.append(element('p', COPY.phases[phase], 'lwb-state3-status'));}
         if (!result) { main.append(element('p', COPY.noResult)); return; }
         if (item?.edited) {main.append(element('p', COPY.beforeEdited));}

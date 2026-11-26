@@ -70,6 +70,52 @@ function createEnvelope(runId, overrides = {}) {
     return Object.assign(envelope, overrides);
 }
 
+test('Draw Run freezes handoff descriptions and admits only receipt-only tool definitions', async () => {
+    const { createScenePlannerHandoffTools, buildScenePlannerExchange, renderScenePlannerMessage } = await import('../../../modules/draw/shared/scene-planner-handoff.js');
+    const validate = createEnvelopeValidator(drawRuntime);
+    const input = createEnvelope('run-handoff');
+    input.planner.prompt.messages.push(...['materials', 'guide', 'requirements', 'approval']
+        .flatMap(kind => buildScenePlannerExchange(kind).map(item => renderScenePlannerMessage(item, item.template))));
+    input.planner.handoffTools = createScenePlannerHandoffTools({ documents: { content: 'scene fixture', guide: 'guide fixture' } });
+    const accepted = validate(input).envelope;
+    assert.deepEqual(accepted.planner.handoffTools, input.planner.handoffTools);
+    input.planner.handoffTools[0].function.parameters.properties.manuscript.description = 'changed';
+    assert.notEqual(accepted.planner.handoffTools[0].function.parameters.properties.manuscript.description, 'changed');
+    const missing = structuredClone(accepted);
+    delete missing.planner.handoffTools;
+    assert.throws(() => validate(missing), { code: 'invalid_draw_run' });
+    for (const mutate of [
+        tools => { delete tools[0].function.parameters.properties.manuscript; },
+        tools => tools.pop(),
+        tools => { tools[1].function.name = tools[0].function.name; },
+        tools => { tools[0].function.parameters.properties.command = { type: 'string' }; },
+        tools => { tools[0].action = 'execute'; },
+    ]) {
+        const invalid = structuredClone(accepted);
+        mutate(invalid.planner.handoffTools);
+        assert.throws(() => validate(invalid), { code: 'invalid_draw_run' });
+    }
+});
+
+test('Draw Run preserves the natural planner contract and the multimodal recipe without tag fields', () => {
+    const validate = createEnvelopeValidator(drawRuntime);
+    for (const [imageProvider, params] of [
+        ['gemini', { model: 'gemini-nano-banana-2.1', aspectRatio: '1:1', imageSize: '1K' }],
+        ['openai', { model: 'gpt-image-2.6-flare', size: 'auto', quality: 'auto', background: 'auto' }],
+    ]) {
+        const generationRecipe = { apiBaseUrl: 'https://images.example.test/v1', apiKey: 'image-secret', timeout: 5000, delayMs: 1, params, referenceImages: [] };
+        const envelope = createEnvelope(`run-${imageProvider}`, { imageProvider, generationRecipe });
+        Object.assign(envelope.planner.validationContext, { centerMode: 'none', promptStyle: 'natural' });
+        const result = validate(envelope).envelope;
+        assert.deepEqual(result.generationRecipe, generationRecipe);
+        assert.equal(result.planner.validationContext.centerMode, 'none');
+        assert.equal(result.planner.validationContext.promptStyle, 'natural');
+        assert.throws(() => validate({ ...envelope, generationRecipe: { ...generationRecipe, positivePrefix: 'invalid tag text' } }), { code: 'invalid_draw_run' });
+        envelope.planner.validationContext.centerMode = 'grid';
+        assert.throws(() => validate(envelope), { code: 'invalid_draw_run' });
+    }
+});
+
 test('Draw Run knownCharacters cap counts only effectively enabled characters: a closed group frees its share of the 500', async () => {
     const { selectEnabledCharacters, setGroupEnabled } = await import('../../../modules/draw/shared/character-library.js');
     const validate = createEnvelopeValidator(drawRuntime);

@@ -1,7 +1,7 @@
 import { fetchImageBackendJobsStatus } from './backend-image-jobs.js';
 import { SERVER_PLUGIN_COPY } from '../../../shared/server-plugin/copy.js';
 import { publishDrawRunActivity } from './draw-run-activity.js';
-import { prepareDrawingRuntime, DRAWING_RUNTIME_ABI } from './drawing-runtime-client.js';
+import { prepareDrawingRuntime, isDrawingRuntimeHostCompatible } from './drawing-runtime-client.js';
 import { submitDrawRun } from './draw-run-coordinator.js';
 import { listActiveSwipeDrawRunMarkers } from './draw-run-markers.js';
 import { isPendingDrawRunSubmission, listPendingImageJobs } from './pending-image-jobs.js';
@@ -143,7 +143,7 @@ export async function submitProviderDrawRun({
             'DRAW_RUN_BACKEND_UNAVAILABLE',
         );
     }
-    if (status.runtimeHostAbi !== DRAWING_RUNTIME_ABI) {
+    if (!isDrawingRuntimeHostCompatible(status)) {
         throw new DrawRunProductionError(
             '请完成这一次后台升级，以后绘图功能随扩展更新。' + SERVER_PLUGIN_COPY.update,
             'DRAW_RUN_BACKEND_OUTDATED',

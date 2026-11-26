@@ -124,7 +124,7 @@ test('ComfyUI preserves proxy base paths and selects only SaveImage output asset
     assert.deepEqual(result, { buffer: PNG, mime: 'image/png' });
 });
 
-test('ComfyUI reports execution_error details', async () => {
+test('ComfyUI reports a failed node without forwarding its exception body', async () => {
     global.fetch = async (url) => {
         const pathname = new URL(url).pathname;
         if (pathname === '/prompt') return jsonResponse({ prompt_id: 'prompt-1' });
@@ -133,7 +133,7 @@ test('ComfyUI reports execution_error details', async () => {
                 status: {
                     status_str: 'error',
                     messages: [['execution_error', {
-                        node_type: 'KSampler', node_id: '3', exception_type: 'RuntimeError', exception_message: 'CUDA failed',
+                        node_type: 'KSampler', node_id: '3', exception_type: 'RuntimeError', exception_message: 'fake-key and fake-prompt',
                     }]],
                 },
             },
@@ -146,7 +146,7 @@ test('ComfyUI reports execution_error details', async () => {
             item: { request: { workflow: { 9: { class_type: 'SaveImage' } }, preferredSaveImageNodeId: '' } },
             signal: new AbortController().signal,
         }),
-        /KSampler \[3\] RuntimeError: CUDA failed/,
+        error => error.code === 'comfy_execution_failed' && error.message.includes('#3') && !error.message.includes('fake-'),
     );
 });
 

@@ -38,7 +38,7 @@ function runtimeHarness(t, { config = settings('tavily'), delegateConfig = setti
         REQUEST_TIMEOUT_MS: 1000,
         isAbortError: error => error.name === 'AbortError' || error.message === 'assistant_aborted',
         createAdapter: providerConfig => {
-            const role = providerConfig ? 'delegate' : 'main';
+            const role = providerConfig === delegateConfig ? 'delegate' : 'main';
             return { supportsSessionToolLoop: session, async chat(task) {
                 requests.push({ role, tools: task.tools, messages: structuredClone(task.messages || []), toolResponses: structuredClone(task.toolResponses || []) });
                 assert.ok(queues[role].length, 'Unexpected model retry');

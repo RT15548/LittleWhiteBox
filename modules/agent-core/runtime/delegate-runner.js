@@ -114,9 +114,7 @@ function summarizeToolArguments(args = {}) {
             parts.push(`${key}: ${normalizeInlineText(args[key], 120)}`);
         }
     });
-    if (typeof args.patchText === 'string') {
-        parts.push(`patchLength: ${args.patchText.length}`);
-    }
+    if (Array.isArray(args.files)) parts.push(`files: ${args.files.length}`);
     return parts.join('; ');
 }
 
@@ -174,10 +172,13 @@ export function createDelegateRunner(deps = {}) {
         getActiveProviderConfig,
         getDelegateProviderConfig,
         getSystemPrompt,
+        getRequestContext = () => ({}),
         resolveToolDefinitions,
         safeJsonParse,
         isAbortError,
         TOOL_NAMES,
+        prepareRequest,
+        createRequestRetry,
     } = deps;
 
     async function runDelegate(args = {}, parentRun = {}) {
@@ -199,9 +200,9 @@ export function createDelegateRunner(deps = {}) {
             ? getDelegateProviderConfig(parentRun)
             : getActiveProviderConfig({ role: 'delegate' });
         const adapter = createAdapter(providerConfig);
-        const systemPrompt = buildDelegateSystemPrompt(getSystemPrompt());
+        const retry = createRequestRetry?.();
         const messages = [
-            { role: 'system', content: systemPrompt },
+            { role: 'system', content: '' },
             { role: 'user', content: buildDelegateUserPrompt(normalizedArgs) },
         ];
         const toolTrace = [];
@@ -211,7 +212,7 @@ export function createDelegateRunner(deps = {}) {
         let finalAnswerReminderSent = false;
         let pendingToolResponses = null;
         let pendingFinalAnswerReminderText = '';
-        let previousToolSignature = '';
+        let previousRequestSignature = '';
         const absorbStreamProgress = () => {};
         emitDelegateProgress(parentRun, {
             type: 'started',
@@ -224,16 +225,13 @@ export function createDelegateRunner(deps = {}) {
                 throw new Error('assistant_aborted');
             }
 
-            rounds += 1;
-            emitDelegateProgress(parentRun, {
-                type: 'round_start',
-                round: rounds,
-                summary: `第 ${rounds} 轮思考中。`,
-            });
-            const tools = filterDelegateToolDefinitions(resolveToolDefinitions({ messages }), TOOL_NAMES);
+            const requestContext = getRequestContext();
+            const systemPrompt = buildDelegateSystemPrompt(getSystemPrompt(requestContext));
+            messages[0] = { role: 'system', content: systemPrompt };
+            const tools = filterDelegateToolDefinitions(resolveToolDefinitions({ ...requestContext, messages }), TOOL_NAMES);
             const allowedToolNames = new Set(tools.map(getToolName).filter(Boolean));
-            const toolSignature = JSON.stringify([...allowedToolNames].sort());
-            const continueSession = adapter?.supportsSessionToolLoop && previousToolSignature === toolSignature;
+            const requestSignature = JSON.stringify({ requestContext, systemPrompt, toolNames: [...allowedToolNames].sort() });
+            const continueSession = adapter?.supportsSessionToolLoop && previousRequestSignature === requestSignature;
             const requestTask = {
                 systemPrompt,
                 tools,
@@ -250,15 +248,40 @@ export function createDelegateRunner(deps = {}) {
                 requestTask.toolResponses = pendingToolResponses;
             } else if (pendingFinalAnswerReminderText && continueSession) {
                 requestTask.finalAnswerReminderText = pendingFinalAnswerReminderText;
-                pendingFinalAnswerReminderText = '';
             } else {
-                requestTask.messages = messages;
+                requestTask.messages = pendingFinalAnswerReminderText
+                    ? [...messages, { role: 'system', content: pendingFinalAnswerReminderText }]
+                    : messages;
             }
 
             let result;
             try {
-                result = await adapter.chat(requestTask);
-                previousToolSignature = toolSignature;
+                const preparedTask = typeof prepareRequest === 'function'
+                    ? await prepareRequest(requestTask, messages, parentRun, requestContext)
+                    : requestTask;
+                // Preparation may await a changing request context; retry without consuming this round.
+                if (preparedTask === null || JSON.stringify(requestContext) !== JSON.stringify(getRequestContext())) continue;
+                parentRun?.controller?.signal?.throwIfAborted();
+                if (!retry?.attempts) {
+                    rounds += 1;
+                    emitDelegateProgress(parentRun, {
+                        type: 'round_start',
+                        round: rounds,
+                        summary: `第 ${rounds} 轮思考中。`,
+                    });
+                }
+                try {
+                    result = await adapter.chat(preparedTask, retry?.transport);
+                } catch (error) {
+                    if (await retry?.wait(error, parentRun?.controller?.signal)) {
+                        previousRequestSignature = '';
+                        continue;
+                    }
+                    throw error;
+                }
+                retry?.reset();
+                pendingFinalAnswerReminderText = '';
+                previousRequestSignature = requestSignature;
             } catch (error) {
                 if (typeof isAbortError === 'function' && isAbortError(error)) {
                     throw error;

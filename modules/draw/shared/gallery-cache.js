@@ -8,6 +8,7 @@ import { hasPreviewImage, DRAW_SLOT_COPY, DRAW_SLOT_ERRORS, PreviewStatus, PUBLI
 import { getSharedDrawSettings } from './draw-settings.js';
 import { DRAW_LAYERS } from './draw-visuals.js';
 import { convertImageToJpeg, GALLERY_JPEG_COPY } from './gallery-image-codec.js';
+import { formatOpenAiImageMismatch } from '../providers/multimodal/openai-image-errors.js';
 import { IMAGE_SAVE_LABEL_HTML } from './image-save-ui.js';
 import { saveImageToServer, getImageFolderName as getChatCharacterName } from './image-save.js';
 import { normalizeMediaUrl } from './media-url.js';
@@ -71,11 +72,7 @@ function storageWriteError(tx) { return tx.error || new Error(DRAW_SLOT_COPY.sto
 export function getBase64ImagePayload(value) {
     const parsed = parseBase64Image(value);
     if (!parsed?.data) return { base64: '', format: 'png' };
-    const format = parsed.mime === 'image/jpeg'
-        ? 'jpg'
-        : parsed.mime === 'image/webp'
-            ? 'webp'
-            : 'png';
+    const format = { 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }[parsed.mime] ?? 'png';
     return { base64: parsed.data, format };
 }
 
@@ -618,6 +615,7 @@ export async function storePreview(opts) {
         chapterPath = '',
         chapterTitle = '',
         continuityChars = null,
+        providerMetadata,
         presetId = '',
         vibeNames = '',
     } = opts;
@@ -627,14 +625,15 @@ export async function storePreview(opts) {
     const resolvedSlotId = slotId || imgId;
     const database = await openDB();
 
-    // Encode only the incoming result, before opening its write transaction.
+    // Compare the service's original image, before the user's optional gallery compression.
+    const requested = providerMetadata?.requestedOutputFormat;
+    const compress = base64 && getSharedDrawSettings()?.saveAsJpeg;
+    const original = base64 && (requested || compress) ? parseBase64Image(base64) : null;
+    const formatNotice = formatOpenAiImageMismatch(requested, original?.mime);
     let workingBase64 = base64;
-    if (workingBase64) {
+    if (compress && original?.data) {
         try {
-            const policy = getSharedDrawSettings();
-            if (policy?.saveAsJpeg) {
-                workingBase64 = await convertImageToJpeg(workingBase64);
-            }
+            workingBase64 = await convertImageToJpeg(`data:${original.mime};base64,${original.data}`);
         } catch (e) {
             console.warn(GALLERY_JPEG_COPY.conversionFailed, e);
             drawNotify.warning(GALLERY_JPEG_COPY.conversionFailed);
@@ -655,6 +654,7 @@ export async function storePreview(opts) {
                     base64: workingBase64, tags, title: String(title || ''), positive, savedUrl, status, errorType,
                     errorMessage, characterPrompts, negativePrompt, postPrompt, orientation,
                     continuityChars: Array.isArray(continuityChars) ? continuityChars : null,
+                    ...(providerMetadata ? { providerMetadata } : {}),
                     vibeNames: String(vibeNames || ''),
                     // Only creation grants automatic placement; a late result cannot restore it.
                     placement: attachment ?? null,
@@ -665,6 +665,7 @@ export async function storePreview(opts) {
                 invalidateCache(resolvedSlotId);
                 publishCacheChange([resolvedSlotId]);
                 resolve();
+                if (formatNotice) drawNotify.warning(formatNotice);
             };
             tx.onerror = tx.onabort = () => reject(storageWriteError(tx));
         } catch (e) {
@@ -697,6 +698,7 @@ export async function storeFailedPlaceholder(opts) {
         postPrompt: opts.postPrompt ?? null,
         orientation: opts.orientation ?? null,
         vibeNames: opts.vibeNames || '',
+        providerMetadata: opts.providerMetadata,
     });
 }
 

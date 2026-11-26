@@ -62,7 +62,7 @@ export function variableCardHost(host: Host) {
         },
         async refresh(target: Target, signal?: AbortSignal) {
             const scopeRoot = `${target.root}variables/`, observed = await observeTree(scopeRoot);
-            const previous = (await readFiles()).flatMap(file => file.path?.startsWith(target.root) && locateVariableFile(file.path.slice(target.root.length)) ? [file.path] : []);
+            const previous = (await readFiles()).flatMap(file => file.kind !== 'image' && file.path.startsWith(target.root) && locateVariableFile(file.path.slice(target.root.length)) ? [file.path] : []);
             const refreshed = await read(target, signal);
             await storeFiles(refreshed, { observed, scopeRoot,
                 removePaths: previous.filter(path => !refreshed.some(item => item.path === path)) });

@@ -5,7 +5,7 @@ import { runInNewContext } from 'node:vm';
 import { parseHTML } from 'linkedom';
 import ts from 'typescript';
 import { COPY } from '../ui/copy.js';
-import { element, resultLabel } from '../ui/result.js';
+import { element, resultLabel, resultStage } from '../ui/result.js';
 import { createResultDialog } from '../ui/result-dialog.js';
 import type { State3Api } from '../runtime/api.js';
 import type { createState3Page } from '../ui/settings.js';
@@ -19,7 +19,7 @@ function createPage(api: State3Api, document: Document, tasks: Promise<unknown>[
     const source = ts.transpileModule(readFileSync(new URL('../ui/settings.ts', import.meta.url), 'utf8'), {
         compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
     }).outputText.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '').replaceAll('import.meta.url', "'controls-test'");
-    const create = runInNewContext(source + '\ncreateState3Page', { document, AbortController, COPY, element, resultLabel, confirm, createAuthorExtensions, EC, DEFINITION_FILE,
+    const create = runInNewContext(source + '\ncreateState3Page', { document, AbortController, COPY, element, resultLabel, resultStage, confirm, createAuthorExtensions, EC, DEFINITION_FILE,
         errorText: String, notifyInfo() {},
         createResultDialog: (target: State3Api) => {
             const view = createResultDialog(target);
@@ -56,6 +56,37 @@ test('U3: unsettled latest USER has direct settle/skip controls, UI cleanup does
     page.mountControl(2, [], { updates: ['before'], beforeIndex: -1, lastReceiptIndex: -1 });
     assert.equal(document.querySelector('.lwb-state3-controls'), null);
     page.targetChanged(); assert.equal(cancelled, 0);
+});
+
+// Opening receipts initialize state; they are not a prior model settlement.
+test('opening-only controls retain initialization identity and only allow an enabled manual after update', async t => {
+    const { document } = parseHTML('<html><head></head><body><div class="mes" mesid="0"><div class="mes_text"></div></div></body></html>');
+    const previous = globalThis.document; globalThis.document = document; t.after(() => { globalThis.document = previous; });
+    const tasks: Promise<unknown>[] = [];
+    let updates = 0;
+    const api = { updateStatus: () => ({ busy: false, phase: 'ready' }), cancel() {}, update: async () => { updates++; } } as unknown as State3Api;
+    const page = createPage(api, document, tasks, () => { throw new Error('Initialization must not require undoing a model settlement'); });
+    t.after(() => page.dispose());
+    const initialized: Success = { ok: true, committed: true, saved: true, state: { count: 0 }, changes: [], actions: [], provenance: [], diagnostics: [],
+        receipt: { id: 'opening', revision: 1, source: 'opening', delta: null, actions: [] } };
+    const entries = [{ index: 0, result: initialized, stage: 'after' as const }];
+    page.mountControl(0, entries, { updates: ['after'], beforeIndex: -1, lastReceiptIndex: -1 });
+    let group = document.querySelector<HTMLElement>('.lwb-state3-controls')!;
+    assert.equal(group.dataset.stage, 'opening');
+    assert.equal(group.querySelectorAll('button').length, 3);
+    assert.equal(updates, 0);
+    group.querySelector('button')!.click(); await Promise.all(tasks.splice(0));
+    assert.equal(updates, 1);
+    page.mountControl(0, entries, { updates: ['before'], beforeIndex: -1, lastReceiptIndex: -1 });
+    group = document.querySelector<HTMLElement>('.lwb-state3-controls')!;
+    assert.equal(group.dataset.stage, 'opening');
+    assert.equal(group.querySelectorAll('button').length, 2);
+    const dialog = document.querySelector<HTMLDialogElement>('.lwb-state3-result-dialog')!;
+    dialog.showModal = () => { dialog.open = true; };
+    group.querySelector('button')!.click(); await Promise.all(tasks.splice(0));
+    assert.equal(dialog.open, true);
+    assert.equal(dialog.querySelector('main')!.dataset.stage, 'opening');
+    assert.equal(updates, 1);
 });
 
 // Authoring failure must hand over exactly what was checked, preserving conflicts

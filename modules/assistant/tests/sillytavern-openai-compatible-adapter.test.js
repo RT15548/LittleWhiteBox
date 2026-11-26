@@ -1330,8 +1330,10 @@ test('sillytavern Google adapter streams function calls through host generate en
         assert.equal(requests[0].body.stream, true);
         assert.equal(requests[0].body.use_sysprompt, true);
         assert.equal(result.text, '我先写一个测试文件。');
+        const replayId = result.providerPayload.googleContent.parts.find(part => part.functionCall)?.functionCall.id;
+        assert.ok(typeof replayId === 'string' && replayId.length > 0);
         assert.deepEqual(result.toolCalls, [{
-            id: 'st-google-tool-1',
+            id: replayId,
             name: 'Write',
             arguments: '{"filePath":"book/notes/test.md","content":"hello"}',
         }]);
@@ -1585,6 +1587,78 @@ test('agent factory allows SillyTavern Claude and Google without direct API keys
         model: 'gemini-2.5-pro',
         apiKey: '',
     }) instanceof SillyTavernGoogleAdapter, true);
+});
+
+test('host generation rejections preserve HTTP and provider error metadata without retrying', async () => {
+    for (const streaming of [false, true]) {
+        for (const status of [200, 429, 500]) {
+            const providerError = {
+                code: status === 429 ? 'insufficient_quota' : 'server_error',
+                type: status === 429 ? 'insufficient_quota' : 'api_error',
+                message: 'fixture-provider-failure',
+            };
+            const rawBody = JSON.stringify({ error: providerError });
+            const headers = new Headers({ 'Content-Type': streaming && status === 200 ? 'text/event-stream' : 'application/json', 'Retry-After': '7' });
+            let requests = 0;
+            const client = createHostChatCompletionsClient({
+                requestHeadersProvider: () => ({}),
+                fetch: async () => {
+                    requests += 1;
+                    return new Response(streaming && status === 200 ? `data: ${rawBody}\n\n` : rawBody, { status, headers });
+                },
+            });
+            const invoke = streaming
+                ? () => client.streamHostChatCompletion({}, () => assert.fail('error events must not reach consumers'))
+                : () => client.createHostChatCompletion({});
+            await assert.rejects(invoke, error => {
+                assert.equal(error.status, status);
+                assert.deepEqual(error.error, providerError);
+                assert.equal(error.headers.get('retry-after'), '7');
+                if (streaming && status !== 200) assert.equal(error.body, rawBody);
+                return true;
+            });
+            assert.equal(requests, 1);
+        }
+    }
+});
+
+test('host generation preserves HTTP metadata and bodies for non-JSON failures', async () => {
+    for (const streaming of [false, true]) {
+        const body = '<html><body>gateway failure</body></html>';
+        const client = createHostChatCompletionsClient({
+            requestHeadersProvider: () => ({}),
+            fetch: async () => new Response(body, { status: 500, headers: { 'Content-Type': 'text/html', 'Retry-After': '3' } }),
+        });
+        await assert.rejects(streaming
+            ? () => client.streamHostChatCompletion({}, () => {})
+            : () => client.createHostChatCompletion({}), error => {
+            assert.equal(error.status, 500);
+            assert.equal(error.body, body);
+            assert.equal(error.headers.get('retry-after'), '3');
+            assert.equal(error.error, undefined);
+            return true;
+        });
+    }
+});
+
+test('hosted adapters propagate provider error metadata from accepted streams', async () => {
+    for (const Adapter of [SillyTavernOpenAICompatibleAdapter, SillyTavernClaudeAdapter, SillyTavernGoogleAdapter]) {
+        const providerError = { code: 'rate_limit_exceeded', type: 'rate_limit_error', message: 'fixture-provider-failure' };
+        const client = createHostChatCompletionsClient({
+            requestHeadersProvider: () => ({}),
+            fetch: async () => new Response(`data: ${JSON.stringify({ error: providerError })}\n\n`, {
+                headers: { 'Content-Type': 'text/event-stream', 'Retry-After': '2' },
+            }),
+        });
+        const adapter = new Adapter({ model: 'hosted-model' }, client);
+        await assert.rejects(() => adapter.chat({ messages: [], onStreamProgress: () => {} }), error => {
+            assert.equal(error.status, 200);
+            assert.deepEqual(error.error, providerError);
+            assert.equal(error.headers.get('retry-after'), '2');
+            assert.ok(error.requestInspection);
+            return true;
+        });
+    }
 });
 
 test('host clients keep request identity isolated per instance', async () => {

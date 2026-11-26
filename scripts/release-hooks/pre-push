@@ -1,0 +1,16 @@
+#!/bin/sh
+# Small-account and unrelated pushes are unaffected.
+case "$1:$2" in
+    upstream:*|*github.com[:/]RT15548/LittleWhiteBox|*github.com[:/]RT15548/LittleWhiteBox.git) ;;
+    *) exit 0 ;;
+esac
+while read -r local_ref local_oid remote_ref remote_oid; do
+    [ "$remote_ref" = refs/heads/main ] || continue
+    case "$local_ref" in
+        refs/heads/codex/release-*)
+            if [ "$(git rev-parse --verify "$local_oid^1")" = "$remote_oid" ] &&
+               [ -n "$(git show -s --format='%(trailers:key=Development-tip,valueonly)' "$local_oid")" ]; then continue; fi ;;
+    esac
+    echo '正式 main 只接收从当前正式版本准备的候选；请先运行 npm run release:prepare。' >&2
+    exit 1
+done

@@ -2,7 +2,7 @@ import { getSafeViewportStyles, observeViewport } from '../../shared/common/view
 import { observeBackgroundTask } from '../../shared/common/async-errors.js';
 import { ASSISTANT_HEADER_HEIGHT, ASSISTANT_WINDOW_CONTROLS_WIDTH, ASSISTANT_WINDOW_MODE_PARAM, ASSISTANT_WINDOW_COPY, isAssistantMobileDevice } from './shared/window-layout.js';
 
-const ASSISTANT_OVERLAY_Z_INDEX = 100001;
+const ASSISTANT_OVERLAY_Z_INDEX = 10000100;
 
 export function createAssistantHostWindow(options) {
     const {

@@ -171,6 +171,7 @@ export async function submitRecoverableImageJob({
     request,
     plan,
     commitPlacements,
+    isCreateCurrent,
     journal = defaultJournal,
     cancelSignal,
     detachSignal,
@@ -239,6 +240,7 @@ export async function submitRecoverableImageJob({
             cancelSignal: keeper.signal,
             detachSignal,
             beforeIrreversible: fenceLease,
+            isCreateCurrent,
             beforeCancel: async () => {
                 await waitForCancelIntent();
                 await fenceLease();
@@ -253,6 +255,12 @@ export async function submitRecoverableImageJob({
         });
         cancelSignal?.removeEventListener('abort', markCancelIntent);
         await waitForCancelIntent();
+        if (result?.notSubmitted) {
+            // No POST took place. Retire this item/index mapping before the
+            // caller builds another from the surviving slots.
+            await journal.forget(jobId, leaseId);
+            return result;
+        }
         // 客户端刻意保留结果表示落库没有成功，后端副本仍是唯一可信来源。
         // 这时绝不能进入 settling 或删 journal；下一次 reconcile 必须还能按同一 jobId 重试。
         preserveUndeliveredResults(result, jobId);

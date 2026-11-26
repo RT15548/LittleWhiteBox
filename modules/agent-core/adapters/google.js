@@ -748,10 +748,11 @@ export class GoogleAdapter {
             || createStreamFunctionCallAccumulator(internalIdPrefix);
         let streamedGoogleContent = null;
         const prepared = await this.prepareRequest?.(task.signal);
-        const requestConfig = task.signal || prepared
+        const requestConfig = task.signal || prepared || task.fetch
             ? {
                 ...(this.sessionConfig || {}),
                 ...prepared,
+                ...(task.fetch ? { httpOptions: { ...prepared?.httpOptions, fetch: task.fetch } } : {}),
                 ...(task.signal ? { abortSignal: task.signal } : {}),
             }
             : undefined;
@@ -875,7 +876,8 @@ export class GoogleAdapter {
         }
     }
 
-    async chat(task) {
+    async chat(task, transport) {
+        if (transport?.fetch) task = { ...task, fetch: transport.fetch };
         const requestedReasoning = resolveTaskReasoning(this.provider, this.config, task.reasoning);
         const continuingSession = (Array.isArray(task.toolResponses) && task.toolResponses.length)
             || String(task.finalAnswerReminderText || '').trim();

@@ -1,3 +1,8 @@
+import { createModelRequestRetry, isModelRefusal } from './runtime/model-retry.js';
+import { ACTIVITY_COPY } from './ui/activity-copy.js';
+import { createImageMeasurements, createRequestImageProjection, hasImageParts, hasImageToolMessages } from './runtime/request-images.js';
+import { readWorkspaceImageById } from '../shared/workspace-images.js';
+import { createDelegateDrawingResults } from '../../draw/assistant/delegate-results.js';
 import { currentHistorySummary, compactionPosition } from './state/compaction-history.js';
 import { pluginAsset } from '../../../core/build-assets.js';
 import { analyzeJavaScriptApiRequest } from '../runtime-src/jsapi-runtime.js';
@@ -92,6 +97,7 @@ export function createAssistantRuntime(deps) {
         getActiveProviderConfig,
         getDelegateProviderConfig,
         getSystemPrompt,
+        isImageInputEnabled,
         getEphemeralUserContextText,
         SYSTEM_PROMPT,
         HISTORY_SUMMARY_PREFIX,
@@ -101,6 +107,19 @@ export function createAssistantRuntime(deps) {
         TOOL_DEFINITIONS,
         TOOL_NAMES,
     } = deps;
+
+    function createRequestRetry() {
+        let previousPhase;
+        return createModelRequestRetry({
+            wait: deps.waitForModelRetry,
+            onRetry: progress => {
+                previousPhase = state.progressLabel;
+                state.progressLabel = ACTIVITY_COPY.modelRetry(progress);
+                render();
+            },
+            onResume: () => { state.progressLabel = previousPhase; render(); },
+        });
+    }
 
     const toolActivity = new WeakMap();
     function setToolActivity(call, run, phase) {
@@ -144,9 +163,22 @@ export function createAssistantRuntime(deps) {
         };
     }
 
-    function resolveSystemPrompt() {
-        const prompt = typeof getSystemPrompt === 'function' ? getSystemPrompt() : SYSTEM_PROMPT;
+    function resolveSystemPrompt(options = {}) {
+        const prompt = typeof getSystemPrompt === 'function' ? getSystemPrompt(options) : SYSTEM_PROMPT;
         return String(prompt || SYSTEM_PROMPT).trim() || SYSTEM_PROMPT;
+    }
+
+    function imageInputEnabled(role = 'main') {
+        return typeof isImageInputEnabled === 'function' ? isImageInputEnabled({ role }) !== false : true;
+    }
+    const bindImages = role => deps.bindImageInput?.({ role }) ?? { enabled: () => imageInputEnabled(role) };
+    const imageMeasurements = createImageMeasurements();
+    const meterImages = createRequestImageProjection({ measurements: imageMeasurements });
+    const mainProvider = () => state.activeRun?.providerConfig ?? getActiveProviderConfig();
+
+    // One run-level cache serves both roles; each role projects only when its own preset accepts images.
+    function runImageProjection(run) {
+        return run.imageProjection ??= createRequestImageProjection({ readBlob: readWorkspaceImageById, measurements: imageMeasurements });
     }
 
     function resetCompactionState() {
@@ -212,7 +244,7 @@ export function createAssistantRuntime(deps) {
         updateContextStats,
     } = createContextStatsController({
         state,
-        getActiveProviderConfig,
+        getActiveProviderConfig: mainProvider,
         getToolDefinitions: resolveToolDefinitions,
         TOOL_DEFINITIONS,
         MAX_CONTEXT_TOKENS,
@@ -292,7 +324,8 @@ export function createAssistantRuntime(deps) {
     }
 
     function toProviderMessages(baseMessages = state.messages, options = {}) {
-        const systemPrompt = [options.delivery?.systemPrefix, resolveSystemPrompt()].filter(Boolean).join('\n\n');
+        const imageInput = options.imageInput ?? imageInputEnabled('main');
+        const systemPrompt = [options.delivery?.systemPrefix, resolveSystemPrompt({ imageInput })].filter(Boolean).join('\n\n');
         const messages = [{ role: 'system', content: systemPrompt }];
         const summaryMessage = buildHistorySummarySystemMessage(options.historySummary);
         const lightBrakeMessage = buildRepeatedToolErrorSystemMessage();
@@ -319,26 +352,37 @@ export function createAssistantRuntime(deps) {
             buildUserContent: (message) => buildUserContentParts({
                 ...message,
                 contextPrefix: message === latestUserMessage ? ephemeralUserContextText : '',
-            }),
+            }, { imageInput }),
         }));
-        return messages;
+        if (imageInput && options.estimateImages) {
+            const available = new Set((state.localSources ?? []).flatMap(source => source.files?.filter(file => file.kind === 'image').map(file => file.blobId) ?? []));
+            return meterImages.project(messages, { estimate: true, available });
+        }
+        const projection = imageInput && options.projectImages !== false ? state.activeRun?.imageProjection : null;
+        return projection ? projection.project(messages) : messages;
     }
 
     const {
         ensureContextBudget,
         getActiveContextMessages,
     } = createHistoryCompactionController({
+        createRequestRetry,
         state,
         render,
         persistSession,
         getToolDefinitions: resolveToolDefinitions,
-        getActiveProviderConfig,
+        getActiveProviderConfig: mainProvider,
         formatToolResultDisplay,
         buildTextWithAttachmentSummary,
         compactionThreshold,
         requestInputLimit,
         updateContextStats,
         toProviderMessages,
+        prepareRetained: async (context, options, signal) => {
+            if (options.imageInput) await runImageProjection(state.activeRun).load(toProviderMessages(context, { ...options, projectImages: false }), signal);
+            return toProviderMessages(context, options);
+        },
+        mapMessageCosts: (messages, costs) => state.activeRun?.imageProjection?.collapseCosts(messages, costs) ?? costs,
     });
 
     function getLatestUserMessage(messages = state.messages) {
@@ -437,28 +481,49 @@ export function createAssistantRuntime(deps) {
         return toolResult;
     }
 
-    function createAssistantDelegateRunner(webResults) {
+    function createAssistantDelegateRunner(webResults, policy, drawings) {
         return createDelegateRunner({
+            createRequestRetry,
             createAdapter,
             getActiveProviderConfig,
             getDelegateProviderConfig,
-            getSystemPrompt: resolveSystemPrompt,
-            resolveToolDefinitions: ({ messages } = {}) => resolveToolDefinitions({ role: 'delegate', messages }),
+            getRequestContext: () => ({ imageInput: policy.enabled() }),
+            getSystemPrompt: options => resolveSystemPrompt({ ...options, role: 'delegate' }),
+            async prepareRequest(task, messages, run, { imageInput }) {
+                if (!imageInput || (!task.messages && !hasImageParts(messages) && !hasImageToolMessages(messages))) return task;
+                const projection = runImageProjection(run);
+                const replay = task.messages || (task.finalAnswerReminderText ? [...messages, { role: 'system', content: task.finalAnswerReminderText }] : messages);
+                await projection.load(replay, run.controller.signal, policy.enabled);
+                if (imageInput !== policy.enabled()) return null;
+                const request = { ...task, messages: projection.project(replay) };
+                delete request.toolResponses;
+                delete request.finalAnswerReminderText;
+                return request;
+            },
+            resolveToolDefinitions: ({ messages, imageInput } = {}) => resolveToolDefinitions({ role: 'delegate', messages, imageInput }),
             safeJsonParse,
             isAbortError,
             TOOL_NAMES,
-            executeToolCall: async (toolCall, parsedArguments, run, context = {}) => await executeAssistantToolCall(toolCall, parsedArguments, run, {
-                allowDelegate: false,
-                trackToolErrors: false,
-                role: 'delegate',
-                messages: context.messages,
-                webResults,
-            }),
+            executeToolCall: async (toolCall, parsedArguments, run, context = {}) => {
+                const result = await executeAssistantToolCall(toolCall, parsedArguments, run, {
+                    allowDelegate: false,
+                    trackToolErrors: false,
+                    role: 'delegate',
+                    messages: context.messages,
+                    webResults,
+                });
+                drawings.observe(toolCall.name, parsedArguments, result);
+                return result;
+            },
         });
     }
 
     async function runDelegateTool(args, run) {
-        return await createAssistantDelegateRunner(createWebResults(createRequestId)).runDelegate(args, run);
+        const policy = bindImages('delegate'), drawings = createDelegateDrawingResults();
+        try {
+            const result = await createAssistantDelegateRunner(createWebResults(createRequestId), policy, drawings).runDelegate(args, run);
+            return drawings.finish(result);
+        } finally { policy.release?.(); }
     }
 
     async function executeAssistantToolCall(toolCall, parsedArguments, run, options = {}) {
@@ -668,27 +733,34 @@ export function createAssistantRuntime(deps) {
     }
 
     function mainRequestContext(delivery, options = {}) {
-        const tools = resolveToolDefinitions({ role: 'main' });
-        return { ...options, delivery, requestTools: delivery ? [...tools, ...delivery.definitions] : tools };
+        const imageInput = state.activeRun?.imagePolicy?.enabled() ?? imageInputEnabled('main');
+        const tools = resolveToolDefinitions({ role: 'main', imageInput });
+        return { ...options, imageInput, delivery, requestTools: delivery ? [...tools, ...delivery.definitions] : tools };
     }
 
     function updateDisplayContextStats(savedSettings) {
         const run = state.activeRun;
-        const options = run?.requestContext ?? mainRequestContext(createResponseDelivery(run?.deliverySettings ?? savedSettings, getActiveProviderConfig()));
-        return updateContextStats(toProviderMessages(getActiveContextMessages(), options), options.requestTools);
+        const options = mainRequestContext(run?.requestContext?.delivery ?? createResponseDelivery(run?.deliverySettings ?? savedSettings, mainProvider()), run?.requestContext);
+        const messages = getActiveContextMessages();
+        if (!run && state.draftAttachments?.length) messages.push({ role: 'user', content: '', attachments: state.draftAttachments });
+        return updateContextStats(toProviderMessages(messages, { ...options, estimateImages: true }), options.requestTools);
     }
 
     async function runAssistantLoop(run) {
         const webResults = createWebResults(createRequestId);
-        const adapter = createAdapter();
-        const delivery = createResponseDelivery(run.deliverySettings, getActiveProviderConfig());
+        run.imagePolicy = bindImages('main');
+        const providerConfig = run.providerConfig = getActiveProviderConfig();
+        const adapter = createAdapter(providerConfig);
+        const retry = createRequestRetry();
+        const delivery = createResponseDelivery(run.deliverySettings, providerConfig);
         const pinnedMessages = delivery?.createPrelude ? recordDeliveryPrelude(delivery, run.controller.signal) : [];
         let rounds = 0;
         let pendingToolResponses = null;
         let pendingFinalAnswerReminderText = '';
         let sawToolExecution = false;
         let finalAnswerReminderSent = false;
-        let previousToolSignature = '';
+        let previousRequestSignature = '';
+        let lastRequestCompactions;
         const providerMessageOptions = {
             userContextSnapshotText: String(run?.userContextSnapshotText || '').trim(),
             finalAnswerReminderText: '',
@@ -702,14 +774,15 @@ export function createAssistantRuntime(deps) {
                 throw new Error('assistant_aborted');
             }
 
-            rounds += 1;
+            if (!retry.attempts) rounds += 1;
             state.currentRound = rounds;
             state.progressLabel = '生成中';
             render();
 
-            const providerConfig = getActiveProviderConfig();
             let streamingAssistantMessage = null;
+            let streamActive = true;
             const handleStreamProgress = (snapshot = {}) => {
+                if (!streamActive || run.controller.signal.aborted) return;
                 const hasText = typeof snapshot.text === 'string';
                 const hasThoughts = Array.isArray(snapshot.thoughts);
                 if (!hasText && !hasThoughts) return;
@@ -730,7 +803,7 @@ export function createAssistantRuntime(deps) {
             run.requestContext = options;
             const { requestTools } = options;
             const allowedToolNames = new Set(requestTools.map(definition => definition.function.name));
-            const toolSignature = JSON.stringify([...allowedToolNames].sort());
+            const requestSignature = JSON.stringify({ tools: [...allowedToolNames].sort(), imageInput: options.imageInput });
             let result;
             try {
                 const requestTask = {
@@ -743,23 +816,33 @@ export function createAssistantRuntime(deps) {
                     onStreamProgress: handleStreamProgress,
                 };
 
-                const checkpointsBeforeBudget = state.compactions;
+                const imageInput = options.imageInput;
+                if (imageInput) {
+                    await runImageProjection(run).load(toProviderMessages(getActiveContextMessages(), { ...options, projectImages: false }),
+                        run.controller.signal, run.imagePolicy.enabled);
+                    if (!run.imagePolicy.enabled()) continue;
+                }
                 const budgetMessages = await ensureContextBudget(adapter, run.controller.signal, options);
                 run.controller.signal.throwIfAborted();
+                // Compaction and persistence can await while the user changes the preset.
+                // Rebuild the request before dispatch so its tools and images use the current setting.
+                if (imageInput !== run.imagePolicy.enabled()) continue;
                 // Use the budgeted prompt so adapters merge it with history only once.
                 requestTask.systemPrompt = budgetMessages[0].content;
                 // Provider sessions retain their initial tools, so both history and tools must still match.
+                // Projected images live only in full replays, so they cannot ride on a session continuation.
+                // Compare with the last main dispatch: a discarded preparation may already have compacted.
+                const requestCompactions = state.compactions;
                 const continueSession = adapter?.supportsSessionToolLoop
-                    && checkpointsBeforeBudget === state.compactions
-                    && previousToolSignature === toolSignature;
+                    && lastRequestCompactions === requestCompactions
+                    && previousRequestSignature === requestSignature
+                    && !(imageInput && (hasImageParts(budgetMessages) || hasImageToolMessages(budgetMessages)));
                 if (Array.isArray(pendingToolResponses) && pendingToolResponses.length && continueSession) {
                     requestTask.toolResponses = pendingToolResponses;
                 } else if (pendingFinalAnswerReminderText && continueSession) {
                     requestTask.finalAnswerReminderText = pendingFinalAnswerReminderText;
-                    pendingFinalAnswerReminderText = '';
                 } else {
                     requestTask.messages = budgetMessages;
-                    pendingFinalAnswerReminderText = '';
                 }
 
                 console.info('[Assistant][ModelRequest] round:start', {
@@ -776,8 +859,33 @@ export function createAssistantRuntime(deps) {
                     usesFinalAnswerReminder: !!requestTask.finalAnswerReminderText,
                     messageCount: Array.isArray(requestTask.messages) ? requestTask.messages.length : 0,
                 });
-                result = await adapter.chat(requestTask);
-                previousToolSignature = toolSignature;
+                // A failure of this exact request may come from a model that cannot read images.
+                run.requestHadImages = hasImageParts(requestTask.messages);
+                try {
+                    result = await adapter.chat(requestTask, retry.transport);
+                } catch (error) {
+                    streamActive = false;
+                    // Refusal prose is not a usable answer, including the final exhausted attempt.
+                    if (isModelRefusal(error)) {
+                        dropStreamingAssistantMessage(streamingAssistantMessage);
+                        streamingAssistantMessage = null;
+                    }
+                    if (!await retry.wait(error, run.controller.signal, () => {
+                        dropStreamingAssistantMessage(streamingAssistantMessage);
+                        streamingAssistantMessage = null;
+                        run.requestHadImages = false;
+                    })) throw error;
+                    // A retained provider session may have consumed the failed attempt.
+                    // Re-prepare from committed history, never re-execute its tools.
+                    previousRequestSignature = '';
+                    continue;
+                }
+                streamActive = false;
+                retry.reset();
+                pendingFinalAnswerReminderText = '';
+                run.requestHadImages = false;
+                previousRequestSignature = requestSignature;
+                lastRequestCompactions = requestCompactions;
                 console.info('[Assistant][ModelRequest] round:result', {
                     round: rounds,
                     provider: String(providerConfig?.provider || ''),
@@ -917,7 +1025,15 @@ export function createAssistantRuntime(deps) {
         cancelActiveRun,
         toProviderMessages,
         getActiveContextMessages,
-        runAssistantLoop,
+        async runAssistantLoop(run) {
+            try { return await runAssistantLoop(run); }
+            finally {
+                run.imagePolicy?.release?.();
+                delete run.imagePolicy;
+                delete run.providerConfig;
+                delete run.imageProjection;
+            }
+        },
         callHostTool,
     };
 }

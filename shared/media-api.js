@@ -7,6 +7,7 @@ const COPY = Object.freeze({
     not_configured: '请先完成生成配置',
     invalid_result: '生成结果无效',
     partial_result: '部分结果未能取得，已取得的结果保留在 partialResult 中',
+    collection_failed: '图片已生成，但保存到图库失败；已取得的图片保留在 partialResult 中',
     provider_error: '生成请求失败',
     aborted: '请求已取消',
 });

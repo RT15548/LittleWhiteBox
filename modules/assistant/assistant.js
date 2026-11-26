@@ -26,7 +26,7 @@ import { iframeRendererJsApiNamespace } from '../iframe-renderer/assistant-api.t
 import { processMessageById } from '../iframe-renderer.js';
 import { isTauriTavernChatSurfaceManaged } from '../../integrations/tauritavern/environment.js';
 import { normalizeSlashSkillTrigger } from "./app-src/slash-command-policy.js";
-import { applyPatchUpdateToText, parseApplyPatch } from "../agent-core/tools/apply-patch.js";
+import { parseApplyPatch } from "../agent-core/tools/apply-patch.js";
 import { buildPatchFailureResult, runPatchValidationAndApply } from "../agent-core/tools/apply-patch-execution.js";
 import { createLocalSourcesToolRuntime } from "./shared/local-sources-tool-runtime.js";
 import { workspaceRepository } from './shared/workspace-repository.js';
@@ -636,8 +636,30 @@ function serializeSkillsCatalog(catalog = EMPTY_SKILLS_CATALOG) {
 }
 
 function parseSkillsCatalog(text = '') {
-    const parsed = JSON.parse(String(text || '{}'));
-    return normalizeSkillsCatalog(parsed);
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+        || parsed.version !== 1 || !Array.isArray(parsed.skills)) {
+        throw new Error('技能目录需要 version: 1 和 skills 数组；原文件未修改。');
+    }
+    const ids = new Set();
+    const filenames = new Set();
+    const skills = [];
+    for (const [index, entry] of parsed.skills.entries()) {
+        const valid = entry && typeof entry === 'object' && !Array.isArray(entry)
+            && ['id', 'title', 'filename'].every(key => typeof entry[key] === 'string' && entry[key].trim())
+            && ['summary', 'updatedAt'].every(key => entry[key] === undefined || typeof entry[key] === 'string')
+            && ['triggers', 'slashTriggers'].every(key => entry[key] === undefined
+                || (Array.isArray(entry[key]) && entry[key].every(value => typeof value === 'string')))
+            && (entry.enabled === undefined || typeof entry.enabled === 'boolean');
+        const normalized = valid ? normalizeSkillCatalogEntry(entry) : null;
+        if (!normalized || ids.has(normalized.id) || filenames.has(normalized.filename)) {
+            throw new Error(`技能目录第 ${index + 1} 项格式错误，或 id、filename 重复；原文件未修改。`);
+        }
+        ids.add(normalized.id);
+        filenames.add(normalized.filename);
+        skills.push(normalized);
+    }
+    return { version: 1, skills };
 }
 
 function buildSkillsPromptSummary(catalog = EMPTY_SKILLS_CATALOG) {
@@ -645,10 +667,10 @@ function buildSkillsPromptSummary(catalog = EMPTY_SKILLS_CATALOG) {
     if (!enabledSkills.length) return '';
     const visibleSkills = enabledSkills.slice(0, MAX_SKILL_PROMPT_ITEMS);
     const lines = [
-        '技能目录摘要：只注入目录，不注入正文；命中某项后先读目录，再按需读取对应 skill。',
+        '技能目录摘要：这里只列出技能简介，正文由 ReadSkill 返回。用条目中的 id 直接读取所需技能；查找未列出的技能或完整条目信息时使用 ReadSkillsCatalog。',
     ];
     visibleSkills.forEach((skill) => {
-        lines.push(`- ${skill.title}｜${skill.summary || '无摘要'}｜触发词: ${(skill.triggers || []).join(', ') || '无'}｜文件: ${skill.filename}`);
+        lines.push(`- ${skill.title}｜${skill.summary || '无摘要'}｜id: ${skill.id}｜触发词: ${(skill.triggers || []).join(', ') || '无'}｜文件: ${skill.filename}`);
     });
     if (enabledSkills.length > visibleSkills.length) {
         lines.push(`- 其余 ${enabledSkills.length - visibleSkills.length} 条技能未注入；如需查看，请调用 ReadSkillsCatalog。`);
@@ -1367,6 +1389,7 @@ async function readFile(args = {}, options = {}) {
             suggestions,
         });
     }
+    if (entry.kind === 'image') return { ok: true, path: targetPath, name: entry.name, kind: 'image', mimeType: entry.mimeType, sizeBytes: entry.sizeBytes };
     const hasExplicitOffsetRange = Number.isFinite(Number(args.offset))
         || Number.isFinite(Number(args.startLine))
         || Number.isFinite(requestedEndAlias);
@@ -1635,61 +1658,26 @@ async function batchWriteLocalFiles(args = {}, options = {}) {
 
 async function applyLocalPatch(args = {}, options = {}) {
     ensureNotAborted(options.signal);
-    const patchText = typeof args.patchText === 'string'
-        ? args.patchText
-        : String(args.patchText ?? args.input ?? '');
-    let parsed = null;
     try {
-        parsed = parseApplyPatch(patchText);
-    } catch (error) {
-        return buildPatchFailureResult(error);
-    }
-
-    try {
-        const targetPaths = Array.isArray(parsed?.operations)
-            ? parsed.operations
-                .map((operation) => String(operation?.moveTo || operation?.path || '').trim())
-                .filter(Boolean)
-            : [];
-        console.info('[Assistant][apply_patch] applyLocalPatch:start', {
-            targetPaths,
-            snapshot: summarizeLocalSourcesForDebug(options.localSources),
-        });
-        const result = runPatchValidationAndApply(
+        const parsed = parseApplyPatch(args);
+        const { nextState, ...result } = runPatchValidationAndApply(
             parsed,
             normalizeLocalSourcesSnapshot(options.localSources),
             {
-                cloneState: normalizeLocalSourcesSnapshot,
                 normalizePath: normalizeWritableLocalPath,
                 getPathError: getWritableLocalPathError,
                 findFile: (localSources, publicPath) => findLocalSourceFileByPath(publicPath, localSources),
-                addFile: (localSources, publicPath, content) => upsertLocalSourceFile(localSources, publicPath, content),
+                addFile: upsertLocalSourceFile,
                 removeFile: removeLocalSourceFile,
                 moveFile: moveLocalSourceFile,
-                writeFile: (localSources, publicPath, content) => upsertLocalSourceFile(localSources, publicPath, content),
-                applyUpdate: applyPatchUpdateToText,
+                writeFile: upsertLocalSourceFile,
             },
         );
         ensureNotAborted(options.signal);
-        options.onLocalSourcesUpdated?.(result.nextState);
-        return {
-            ok: result.ok,
-            phase: result.phase,
-            summary: result.summary,
-            filesChanged: result.filesChanged,
-            addedCount: result.addedCount,
-            updatedCount: result.updatedCount,
-            deletedCount: result.deletedCount,
-            movedCount: result.movedCount,
-            hunksApplied: result.hunksApplied,
-            changes: result.changes,
-            validation: result.validation,
-        };
+        if (result.filesChanged) options.onLocalSourcesUpdated?.(nextState);
+        return result;
     } catch (error) {
-        console.info('[Assistant][apply_patch] applyLocalPatch:failed', {
-            error: error instanceof Error ? error.message : String(error || 'unknown_error'),
-            snapshot: summarizeLocalSourcesForDebug(options.localSources),
-        });
+        ensureNotAborted(options.signal);
         return buildPatchFailureResult(error);
     }
 }
@@ -3121,13 +3109,46 @@ async function executeToolCall(name, args, options = {}) {
             const { runLivePageInspection } = await import('../live-page-inspection/service.ts');
             return runLivePageInspection(args);
         }
-        case TOOL_NAMES.CARD_FILES: {
-            const { runCardFiles } = await import('../card-workspace/service.js');
-            const result = await runCardFiles(args, options);
+        case TOOL_NAMES.CARD_FILES:
+        case TOOL_NAMES.CARD_ASSETS: {
+            const { runCardFiles, handleAssistantCardAssets } = await import('../card-workspace/service.js');
+            const result = await (name === TOOL_NAMES.CARD_FILES ? runCardFiles : handleAssistantCardAssets)(args, options);
             const { localSources } = await workspaceRepository.readWorkspace();
             await getLocalSourcesToolRuntime().hydrateLocalSources(localSources);
             options.onLocalSourcesUpdated?.(localSources, getLocalSourcesToolRuntime().getWorkspaceState());
             return result;
+        }
+        case TOOL_NAMES.DRAW_IMAGE:
+        case TOOL_NAMES.DRAW_PRESETS:
+        case TOOL_NAMES.SAVE_DRAW_IMAGES: {
+            const { runAssistantDrawing, workspaceImageObservations } = await import('../draw/assistant/host.js');
+            const result = await runAssistantDrawing(name, args, options);
+            const { finishDrawingResult, showLateDrawingResult } = await import('../draw/assistant/recovery.js');
+            const { DRAW_COPY } = await import('../draw/assistant/contract.js');
+            return finishDrawingResult(result, {
+                refresh: async () => {
+                    if (result.images?.length) options.onWorkspaceObserved?.(workspaceImageObservations(result.images));
+                    const { localSources } = await workspaceRepository.readWorkspace();
+                    await getLocalSourcesToolRuntime().hydrateLocalSources(localSources);
+                    options.onLocalSourcesUpdated?.(localSources, getLocalSourcesToolRuntime().getWorkspaceState());
+                },
+                isDetached: () => options.signal?.aborted || options.isRecipientActive?.() === false,
+                onRefreshError: error => {
+                    console.warn('[Assistant] Drawing workspace refresh failed', error);
+                    toastr.warning(DRAW_COPY.refreshFailed, '', { escapeHtml: true });
+                },
+                notifyLate: value => showLateDrawingResult(value, {
+                    toast: toastr,
+                    save: args => executeToolCall(TOOL_NAMES.SAVE_DRAW_IMAGES, args, { onLocalSourcesUpdated: options.onLocalSourcesUpdated }),
+                    describeError: error => { console.warn('[Assistant] Image recovery failed', error); return DRAW_COPY.saveFailed; },
+                }),
+            });
+        }
+        case TOOL_NAMES.READ_IMAGE: {
+            const { readWorkspaceImage, workspaceImageObservations } = await import('./shared/workspace-images.js');
+            const { file } = await readWorkspaceImage(args.path);
+            options.onWorkspaceObserved?.(workspaceImageObservations([file]));
+            return { ok: true, images: [file] };
         }
         case TOOL_NAMES.LS:
             return await listDirectory(args, options);
@@ -3454,10 +3475,11 @@ async function handleIframeMessage(event) {
                     : await getLocalSourcesToolRuntime().execute(toolName, args, {
                         signal: controller.signal,
                         workspaceMeta,
+                        isRecipientActive: () => iframe.isConnected,
                         onWorkspaceObserved: observations => { workspaceObservations = observations; },
                         onWorkspaceConflict: snapshot => { workspaceConflictSnapshot = snapshot; },
                         onLocalSourcesUpdated: (nextSources, workspaceState) => {
-                            postToIframe(iframe, {
+                            postToIframe(getAssistantHostWindow().getIframe(), {
                                 type: LOCAL_SOURCES_UPDATED,
                                 payload: {
                                     localSources: nextSources,

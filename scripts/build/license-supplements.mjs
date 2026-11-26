@@ -10,6 +10,10 @@ const supplements = [{
     name: 'jsondiffpatch', version: '0.7.7',
     source: 'https://github.com/benjamine/jsondiffpatch/blob/ce76b39942891bbbeb60bf6a2ab3b7cbdb758923/MIT-LICENSE.txt',
     file: new URL('./licenses/jsondiffpatch-0.7.7.txt', import.meta.url),
+}, {
+    name: 'omggif', version: '1.0.10',
+    source: 'omggif@1.0.10 README',
+    file: new URL('./licenses/omggif-1.0.10.txt', import.meta.url),
 }];
 
 export function packageLicenseSupplement(metadata) {

@@ -4,9 +4,10 @@
 // 把它变成 Agent 的工具说明，以及把工具返回值整理成给模型的文本。
 import { SUBMIT_SCENE_PLAN_TOOL_NAME, ScenePlannerError } from './scene-plan-contract.js';
 import { MAX_TOOLS, MAX_TOOL_CODE_CHARS, hasTool, assertToolCodeLength } from './scene-planner-layout.js';
+import { SCENE_PLANNER_HANDOFF_NAMES } from './scene-planner-handoff.js';
 
 export { MAX_TOOLS, MAX_TOOL_CODE_CHARS };
-// 一次规划里，模型最多能调用自定义工具的总次数（含被判定为同批未执行的）。
+// 自定义工具与交接回执共用一轮规划的工具调用上限。
 export const MAX_CUSTOM_TOOL_CALLS = 5;
 export const TOOL_ACTION_TIMEOUT_MS = 10000;
 export const TOOL_DEFINE_TIMEOUT_MS = 3000;
@@ -81,6 +82,7 @@ export function normalizeToolDefinition(raw, { usedNames = [] } = {}) {
         throw new Error(`工具名无效：“${name}”。只能用字母、数字、下划线，不能以数字开头，最长 64 字符`);
     }
     if (name === SUBMIT_SCENE_PLAN_TOOL_NAME) throw new Error(`工具名不能叫 ${SUBMIT_SCENE_PLAN_TOOL_NAME}（它是场景规划的提交工具）`);
+    if (SCENE_PLANNER_HANDOFF_NAMES.includes(name)) throw new Error(`工具名不能叫 ${name}（它是场景规划的交接工具）`);
     if (new Set(usedNames).has(name)) throw new Error(`工具名重复：${name}`);
     if (raw.description !== undefined && typeof raw.description !== 'string') throw new Error('description 必须是字符串');
     const parameters = raw.parameters === undefined ? { type: 'object', properties: {} } : raw.parameters;
@@ -115,7 +117,7 @@ export function toFunctionTool(definition) {
     };
 }
 
-/** 校验一组定义（来自快照或沙盒）：名字互不相同、不占用 submit_scene_plan。 */
+/** 校验一组定义（来自快照或沙盒）：名字互不相同、不占用场景规划的内置工具名。 */
 export function normalizeToolDefinitions(rawList) {
     const list = Array.isArray(rawList) ? rawList : [];
     const used = [];

@@ -6,6 +6,8 @@ import imageService from './image-jobs/service.js';
 import novelai from './providers/novelai/adapter.js';
 import sdWebUi from './providers/sd-webui/adapter.js';
 import comfyui from './providers/comfyui/adapter.js';
+import gemini from './providers/gemini/adapter.js';
+import openai from './providers/openai/adapter.js';
 import transport from './transport.js';
 import { createNodeToolHost } from './tools/host.mjs';
 import hostContract from '../../../server-plugin/littlewhitebox-server/runtime-contract.js';
@@ -17,7 +19,7 @@ if (!globalThis.crypto) Object.defineProperty(globalThis, 'crypto', { value: web
 export { agentCore, drawRuntime };
 export const abi = hostContract.RUNTIME_HOST_ABI;
 export function createRuntime() {
-    const adapters = Object.freeze({ novelai, 'sd-webui': sdWebUi, comfyui });
+    const adapters = Object.freeze({ novelai, 'sd-webui': sdWebUi, comfyui, gemini, openai });
     const runtime = { ...drawRuntime,
         async executePreparedScenePlanner(prepared, options) {
             const sources = prepared.planner.customToolSources || [];

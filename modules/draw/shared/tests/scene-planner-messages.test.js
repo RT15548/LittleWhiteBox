@@ -14,6 +14,7 @@ import {
 } from '../scene-planner-messages.js';
 import { createSubmitScenePlanTool } from '../scene-plan-tool.js';
 import { createSceneSource } from '../scene-source.js';
+import { SCENE_PLANNER_HANDOFF_NAMES, createScenePlannerHandoffTools, scenePlannerHandoffReceipt } from '../scene-planner-handoff.js';
 
 const require = createRequire(import.meta.url);
 const { createEnvelopeValidator } = require('../../server/draw-runs/envelope.js');
@@ -27,11 +28,11 @@ function history(includeGoogleHistory = true) {
         { role: 'system', content: 'Image planning.' },
         { role: 'user', content: 'Prepare the image plan.' },
         { role: 'assistant', content: 'Read materials.', tool_calls: [call('materials')] },
-        { role: 'tool', content: JSON.stringify({ content: 'A rainy street.' }), tool_call_id: 'materials' },
+        { role: 'tool', content: JSON.stringify(scenePlannerHandoffReceipt('read_scene_materials')), tool_call_id: 'materials' },
         { role: 'assistant', content: 'Read the guide.', tool_calls: [call('guide', 'read_drawing_guide')] },
-        { role: 'tool', content: JSON.stringify({ content: 'One landscape image.' }), tool_call_id: 'guide' },
+        { role: 'tool', content: JSON.stringify(scenePlannerHandoffReceipt('read_drawing_guide')), tool_call_id: 'guide' },
         { role: 'assistant', content: 'Request approval.', tool_calls: [call('approval', 'request_draw_approval')] },
-        { role: 'tool', content: JSON.stringify({ approved: true }), tool_call_id: 'approval' },
+        { role: 'tool', content: JSON.stringify(scenePlannerHandoffReceipt('request_draw_approval')), tool_call_id: 'approval' },
     ].map(message => includeGoogleHistory && message.tool_calls
         ? { ...message, providerPayload: { googleContent: buildScenePlannerGoogleHistory(message) } }
         : message);
@@ -43,6 +44,7 @@ function prepared(messages = history()) {
         planner: {
             prompt: { systemPrompt: '', messages },
             tool: createSubmitScenePlanTool(),
+            handoffTools: createScenePlannerHandoffTools({ documents: { content: 'A rainy street.', guide: 'One landscape image.' } }),
             validationContext: {
                 sceneSource: createSceneSource('Rain fell.'),
                 effectiveMaxImages: 1,
@@ -193,7 +195,7 @@ test('backend admission preserves serialized prompt history and retains the mess
     assert.deepEqual(accepted.planner.prompt.messages, input.planner.prompt.messages);
     const task = createPreparedScenePlannerTask({ version: 1, planner: accepted.planner });
     assert.deepEqual(task.messages, input.planner.prompt.messages);
-    assert.deepEqual(task.tools.map(tool => tool.function.name), ['submit_scene_plan']);
+    assert.deepEqual(task.tools.map(tool => tool.function.name), ['submit_scene_plan', ...SCENE_PLANNER_HANDOFF_NAMES]);
     assert.equal(task.toolChoice, 'auto');
     input.planner.prompt.messages = Array.from({ length: 1001 }, () => ({ role: 'user', content: 'Task.' }));
     assert.throws(() => validate(input), { code: 'invalid_draw_run', status: 400 });
@@ -219,7 +221,7 @@ for (const toolMode of ['native', 'tagged-json']) {
         assert.equal(requests.length, 1);
         assert.equal(requests[0].toolChoice, 'auto');
         assert.deepEqual(requests[0].messages, input.planner.prompt.messages);
-        assert.deepEqual(requests[0].tools.map(tool => tool.function.name), ['submit_scene_plan']);
+        assert.deepEqual(requests[0].tools.map(tool => tool.function.name), ['submit_scene_plan', ...SCENE_PLANNER_HANDOFF_NAMES]);
         assert.equal(diagnostic.snapshot().toolChoice, 'auto');
     });
 }

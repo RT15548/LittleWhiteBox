@@ -61,7 +61,9 @@ async function runAttachment({ client, record, journal, delivery, cancelled }) {
         onItemSettled: async (details) => {
             if (details.alreadyDelivered === true) return;
             if (details.state === 'cancelled') return false;
-            const error = details.source === 'frontend' ? details.error : createBackendItemError(details);
+            const error = details.source === 'frontend' ? details.error : createBackendItemError(
+                details, record.provider === 'openai' ? details.item.previewMetadata?.providerMetadata : undefined,
+            );
             await guard();
             await delivery.failItem(details.record, details.item, error, guard, details.commitDelivery);
         },

@@ -44,7 +44,11 @@ export function getLoadedTagGuide() {
 export function getPromptChainPreview(customPrompts) {
     return buildScenePlannerChainPreview({
         profile: SD_PLANNER_PROFILE,
-        hasTagGuide: !!getEffectiveTagGuide(customPrompts?.tagGuideContent).trim(),
+        builtinTexts: {
+            opening: customPrompts?.topSystem ?? SD_SCENE_PROMPTS.topSystem,
+            guide: getEffectiveTagGuide(customPrompts?.tagGuideContent),
+            rules: customPrompts?.sceneRules ?? SD_SCENE_PROMPTS.sceneRules,
+        },
     });
 }
 

@@ -46,7 +46,11 @@ export function getLoadedTagGuide() {
 export function getPromptChainPreview(customPrompts, descriptions = {}) {
     return buildScenePlannerChainPreview({
         profile: COMFY_PLANNER_PROFILE,
-        hasTagGuide: !!getEffectiveTagGuide(customPrompts?.tagGuideContent).trim(),
+        builtinTexts: {
+            opening: customPrompts?.topSystem ?? COMFY_SCENE_PROMPTS.topSystem,
+            guide: getEffectiveTagGuide(customPrompts?.tagGuideContent),
+            rules: customPrompts?.sceneRules ?? COMFY_SCENE_PROMPTS.sceneRules,
+        },
         descriptions,
     });
 }

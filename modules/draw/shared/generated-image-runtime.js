@@ -8,6 +8,7 @@ const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 
 const inflightRequests = new Map();
 let databasePromise = null;
+let requestGeneration = 0;
 
 function createAbortError() {
     try {
@@ -30,7 +31,7 @@ function getDrawFacade() {
     return facade;
 }
 
-function buildDescriptor(input = {}) {
+async function buildDescriptor(input = {}) {
     const facade = getDrawFacade();
     const payload = typeof input === 'string' ? { prompt: input } : (input || {});
     const prompt = String(payload.prompt || '').trim();
@@ -38,7 +39,7 @@ function buildDescriptor(input = {}) {
     const cacheEnabled = payload.cache !== false;
     const provider = String(facade.getProvider?.() || 'disabled');
     const generationPlan = typeof facade.prepareGeneration === 'function'
-        ? facade.prepareGeneration(payload)
+        ? await facade.prepareGeneration(payload)
         : null;
     const generationFingerprint = generationPlan?.fingerprint || {
             provider,
@@ -260,10 +261,12 @@ function createRequest(descriptor) {
     return entry;
 }
 
-export function generateSharedImage(input = {}) {
-    const descriptor = buildDescriptor(input);
-    const signal = descriptor.payload.signal;
-    if (signal?.aborted) return Promise.reject(createAbortError());
+export async function generateSharedImage(input = {}) {
+    const generation = requestGeneration;
+    const signal = input?.signal;
+    if (signal?.aborted) throw createAbortError();
+    const descriptor = await buildDescriptor(input);
+    if (signal?.aborted || generation !== requestGeneration) throw createAbortError();
     let entry = inflightRequests.get(descriptor.fingerprint);
     if (!entry || entry.controller.signal.aborted) {
         entry = createRequest(descriptor);
@@ -273,7 +276,7 @@ export function generateSharedImage(input = {}) {
 }
 
 export async function checkGeneratedImageCache(input = {}) {
-    return await readCache(buildDescriptor(input));
+    return await readCache(await buildDescriptor(input));
 }
 
 // Upgrade-only reader. It must never conflate a failed read with a cache miss,
@@ -284,6 +287,7 @@ export async function readGeneratedImageForAdoption(input) {
 }
 
 export function clearSharedImageRequests() {
+    requestGeneration++;
     inflightRequests.forEach(entry => entry.controller.abort());
     inflightRequests.clear();
 }

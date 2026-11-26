@@ -11,6 +11,10 @@ import { createSummaryAgentSettings } from './maintenance/api-settings.js';
 import { ARCHIVE_COPY, createSummaryArchive, getArchiveStateFacts } from './archive-view.js';
 import { getArchiveCharacters, relationGraph } from './data/relation-graph.js';
 import { createRelationGraphEditor } from './relation-graph-editor.js';
+import { buildDossierModel } from './dossier-model.js';
+import { createDossierView } from './dossier-view.js';
+import { createDossierEditor } from './dossier-editor.js';
+import { DOSSIER_COPY } from './dossier-copy.js';
 import { EVENT_MEMORY_ROLES, projectEditedSummaryEvents } from './data/events.js';
 import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './data/summary-delay.js';
 import { DEFAULT_RECALL_TIMEOUT_SEC, DEFAULT_RERANK_TIMEOUT_SEC, DEFAULT_QUERY_EMBEDDING_TIMEOUT_SEC, MAX_RECALL_TIMEOUT_SEC, normalizeRecallTimeoutSec, normalizeRerankTimeoutSec, normalizeQueryEmbeddingTimeoutSec } from './data/recall-settings.js';
@@ -36,6 +40,8 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
     'use strict';
     let memoryMaintenancePage;
     let archiveView;
+    let dossierView;
+    let dossierEditor;
     let settingsDirty = false;
     let settingsSnapshot;
     let agentSettings;
@@ -290,19 +296,12 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
         keywords: { title: '编辑关键词', hint: '每行一个关键词，格式：关键词|权重（核心/重要/一般）' },
         events: { title: '编辑事件时间线', hint: '编辑时，每个事件要素都应完整' },
         characters: { title: '编辑人物关系', hint: '编辑时，每个要素都应完整' },
-        arcs: { title: '编辑角色弧光', hint: '编辑时，每个要素都应完整' },
-        facts: { title: '编辑事实图谱', hint: '每行一条：主体|谓词|值|趋势(可选)。删除用：主体|谓词|（留空值）' },
         aliases: { title: '编辑别名映射', hint: '别名与角色主名必须不同；确认依据可留空' }
     };
 
     const TREND_COLORS = {
         '破裂': '#444444', '厌恶': '#8b0000', '反感': '#cd5c5c',
         '陌生': '#888888', '投缘': '#4a9a7e', '亲密': '#d87a7a', '交融': '#c71585'
-    };
-
-    const TREND_CLASS = {
-        '破裂': 'trend-broken', '厌恶': 'trend-hate', '反感': 'trend-dislike',
-        '陌生': 'trend-stranger', '投缘': 'trend-click', '亲密': 'trend-close', '交融': 'trend-merge'
     };
 
     const DEFAULT_FILTER_RULES = [
@@ -370,6 +369,7 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
     };
     let relationChart = null;
     let relationChartFullscreen = null;
+    let relationBackgroundClick = null;
     let currentEditSection = null;
     let graphEditor = null, graphSaveId = 0;
     let currentEditBaseline = null;
@@ -1606,7 +1606,7 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
     function renderRelations(data) {
         summaryData.characters = data || { main: [], relationships: [] };
         const dom = $('relation-chart');
-        if (!archiveView.isPeopleVisible()) return;
+        if (!archiveView.isGraphVisible()) return;
         if (!relationChart) relationChart = initChart(dom);
         const theme = getRelationTheme();
 
@@ -1726,17 +1726,19 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
             }
         });
 
-        relationChart.getZr().off('click');
-        relationChart.getZr().on('click', p => {
+        const renderer = relationChart.getZr();
+        if (relationBackgroundClick) renderer.off('click', relationBackgroundClick);
+        relationBackgroundClick = p => {
             if (!p.target) {
                 hideRelationTooltip();
                 updateChart(allNodes, allLinks);
             }
-        });
+        };
+        renderer.on('click', relationBackgroundClick);
     }
 
     function selectCharacter(id) {
-        const character = getArchiveCharacters(summaryData).find(entry => entry.id === id || entry.name === id);
+        const character = buildDossierModel(summaryData).people.find(entry => entry.id === id || entry.name === id);
         currentCharacterId = character?.id || null;
         renderCharacterProfile();
         renderCharacterAliases(summaryData.characterAliases);
@@ -1750,73 +1752,13 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
     }
 
     function updateCharacterSelector() {
-        const characters = getArchiveCharacters(summaryData);
+        const characters = buildDossierModel(summaryData).people;
         const selected = characters.find(character => character.id === currentCharacterId);
         selectCharacter(selected?.id || characters[0]?.id || null);
     }
 
     function renderCharacterProfile() {
-        const c = $('profile-content');
-        const arcs = summaryData.arcs || [];
-        const rels = summaryData.characters?.relationships || [];
-
-        if (!currentCharacterId) {
-            setHtml(c, '<div class="empty">暂无角色数据</div>');
-            return;
-        }
-
-        const character = getArchiveCharacters(summaryData).find(entry => entry.id === currentCharacterId);
-        const arc = arcs.find(a => (a.id || a.name) === currentCharacterId);
-        const name = character.name;
-        const moments = (arc?.moments || arc?.beats || []).map(m => typeof m === 'string' ? m : m.text);
-        const outRels = rels.filter(r => r.from === name);
-        const inRels = rels.filter(r => r.to === name);
-
-        setHtml(c, `
-            <div class="prof-arc">
-                <div>
-                    <div class="prof-name">${h(name)}</div>
-                    <div class="prof-traj">${h(arc?.trajectory || arc?.phase || ARCHIVE_COPY.noTrajectory)}</div>
-                </div>
-                ${arc ? `<div class="prof-prog-wrap">
-                    <div class="prof-prog-lbl">
-                        <span>弧光进度</span>
-                        <span>${Math.round((arc.progress || 0) * 100)}%</span>
-                    </div>
-                    <div class="prof-prog">
-                        <div class="prof-prog-inner" style="width:${(arc.progress || 0) * 100}%"></div>
-                    </div>
-                </div>` : ''}
-                ${moments.length ? `
-                    <div class="prof-moments">
-                        <div class="prof-moments-title">关键时刻</div>
-                        ${moments.map(m => `<div class="prof-moment">${h(m)}</div>`).join('')}
-                    </div>
-                ` : ''}
-            </div>
-            <div class="prof-rels">
-                <div class="rels-group">
-                    <div class="rels-group-title">${h(name)}对别人的羁绊：</div>
-                    ${outRels.length ? outRels.map(r => `
-                        <div class="rel-item">
-                            <span class="rel-target">对${h(r.to)}：</span>
-                            <span class="rel-label">${h(r.label || '—')}</span>
-                            ${r.trend ? `<span class="rel-trend ${TREND_CLASS[r.trend] || ''}">${h(r.trend)}</span>` : ''}
-                        </div>
-                    `).join('') : '<div class="empty" style="padding:16px">暂无关系记录</div>'}
-                </div>
-                <div class="rels-group">
-                    <div class="rels-group-title">别人对${h(name)}的羁绊：</div>
-                    ${inRels.length ? inRels.map(r => `
-                        <div class="rel-item">
-                            <span class="rel-target">${h(r.from)}：</span>
-                            <span class="rel-label">${h(r.label || '—')}</span>
-                            ${r.trend ? `<span class="rel-trend ${TREND_CLASS[r.trend] || ''}">${h(r.trend)}</span>` : ''}
-                        </div>
-                    `).join('') : '<div class="empty" style="padding:16px">暂无关系记录</div>'}
-                </div>
-            </div>
-        `);
+        dossierView.render();
     }
 
     function renderArcs(arcs) {
@@ -1827,22 +1769,7 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
 
     function renderCharacterAliases(aliases) {
         summaryData.characterAliases = aliases || [];
-        const list = $('aliases-list');
-        if (!list) return;
-        const name = getArchiveCharacters(summaryData).find(character => character.id === currentCharacterId)?.name;
-        const related = aliases.filter(alias => alias.to === name || alias.from === name);
-        if (!related.length) {
-            setHtml(list, `<div class="archive-muted">${ARCHIVE_COPY.noAliases}</div>`);
-            return;
-        }
-        setHtml(list, related.map(alias => `
-            <div class="alias-item">
-                <span class="alias-from">${h(alias.from || '')}</span>
-                <span class="alias-arrow" aria-hidden="true">→</span>
-                <span class="alias-to">${h(alias.to || '')}</span>
-                ${alias.evidence ? `<span class="alias-evidence">${h(alias.evidence)}</span>` : ''}
-            </div>
-        `).join(''));
+        dossierView.render();
     }
 
     function updateStats(s) {
@@ -1940,50 +1867,6 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
             postMsg('CONFIRM_OPENED');
         });
     }
-
-    function renderArcsEditor(arcs) {
-        const list = arcs?.length ? arcs : [{ name: '', trajectory: '', progress: 0, moments: [] }];
-        const es = $('editor-struct');
-
-        setHtml(es, `
-            <div id="arc-list">
-                ${list.map((a, i) => `
-                    <div class="struct-item arc-item" data-index="${i}">
-                        <div class="struct-row"><input type="text" class="arc-name" placeholder="角色名" value="${h(a.name || '')}"></div>
-                        <div class="struct-row"><textarea class="arc-trajectory" rows="2" placeholder="当前状态描述">${h(a.trajectory || '')}</textarea></div>
-                        <div class="struct-row">
-                            <label style="font-size:.75rem;color:var(--txt3)">进度：<input type="number" class="arc-progress" min="0" max="100" value="${Math.round((a.progress || 0) * 100)}" style="width:64px;display:inline-block"> %</label>
-                        </div>
-                        <div class="struct-row"><textarea class="arc-moments" rows="3" placeholder="关键时刻，一行一个">${h((a.moments || []).map(m => typeof m === 'string' ? m : m.text).join('\n'))}</textarea></div>
-                        <div class="struct-actions"><span>角色弧光 ${i + 1}</span></div>
-                    </div>
-                `).join('')}
-            </div>
-            <div style="margin-top:8px"><button type="button" class="btn btn-sm" id="arc-add">＋ 新增角色弧光</button></div>
-        `);
-
-        es.querySelectorAll('.arc-item').forEach(addDeleteHandler);
-
-        $('arc-add').onclick = () => {
-            const listEl = $('arc-list');
-            const idx = listEl.querySelectorAll('.arc-item').length;
-            const div = document.createElement('div');
-            div.className = 'struct-item arc-item';
-            div.dataset.index = idx;
-            setHtml(div, `
-                <div class="struct-row"><input type="text" class="arc-name" placeholder="角色名"></div>
-                <div class="struct-row"><textarea class="arc-trajectory" rows="2" placeholder="当前状态描述"></textarea></div>
-                <div class="struct-row">
-                    <label style="font-size:.75rem;color:var(--txt3)">进度：<input type="number" class="arc-progress" min="0" max="100" value="0" style="width:64px;display:inline-block"> %</label>
-                </div>
-                <div class="struct-row"><textarea class="arc-moments" rows="3" placeholder="关键时刻，一行一个"></textarea></div>
-                <div class="struct-actions"><span>角色弧光 ${idx + 1}</span></div>
-            `);
-            addDeleteHandler(div);
-            listEl.appendChild(div);
-        };
-    }
-
 
     function setRecallLog(text) {
         lastRecallLogText = text || '';
@@ -2194,7 +2077,6 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
         archiveView.closeDialogs();
         currentEditSection = section;
         currentEditBaseline = structuredClone(section === 'aliases' ? summaryData.characterAliases : summaryData[section]);
-        if (section === 'facts') currentEditBaseline = currentEditBaseline.filter(fact => !fact.retracted);
         const meta = SECTION_META[section];
         const es = $('editor-struct');
         const ta = $('editor-ta');
@@ -2208,22 +2090,11 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
 
         if (section === 'keywords') {
             ta.value = summaryData.keywords.map(k => `${k.text}|${k.weight || '一般'}`).join('\n');
-        } else if (section === 'facts') {
-            // 按人物首次出现的插入顺序分组，同一人物的事实保持相邻
-            const grouped = new Map();
-            for (const f of (summaryData.facts || []).filter(f => !f.retracted)) {
-                if (!grouped.has(f.s)) grouped.set(f.s, []);
-                grouped.get(f.s).push(f);
-            }
-            ta.value = [...grouped.values()].flat()
-                .map(f => [f.s, f.p, f.o].concat(f.trend ? [f.trend] : []).join('|'))
-                .join('\n');
         } else {
             ta.classList.add('hidden');
             es.classList.remove('hidden');
             if (section === 'events') renderEventsEditor(summaryData.events || []);
             else if (section === 'characters') renderCharactersEditor(summaryData.characters || { main: [], relationships: [] });
-            else if (section === 'arcs') renderArcsEditor(summaryData.arcs || []);
             else if (section === 'aliases') renderCharacterAliasesEditor(summaryData.characterAliases || []);
         }
 
@@ -2289,48 +2160,6 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
             }).filter(r => r.from && r.to);
 
             parsed = { main, relationships: rels };
-        } else if (section === 'arcs') {
-            const oldArcMap = new Map(currentEditBaseline.map(a => [a.name, a]));
-            parsed = Array.from(es.querySelectorAll('.arc-item')).map(it => {
-                const name = it.querySelector('.arc-name').value.trim();
-                const oldArc = oldArcMap.get(name);
-                const oldMomentMap = new Map((oldArc?.moments || []).map(m => [typeof m === 'string' ? m : m.text, m]));
-                const momentsRaw = it.querySelector('.arc-moments').value.trim();
-                const moments = momentsRaw ? momentsRaw.split('\n').map(s => s.trim()).filter(Boolean).map(t => preserveAddedAt({ text: t }, oldMomentMap.get(t))) : [];
-                return preserveAddedAt({
-                    name,
-                    trajectory: it.querySelector('.arc-trajectory').value.trim(),
-                    progress: Math.max(0, Math.min(1, (parseFloat(it.querySelector('.arc-progress').value) || 0) / 100)),
-                    moments
-                }, oldArc);
-            }).filter(a => a.name || a.trajectory || a.moments?.length);
-        } else if (section === 'facts') {
-            const oldMap = new Map(currentEditBaseline.map(f => [`${f.s}::${f.p}`, f]));
-            parsed = ta.value
-                .split('\n')
-                .map(l => l.trim())
-                .filter(Boolean)
-                .map(line => {
-                    const parts = line.split('|').map(s => s.trim());
-                    const s = parts[0];
-                    const p = parts[1];
-                    const o = parts[2];
-                    const trend = parts[3];
-                    if (!s || !p) return null;
-                    if (!o) return null;
-                    const key = `${s}::${p}`;
-                    const old = oldMap.get(key);
-                    const fact = {
-                        s, p, o,
-                        since: old?.since ?? 0,
-                        _addedAt: old?._addedAt ?? 0,
-                    };
-                    if (/^对.+的/.test(p) && trend) {
-                        fact.trend = trend;
-                    }
-                    return fact;
-                })
-                .filter(Boolean);
         } else if (section === 'aliases') {
             parsed = Array.from(es.querySelectorAll('.alias-edit-item')).map(item => ({
                 from: item.querySelector('.alias-edit-from').value.trim(),
@@ -2370,8 +2199,6 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
 
         if (section === 'keywords') renderKeywords(parsed);
         else if (section === 'events') { renderTimeline(parsed, { scrollMode: 'preserve' }); $('stat-events').textContent = parsed.length; }
-        else if (section === 'arcs') renderArcs(parsed);
-        else if (section === 'facts') renderFacts(parsed);
 
         closeEditor();
     }
@@ -2395,6 +2222,9 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
         if (!d || d.source !== 'LittleWhiteBox') return;
 
         switch (d.type) {
+            case 'SUMMARY_SECTION_SAVED':
+                dossierEditor.receive(d);
+                break;
             case 'RELATION_GRAPH_SAVED':
                 if (!graphEditor?.pending || graphEditor.pending !== d.requestId) break;
                 graphEditor.pending = null;
@@ -2443,6 +2273,8 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
             case 'SUMMARY_FULL_DATA':
                 if (d.payload) {
                     const p = d.payload;
+                    dossierEditor.setChat(p.chatIdentity);
+                    summaryData.userName = p.userName;
                     if (graphEditor && graphEditor.identity !== p.chatIdentity) closeEditor();
                     summaryData.chatIdentity = p.chatIdentity;
                     summaryData.removedGraphPeople = p.removedGraphPeople;
@@ -2452,15 +2284,16 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
                         currentTimelineChatId = nextChatId;
                         tlUnfilteredPage = null;
                         archiveView.reset();
+                        dossierView.reset();
                         currentCharacterId = null;
                         tlCurrentPage = tlLoadPage();
                     }
+                    for (const section of ['keywords', 'events', 'characters', 'arcs', 'facts', 'characterAliases']) {
+                        if (p[section]) summaryData[section] = p[section];
+                    }
                     if (p.keywords) renderKeywords(p.keywords);
                     if (p.events) renderTimeline(p.events);
-                    if (p.characters) summaryData.characters = p.characters;
-                    if (p.arcs) renderArcs(p.arcs);
                     if (p.facts) renderFacts(p.facts);
-                    if (p.characterAliases) renderCharacterAliases(p.characterAliases);
                     renderRelations(summaryData.characters);
                     $('stat-events').textContent = p.events?.length || 0;
                     if (p.lastSummarizedMesId != null) $('stat-summarized').textContent = p.lastSummarizedMesId + 1;
@@ -2487,13 +2320,15 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
 
             case 'SUMMARY_CLEARED': {
                 const chatIdentity = d.payload.chatIdentity;
+                dossierEditor.setChat(chatIdentity);
+                dossierView.reset();
                 if (graphEditor && (graphEditor.identity !== chatIdentity || getArchiveCharacters(summaryData).length)) closeEditor();
                 const t = d.payload?.totalFloors || 0;
                 $('stat-events').textContent = 0;
                 $('stat-summarized').textContent = 0;
                 $('stat-pending').textContent = t;
                 $('summarized-count').textContent = 0;
-                summaryData = { chatIdentity, keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [], facts: [], characterAliases: [] };
+                summaryData = { chatIdentity, userName: d.payload.userName, keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [], facts: [], characterAliases: [] };
                 currentTimelineChatId = '';
                 tlUnfilteredPage = null;
                 currentCharacterId = null;
@@ -2854,6 +2689,10 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
     // ═══════════════════════════════════════════════════════════════════════════
 
     function init() {
+        document.querySelectorAll('[data-dossier-copy]').forEach(element => { element.textContent = DOSSIER_COPY[element.dataset.dossierCopy]; });
+        dossierEditor = createDossierEditor({ getData: () => summaryData, postMsg, setHtml, h });
+        dossierView = createDossierView({ getData: () => summaryData, getSelectedCharacter: () => currentCharacterId, editor: dossierEditor, setHtml, h });
+        $('archive-world-add').onclick = () => dossierEditor.open({});
         archiveView = createSummaryArchive({
             getData: () => summaryData,
             getSelectedCharacter: () => currentCharacterId,
@@ -2971,7 +2810,7 @@ const VECTOR_API_TIMEOUT_NORMALIZERS = {
                 <div class="fact-item">
                     <span class="fact-predicate">${h(f.p)}</span>
                     <span class="fact-object">${h(f.o)}</span>
-                    <span class="fact-since">#${(f.since || 0) + 1}</span>
+                    <button class="archive-text" data-edit-fact="${summaryData.facts.indexOf(f)}">${DOSSIER_COPY.edit}</button>
                 </div>
             `).join('')}
         </div>`;

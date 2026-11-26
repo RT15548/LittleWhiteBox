@@ -17,7 +17,7 @@ globalThis.__providerRetryTest = host;
 const { window, document } = parseHTML('<html><body></body></html>');
 Object.assign(globalThis, { window, document });
 const stubs = {
-    'drawing-runtime-client.js': 'exports.drawingRuntimeHeaders=()=>({});exports.DRAWING_RUNTIME_ABI=1;exports.prepareDrawingRuntime=async()=>({});',
+    'drawing-runtime-client.js': 'exports.drawingRuntimeHeaders=()=>({});exports.DRAWING_RUNTIME_ABI=1;exports.isDrawingRuntimeHostCompatible=status=>status?.runtimeHostAbi===1;exports.prepareDrawingRuntime=async()=>({});',
     'extensions.js': 'exports.getContext=()=>({chat:[],characters:[]});',
     '../../../../../variables.js': 'exports.getLocalVariable=exports.setLocalVariable=()=>{throw Error("Unexpected host variable access");};',
     'script.js': 'exports.getRequestHeaders=()=>({});',

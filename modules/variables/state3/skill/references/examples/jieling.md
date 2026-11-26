@@ -37,8 +37,9 @@ A field is stored only when a later rule or choice needs it and it cannot be com
 | `members.*.control` | Progress toward graduation; the panel shows it as the bar. | `endweek` |
 | `members.*.room` | The player's assignment; rooms are derived from it. | `assign`, `leave`, `endweek` |
 | `members.*.status` | Graduates and leavers stay in the register for the story but stop counting. | `endweek`, `leave` |
-| `members.*.kink / note` | What the narrator needs to write the person again weeks later. | `admit`, `note` |
-| `incidents` | Open incidents raise exposure each week until handled. | `endweek`, `report`, `handle` |
+| `members.*.kink` | A short preference label for later scenes; the matching traits describe how the member relates to others. | `admit` |
+| `members.*.attitude` | How willing the member is to take part in peer support; distinct from eligibility, seating and self-control. | `admit`, `attitude` |
+| `incidents` | Week, members, kind and open status identify the incident to handle; each open incident raises exposure until handled. | `endweek`, `report`, `handle` |
 | `lastWeek` | The narrator must write exactly the week that was settled, not invent one. | `endweek` |
 | `flags.firstGraduate` | The donation happens once. | the trigger |
 
@@ -50,7 +51,7 @@ Two things are deliberately **not** stored:
 ## Who owns each change
 
 - **The panel (`before` stage)** owns the player's decisions: `assign`, `handle` and `endweek`. They cost money, have limits and can be refused, and a typed player instruction settles the same way.
-- **The update model (`after` stage)** records what the story established: `admit` an applicant the player accepted, `decline` one turned away, `note` how a member changed, `leave` when someone quits, `report` an incident that happened outside the sessions. It cannot write numbers or close a week.
+- **The update model (`after` stage)** records what the story established: `admit` an applicant the player accepted, `decline` one turned away, `attitude` when a current member's willingness to participate changes, `leave` when someone quits, `report` an incident that happened outside the sessions. It cannot write numbers or close a week.
 - **`endweek`** settles a whole week in one pure function, `close_week`: sessions, slips, departures, graduations, rent, reputation, exposure and new interviews. Dice come from `prepare.js` through a parameter conversion, so recomputation gives the same week.
 - **The trigger** adds the first graduate's donation once, with its flag in the same effects.
 
@@ -76,7 +77,7 @@ Every gameplay field has `direct: false`; actions own costs, limits and refusals
 
 The panel reads `club` on mount and every 500 ms, and submits only when the player presses a button.
 
-- **Rooms** show members, control bars, whether the room can meet and every pair's relation, so the player sees the consequence of an assignment before closing the week.
+- **Rooms** show members, participation attitudes, control bars, whether the room can meet and every pair's relation, so the player sees the consequence of an assignment before closing the week.
 - **Success** shows the settled week from `lastWeek`, or each actual field difference from `changes`.
 - **Refusal** names the shortfall — room full, not enough money, already handled, season over — read from the rejected condition; the state is unchanged and details are expandable.
 - **Pending** disables every action until the settlement finishes, so a double click submits once.

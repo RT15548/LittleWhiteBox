@@ -136,6 +136,39 @@ test('openai-compatible streaming exposes provider JSON failures as readable mes
     }
 });
 
+test('native streaming rejections retain provider codes and retry headers without retrying', async () => {
+    const adapter = new OpenAICompatibleAdapter({ apiKey: 'test-key', model: 'test-model' });
+    const originalFetch = globalThis.fetch;
+    try {
+        for (const status of [429, 500]) {
+            for (const json of [false, true]) {
+                const providerError = {
+                    code: status === 429 ? 'insufficient_quota' : 'server_error',
+                    type: status === 429 ? 'insufficient_quota' : 'api_error',
+                    message: 'fixture-provider-failure',
+                };
+                const body = json ? JSON.stringify({ error: providerError }) : '<html>gateway failure</html>';
+                let requests = 0;
+                globalThis.fetch = async () => {
+                    requests += 1;
+                    return new Response(body, { status, headers: { 'Retry-After': '4', 'Content-Type': json ? 'application/json' : 'text/html' } });
+                };
+                await assert.rejects(() => adapter.chat({ messages: [], onStreamProgress() {} }), error => {
+                    assert.equal(error.status, status);
+                    assert.equal(error.body, body);
+                    assert.deepEqual(error.error, json ? providerError : undefined);
+                    assert.equal(error.headers.get('retry-after'), '4');
+                    assert.ok(error.requestInspection);
+                    return true;
+                });
+                assert.equal(requests, 1);
+            }
+        }
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
 test('openai-compatible adapter hides incomplete tagged tool blocks from display text', () => {
     assert.equal(
         stripTaggedToolCallsForDisplay('我先查一下。\n<tool_call>{"name":"Read","arguments":{"filePath":"book/state.md"}'),

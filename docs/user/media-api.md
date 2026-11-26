@@ -40,7 +40,7 @@ images.destroy();
 
 ## 画图
 
-调用 `window.parent.xiaobaixDraw.generate(request)`，得到 `{ images: Blob[] }`。`images` 是图片文件数组，一张图、多张图都用同一种方式处理。
+调用 `window.parent.xiaobaixDraw.generate(request)`，得到图片文件数组 `images` 和逐张[入图库结果](#保存生成结果)。一张图、多张图都用同一种方式处理。
 
 ### 可直接复制的画图示例
 
@@ -139,7 +139,7 @@ images.destroy();
 
 ### 选择服务和预设
 
-`provider` 可填 `'novelai'`、`'sdwebui'` 或 `'comfyui'`。不填就用当前选择的服务；指定其他已配置的服务，只影响本次调用，不会替玩家切换画图面板。
+`provider` 可填 `'novelai'`、`'sdwebui'`、`'comfyui'`、`'gemini'` 或 `'openai'`（GPT Image）。不填就用当前选择的服务；指定其他已配置的服务，只影响本次调用，不会替玩家切换画图面板。
 
 用 `getPresets({ provider })` 获取该服务保存的预设；不传参数则查询当前服务。下面这段代码可以放在卡片的 `<script>` 里，查看 SD WebUI 的可选预设：
 
@@ -176,16 +176,27 @@ images.destroy();
 
 | 字段 | 怎么填 |
 | --- | --- |
-| `provider` | 字符串：`'novelai' \| 'sdwebui' \| 'comfyui'`。 |
+| `provider` | 字符串：`'novelai' \| 'sdwebui' \| 'comfyui' \| 'gemini' \| 'openai'`。 |
 | `apiPresetId / paramsPresetId` | 字符串，从 `getPresets()` 查到的 API／参数预设 ID。 |
 | `prompt` | 必填字符串，描述你要画的内容。 |
 | `positivePrefix` | 字符串，放在 prompt 前面的固定提示词。不填时使用预设里的正面前缀；填 `''` 表示本次不加前缀。 |
 | `negativePrompt` | 字符串，描述不希望出现的内容。不填时继承预设；填 `''` 表示本次清空负面提示词。 |
 | `characterPrompts` | 数组，每个角色一项：`{ prompt?: string, uc?: string, center?: { x: number, y: number } }`。prompt 是角色描述，uc 是该角色的负面词；x、y 为 0～1 的位置坐标。NovelAI 按模型能力处理角色和位置；SD／ComfyUI 把角色文字合并进整张图的提示词，不使用位置坐标。 |
-| `params` | 对象，只填要改的生成参数。各服务支持的字段见下面三张表。 |
+| `params` | 对象，只填要改的生成参数。各服务支持的字段见下面的参数说明。 |
 | `overrideSize` | 字符串，使用面板里的尺寸选项，如 `'1024x1024'`。`'default'` 表示使用参数里的尺寸；在这个接口里 `'auto'` 也使用参数尺寸，不会分析提示词判断横竖图。直接填 `params.width / height` 更明确，且优先于这个选项。 |
 | `signal` | `AbortSignal`，用于取消，见上面的完整示例。 |
 | `onProgress` | 函数，接收 `{ state, ahead?, position? }`。state 表示当前阶段，例如 queued（排队）、generating（生成）；能收到哪些阶段取决于连接方式。它不是百分比，完成以 `await generate(...)` 返回为准。 |
+
+### Gemini / GPT Image：自然语言与参考图
+
+这两个服务使用 `provider: 'gemini'` / `'openai'`，需要配置图片接口、小白X 后端和共用场景 Agent。`prompt`、`positivePrefix`、`negativePrompt`、`characterPrompts` 的文字都作为改编材料，由 Agent 输出完整的非露骨画面描述；不会把原始文字再拼到改编结果后面。`characterPrompts.center` 不受支持。
+
+- Gemini 的 `params`：`model`、`aspectRatio`（设置页提供的比例，如 `'16:9'`）、`imageSize`（`'1K'` / `'2K'` / `'4K'`）。
+- GPT Image 的 `params`：`model`、`size`（`'auto'` / `'1024x1024'` / `'1536x1024'` / `'1024x1536'`）、`quality`（`'auto'` / `'low'` / `'medium'` / `'high'`）、`background`（`'auto'` / `'opaque'` / `'transparent'`）、`outputFormat`（`'jpeg'` / `'png'` / `'webp'`）。省略格式时沿用参数预设；透明背景需选 PNG 或 WebP。
+- `overrideSize`：`'default'` 跟随预设；Gemini 填比例，GPT Image 填上述尺寸（包括由服务判断尺寸的 `'auto'`）。明确传入的 `params.aspectRatio` / `params.size` 优先。
+- 顶层 `referenceImages`：可选数组，每项 `{ mimeType, data }`。`mimeType` 是 `'image/png'` / `'image/jpeg'` / `'image/webp'`；`data` 是纯 base64 图片字节，不含 Data URL 前缀。最多 14 张，解码后的总大小不超过 4 MiB。其他后端不接受此字段。
+
+有参考图时是改图请求；没有时是文生图。参考图不写入参数预设，也不交给文本场景 Agent 读取图像内容。出图失败和取消不自动重试；已收到的图片通过 `partialResult.images` 保留。
 
 ### NovelAI：params
 
@@ -260,7 +271,7 @@ images.destroy();
 
 图库的「自动保存新生成的图片」开关同样适用于卡片：开启之后发起的生成请求，图片收进图库后会在后台保存到酒馆服务器。上传不会阻塞卡片接收图片；上传失败时会提示，图片仍留在图库，可以手动保存。开启开关不会补存旧图或已经开始的请求。
 
-如果图库保存失败，小白X会提示，但仍把已生成的 Blob 返回给卡片，不会重新生成或扣费。
+如果图库保存失败，小白X会提示，但仍把已生成的 Blob 返回给卡片，不会重新生成或扣费。结果里的 `gallery` 与 `images` 按顺序对应，每项 `{ saved: boolean }` 表示该图是否已存入本地图库。供应商只返回部分图片或调用取消时，如有已收到的图片，它们和入库结果一起放在 `error.partialResult` 中。服务器自动保存单独进行。
 
 图库收录不等于恢复卡片里的显示：`generate` 返回的 Blob 引用只在当前页面有效。要让图片刷新后仍留在卡片的原位置，卡片仍需按下面的方式保存、编号和取回。下面的代码以酒馆页面为准；在卡片 iframe 里，把 `SillyTavern` 写成 `window.parent.SillyTavern`。
 

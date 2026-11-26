@@ -149,7 +149,6 @@ const LOOSE_ARGUMENT_KEYS_BY_TOOL = {
     PlanCreate: ['title', 'details', 'priority', 'owner', 'blockedBy'],
     PlanUpdate: ['id', 'status', 'details', 'priority', 'owner', 'blockedBy'],
     PlanList: ['status'],
-    apply_patch: ['patchText'],
 };
 
 function extractFirstLooseField(source = '', keys = [], nextKeys = []) {

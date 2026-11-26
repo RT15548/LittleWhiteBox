@@ -19,6 +19,7 @@ import { modelSource } from '../definition/stages.js';
 import { beforeOutcome, beforeReceipt, beforeFloorOutcome } from '../runtime/before-result.js';
 import { mergeAbortSignals } from '../../../../shared/common/abort-utils.js';
 import { correctionTask } from '../../updater/correction.js';
+import { handoffReceipt } from '../../updater/handoff.js';
 import type { Json, Result, ExtensionTrace } from '../types.js';
 import type { AgentChatInput, AgentChatResult } from '../../../agent-core/public-api.js';
 import { recordResult } from '../runtime/history.js';
@@ -285,7 +286,7 @@ async function updaterHarness(stage:'before'|'after', answers:AgentChatResult[])
     const factory=runInNewContext(source+'\ncreateState3Updater',{
         getContext:()=>ctx, latestUserIndex:()=>0, captureContext:async()=>({}), exposeVariableReads:()=>()=>{}, passageText:(text:string)=>text,
         compileDefinition,buildUpdateTask,SUBMIT_TOOL:'write',readSettings:()=>({source:'main'}),reject,diagnostic,digest,modelSource,beforeOutcome,beforeReceipt,beforeFloorOutcome,
-        mergeAbortSignals,activeTools,TOOL_CALL_LIMIT,correctionTask,AbortController,structuredClone,
+        mergeAbortSignals,activeTools,TOOL_CALL_LIMIT,correctionTask,handoffReceipt,AbortController,structuredClone,
         window:{xiaobaixAgent:{openSession:async()=>({chat:async(task:AgentChatInput)=>{tasks.push(task);return answers.shift();},
             toolResult:(call:{id:string},value:Json)=>({role:'tool',tool_call_id:call.id,content:JSON.stringify(value)}),dispose(){}})}},
     });
@@ -308,6 +309,15 @@ test('X1/X2: both stages use same-session tools, one correction and one preparat
         assert.equal(h.tasks[1].messages.at(-1)!.role,'tool');
         assert.equal(h.tasks[1].messages.at(-2)!.role,'assistant');
     }
+});
+
+// Declared handoff tools must not become rejected submissions (lost updates / wasted correction).
+test('X1: a repeated handoff call receives its receipt without running card code, then write settles', async () => {
+    const repeat={name:'read_work_requirements',id:'again',arguments:'{}'};
+    const h=await updaterHarness('before',[response([repeat]),response([write(march)])]);
+    const result=accepted(await h.updater.update({stage:'before',index:0}));
+    assert.equal(h.tasks.length,2); assert.equal(result.extensions!.calls.filter((call:ExtensionTrace)=>call.kind==='tool').length,0);
+    assert.deepEqual(JSON.parse(String(h.tasks[1].messages.at(-1)!.content)),handoffReceipt('read_work_requirements'));
 });
 test('X1: sixth tool call stops without publication and no-extension cards retain one request',async()=>{
     const h=await updaterHarness('before',Array.from({length:6},()=>response([tool])));

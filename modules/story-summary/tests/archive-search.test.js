@@ -22,13 +22,12 @@ function harness(t) {
     const $ = id => document.getElementById(id);
     const search = $('archive-search');
     search.value = 'unsubmitted';
-    Object.defineProperty($('archive-person-select'), 'value', { value: '', writable: true });
     $('archive-detail').showModal = function () { this.open = true; };
     $('archive-detail').close = function () { this.open = false; };
     const data = {
         events: [{ id: 'e-a', title: 'Alpha', participants: ['Alice'] }, { id: 'e-b', title: 'Beta', participants: ['Bob'] }],
         characters: { main: ['Alice', 'Bob'], relationships: [] }, arcs: [], characterAliases: [],
-        facts: [{ id: 'f-a', s: 'Alice', p: 'location', o: 'Alpha' }, { id: 'f-b', s: 'Bob', p: 'location', o: 'Beta' }],
+        facts: [{ id: 'f-a', s: 'Harbor', p: 'location', o: 'Alpha' }, { id: 'f-b', s: 'Library', p: 'location', o: 'Beta' }],
     };
     let selected = 'Alice';
     let timeline = [];

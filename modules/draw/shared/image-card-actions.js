@@ -15,6 +15,10 @@ import { DRAW_SLOT_COPY, PreviewStatus, hasPreviewImage } from './image-record.j
 import { withDrawActionFeedback } from './draw-action-feedback.js';
 import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
 import { drawMessageViewport } from './draw-message-viewport.js';
+import { PROVIDERS as NATURAL_IMAGE_PROVIDERS } from '../providers/multimodal/settings-model.js';
+
+const naturalRedrawGuidance = (provider, record) => Object.hasOwn(NATURAL_IMAGE_PROVIDERS, provider)
+    ? { negativePrompt: record?.negativePrompt || '' } : {};
 
 const redraws = new Map();
 
@@ -199,6 +203,7 @@ async function redrawFloorFailed(provider, container, messageId, floor, previous
             tasks.push({ scene: tags, title: record?.title ?? '', characterPrompts: record?.characterPrompts ?? [],
                 chars: record?.continuityChars ?? [],
                 orientation: record?.orientation ?? null,
+                ...naturalRedrawGuidance(provider, record),
                 ...(provider === 'novelai' ? { sourceImage: record } : {}),
                 post_prompt: record?.postPrompt ?? '',
                 placement: { mode: 'existing', slotId } });
@@ -242,6 +247,7 @@ async function redraw(provider, container) {
                 orientation: record?.orientation ?? null,
                 // 供应商侧成功后回写画面记忆（上镜锚点）需要规划时的原始角色快照
                 chars: Array.isArray(record?.continuityChars) ? record.continuityChars : [],
+                ...naturalRedrawGuidance(provider, record),
                 ...(provider === 'novelai' ? { sourceImage: record } : {}),
                 post_prompt: record?.postPrompt ?? '',
                 placement: { mode: 'existing', slotId } }] });

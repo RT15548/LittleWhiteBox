@@ -1,5 +1,6 @@
-export type DrawProvider = 'novelai' | 'sdwebui' | 'comfyui';
-export interface CharacterPrompt { prompt?: string; uc?: string; center?: { x: number; y: number } }
+export type DrawProvider = 'novelai' | 'sdwebui' | 'comfyui' | 'gemini' | 'openai';
+export interface CharacterPrompt { prompt?: string; uc?: string; name?: string; center?: { x: number; y: number } }
+export interface DrawReferenceImage { mimeType: 'image/png' | 'image/jpeg' | 'image/webp'; data: string }
 export interface DrawProgress { state: string; ahead?: number; position?: number }
 export interface DrawRequestBase {
     provider?: DrawProvider;
@@ -41,8 +42,15 @@ export type DrawRequest = DrawRequestBase & (
     | { provider?: 'sdwebui'; params?: SdParams }
     | { provider?: 'comfyui'; params?: ComfyParams; seed?: number; workflowPresetId?: string;
         workflowMode?: 'simple' | 'custom'; customWorkflow?: ComfyWorkflow }
+    | { provider?: 'gemini'; params?: { model?: string; aspectRatio?: string; imageSize?: '1K' | '2K' | '4K' }; referenceImages?: DrawReferenceImage[] }
+    | { provider?: 'openai'; params?: { model?: string; size?: string; quality?: 'auto' | 'low' | 'medium' | 'high';
+        background?: 'auto' | 'opaque' | 'transparent'; outputFormat?: 'jpeg' | 'png' | 'webp' }; referenceImages?: DrawReferenceImage[] }
 );
-export interface DrawResult { images: Blob[] }
+export interface DrawResult {
+    images: Blob[];
+    /** Local gallery writes in image order. Server autosave is separate. */
+    gallery?: { saved: boolean }[];
+}
 export interface PresetSummary { id: string; name: string; selected: boolean }
 export interface DrawPresets { provider: DrawProvider; api: PresetSummary[]; params: PresetSummary[]; workflows: PresetSummary[] }
 export interface DrawApi {

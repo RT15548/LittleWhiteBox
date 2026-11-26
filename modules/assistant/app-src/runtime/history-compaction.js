@@ -1,11 +1,26 @@
+import { createModelRequestRetry } from './model-retry.js';
 import { resetMessageWindow } from '../../../agent-core/ui/message-windowing.js';
-import { currentHistorySummary } from '../state/compaction-history.js';
+import { checkpointText, currentHistorySummary } from '../state/compaction-history.js';
 import { selectCompactionRange } from './compaction-range.js';
 import { buildSummaryRequest, readSubmittedSummary } from './summary-request.js';
 import { ACTIVITY_COPY } from '../ui/activity-copy.js';
 import { loadedSkillIds } from '../../shared/skill-tools.js';
+import { COORDINATION_TOOLS } from '../../skills/contract.js';
+import { imageResultFiles } from '../../shared/image-tools.js';
 import { dropInvalidatedThinkingFromMessage } from '../../../agent-core/runtime/protocol.js';
 import { estimateTokenCount, estimateConversationTokens, estimateMessageTokenCosts } from '../../../agent-core/runtime/context-tokens.js';
+
+// The delegate's visible conclusion may be empty even after it produced images.
+// Preserve its exact handoff as data; never store or send image bytes in a summary.
+function delegateDrawingHandoff(message) {
+    if (message.role !== 'tool' || message.toolName !== COORDINATION_TOOLS.DELEGATE_RUN) return null;
+    let result;
+    try { result = JSON.parse(message.content); } catch { return null; }
+    const images = imageResultFiles(result).map(file => file.path);
+    const drawingFailures = (Array.isArray(result?.drawingFailures) ? result.drawingFailures : []).filter(Boolean).map(({ error, receiptId, receivedCount }) =>
+        ({ error, receiptId, receivedCount }));
+    return images.length || drawingFailures.length ? { images, drawingFailures } : null;
+}
 
 export function splitMessagesIntoTurns(messages = []) {
     const turns = [];
@@ -29,6 +44,7 @@ export function splitMessagesIntoTurns(messages = []) {
 
 export function createHistoryCompactionController(deps) {
     const {
+        createRequestRetry = createModelRequestRetry,
         state,
         render,
         persistSession,
@@ -40,13 +56,15 @@ export function createHistoryCompactionController(deps) {
         requestInputLimit,
         updateContextStats,
         toProviderMessages,
+        prepareRetained = toProviderMessages,
+        mapMessageCosts = (_messages, costs) => costs,
     } = deps;
 
     function normalizeSummarySourceText(text) {
         return String(text || '').replace(/\r\n/g, '\n').trim();
     }
 
-    function getMessageTextForSummary(message) {
+    function getMessageTextForSummary(message, handoffs) {
         if (message?.approvalRequest) {
             return '';
         }
@@ -57,6 +75,7 @@ export function createHistoryCompactionController(deps) {
                 display?.details ? `工具输出详情:\n${display.details}` : '',
                 !display?.summary && !display?.details ? `工具原始结果:\n${message.content || ''}` : '',
             ].filter(Boolean);
+            if (handoffs.has(message)) lines.push(JSON.stringify(handoffs.get(message)));
             return normalizeSummarySourceText(lines.join('\n\n'));
         }
         if (message.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
@@ -77,13 +96,13 @@ export function createHistoryCompactionController(deps) {
     // Archived history can exceed one request (a long tool run may hold whole
     // written files). It is read in consecutive pieces of at most half the
     // request capacity, leaving the rest for the running summary it is folded into.
-    function buildSummaryChunks(turns) {
+    function buildSummaryChunks(turns, handoffs) {
         const limit = Math.max(1, Math.floor(requestInputLimit() / 2));
         // A character is at most four UTF-8 bytes, so this slice fits the token limit.
         const pieceChars = Math.max(1, Math.floor(limit * 3.35 / 4));
         const pieces = turns.flatMap((turn, index) => [
             `第 ${index + 1} 段历史:`,
-            ...turn.map(message => `${messageLabel(message)}: ${getMessageTextForSummary(message) || '[空]'}`),
+            ...turn.map(message => `${messageLabel(message)}: ${getMessageTextForSummary(message, handoffs) || '[空]'}`),
             '',
         ]).flatMap(line => (line.length <= pieceChars ? [line]
             : Array.from({ length: Math.ceil(line.length / pieceChars) }, (_, index) => line.slice(index * pieceChars, (index + 1) * pieceChars))));
@@ -111,16 +130,22 @@ export function createHistoryCompactionController(deps) {
         return state.messages.filter(message => !message.approvalRequest);
     }
 
-    async function summarizeMessages(adapter, messages, summary, signal) {
+    async function summarizeMessages(adapter, messages, summary, signal, handoffs) {
         const providerConfig = getActiveProviderConfig();
 
         try {
-            for (const lines of buildSummaryChunks(splitMessagesIntoTurns(messages))) {
+            for (const lines of buildSummaryChunks(splitMessagesIntoTurns(messages), handoffs)) {
                 const request = buildSummaryRequest(buildSummarySource(lines, summary), providerConfig, signal);
                 const inputTokens = estimateConversationTokens({ messages: [{ role: 'system', content: request.systemPrompt }, ...request.messages],
                     tools: request.tools, providerConfig });
                 if (inputTokens > requestInputLimit()) throw new Error(ACTIVITY_COPY.summaryOverBudget(inputTokens, requestInputLimit()));
-                const result = await adapter.chat(request);
+                const retry = createRequestRetry();
+                let result;
+                while (true) {
+                    signal?.throwIfAborted();
+                    try { result = await adapter.chat(request, retry.transport); break; }
+                    catch (error) { if (!await retry.wait(error, signal)) throw error; }
+                }
                 signal?.throwIfAborted();
                 summary = readSubmittedSummary(result);
             }
@@ -151,9 +176,9 @@ export function createHistoryCompactionController(deps) {
         const count = messages => estimateConversationTokens({ messages, tools, providerConfig });
         const pinned = context.findLast(message => message.role === 'user');
         const pinnedMessages = options.pinnedMessages ?? [];
-        const fixed = count(toProviderMessages([...(pinned ? [pinned] : []), ...pinnedMessages], { ...options, historySummary: '' }));
+        const fixed = count(toProviderMessages([...(pinned ? [pinned] : []), ...pinnedMessages], { ...options, historySummary: '', estimateImages: true }));
         checkLimit(fixed);
-        const costs = estimateMessageTokenCosts(original, tools, providerConfig);
+        const costs = mapMessageCosts(original, estimateMessageTokenCosts(original, tools, providerConfig));
         const tailCapacity = Math.max(0, limit - fixed - (providerConfig.maxTokens || 0));
         const { archived, retained, priorCount } = selectCompactionRange(context, costs.slice(costs.length - context.length), limit, tailCapacity, pinnedMessages);
         if (!archived.length || skippedThrough.get(adapter) === archived.at(-1)) {
@@ -170,12 +195,25 @@ export function createHistoryCompactionController(deps) {
             // Fold up to the user's boundary first. A reroll can then keep just the
             // older memory, without storing raw tool output or resummarizing it.
             const prior = archived.slice(0, priorCount);
-            const priorSummary = await summarizeMessages(adapter, prior, currentHistorySummary(state), signal);
+            const handoffs = new Map();
+            for (const message of archived) {
+                const outcome = delegateDrawingHandoff(message);
+                if (outcome) handoffs.set(message, outcome);
+            }
+            const priorText = await summarizeMessages(adapter, prior, currentHistorySummary(state), signal, handoffs);
+            const priorSummary = checkpointText({ summary: priorText, drawingHandoffs: prior.flatMap(message => handoffs.get(message) || []) });
             const hasCurrent = priorCount < archived.length;
-            const summary = hasCurrent ? await summarizeMessages(adapter, archived.slice(priorCount), priorSummary, signal) : priorSummary;
+            const summary = hasCurrent ? await summarizeMessages(adapter, archived.slice(priorCount), priorSummary, signal, handoffs) : priorText;
+            // Keep exact handoffs through repeated compactions of this user turn.
+            // On a later turn the previous handoff enters ordinary summary history.
+            const records = state.compactions || [];
+            const last = records.findLastIndex(record => record.summary);
+            const carried = last >= (pinned?.compactionEpoch ?? 0) ? records[last].drawingHandoffs || [] : [];
+            const drawingHandoffs = [...carried, ...handoffs.values()];
+            const checkpoint = { summary, ...(drawingHandoffs.length ? { drawingHandoffs } : {}) };
             signal?.throwIfAborted();
             const messages = retained.map(dropInvalidatedThinkingFromMessage);
-            const next = toProviderMessages(messages, { ...options, historySummary: summary });
+            const next = await prepareRetained(messages, { ...options, historySummary: checkpointText(checkpoint) }, signal);
             const after = count(next);
             let record;
             if (after >= before) {
@@ -183,7 +221,7 @@ export function createHistoryCompactionController(deps) {
                 record = { skipped: true };
             } else {
                 checkLimit(after);
-                record = { before, summary, after };
+                record = { before, ...checkpoint, after };
                 if (hasCurrent) record.turnStart = {
                     archivedSkillIds: loadedSkillIds(prior, previous.archivedSkillIds),
                     ...(prior.length ? { summary: priorSummary } : {}),

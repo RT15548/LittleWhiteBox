@@ -210,6 +210,7 @@ export function createApiPresetBar(options = {}) {
     }
 
     async function handleSaveAs() {
+        if (options.validateForm?.() === false) return;
         const state = readState();
         const name = askName(API_PRESET_COPY.promptNew, suggestName(state.apiPresets));
         if (name === null) return;
@@ -230,6 +231,7 @@ export function createApiPresetBar(options = {}) {
     }
 
     async function handleOverwrite() {
+        if (options.validateForm?.() === false) return;
         const state = readState();
         const active = findApiPreset(state.apiPresets, state.activeApiPresetId);
         if (!active) return;

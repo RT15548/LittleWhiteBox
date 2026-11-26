@@ -7,7 +7,7 @@ import { renderPreviewsForMessage, syncDrawSavedFromPreview } from './draw-commo
 import { getSharedDrawSettings } from './draw-settings.js';
 import { IMAGE_SAVE_COPY } from './image-save-core.js';
 
-const FILE_PREFIX = Object.freeze({ novelai: 'novel', 'sd-webui': 'sd', sdwebui: 'sd', comfyui: 'comfy' });
+const FILE_PREFIX = Object.freeze({ novelai: 'novel', 'sd-webui': 'sd', sdwebui: 'sd', comfyui: 'comfy', gemini: 'gemini', openai: 'openai' });
 const WARN_INTERVAL_MS = 30_000;
 let lastWarnAt = 0;
 

@@ -11,6 +11,7 @@ import { modelSource } from '../definition/stages.js';
 import { beforeReceipt, beforeOutcome, beforeFloorOutcome } from '../runtime/before-result.js';
 import { buildUpdateTask, beforeProsePrompt } from '../model/prompts.js';
 import { correctionTask } from '../../updater/correction.js';
+import { handoffReceipt } from '../../updater/handoff.js';
 import { readResponseCompletion } from '../../../agent-core/runtime/response-completion.js';
 import { mergeAbortSignals } from '../../../../shared/common/abort-utils.js';
 import { diagnostic, reject } from '../engine/diagnostics.js';
@@ -26,6 +27,12 @@ import type { AgentChatInput } from '../../../agent-core/public-api.js';
 const source = (file: string) => ts.transpileModule(readFileSync(new URL('../' + file, import.meta.url), 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
 }).outputText.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '').replaceAll('import.meta.url', "'before-test'");
+
+// The handoff mounts each payload as compact JSON after the tool description's last blank line.
+function mounted(task: AgentChatInput, name: string) {
+    const description = task.tools!.find(tool => tool.function.name === name)!.function.description!;
+    return JSON.parse(description.slice(description.lastIndexOf('\n\n') + 2));
+}
 
 async function harness() {
     const f = fixture(), bundle = equipmentExample(); bundle.definition.updates = ['before', 'after'];
@@ -48,7 +55,7 @@ async function harness() {
         toolCalls: [{ name: 'write', arguments: JSON.stringify({ state: [{ action: 'unequip', params: {} }] }) }] });
     const env = {
         getContext: ctx, latestUserIndex, digest, modelSource, beforeReceipt, beforeOutcome, beforeFloorOutcome, beforeProsePrompt,
-        compileDefinition, buildUpdateTask, correctionTask, mergeAbortSignals, diagnostic, reject, CHAT_KEY, activeTools, TOOL_CALL_LIMIT,
+        compileDefinition, buildUpdateTask, correctionTask, handoffReceipt, mergeAbortSignals, diagnostic, reject, CHAT_KEY, activeTools, TOOL_CALL_LIMIT,
         AbortController, setTimeout, structuredClone, Promise, isGenerating: () => generating, inGroup: () => false,
         document: { getElementById: () => ({ value: composer }) },
         state3Selected: () => selected, passageText: (text: string) => text, exposeVariableReads: () => () => {},
@@ -279,9 +286,7 @@ test('B12: USER recalculation waits for rollback persistence and never retains t
     } finally {gate.release();}
     accepted((await recomputing)!);
     assert.equal(h.requests.length, requests + 1);
-    const stateMessage = h.requests.at(-1)!.messages.filter(message => message.role === 'tool')
-        .map(message => JSON.parse(String(message.content))).find(value => value.state);
-    assert.deepEqual(stateMessage.state, initial);
+    assert.deepEqual(mounted(h.requests.at(-1)!, 'read_writing_guide').state, initial);
     assert.equal((h.f.saved().state as { hero: { health: number } }).hero.health, 60);
     assert.equal(h.f.saved().records[1].entries.length, 1);
     assert.equal(h.f.saved().records[2].entries.length, 0);
@@ -440,9 +445,9 @@ test('B4: deferred input waits for adoption; after gets before facts with only i
     h.append({ mes: 'The amulet is off.', name: 'Hero' });
     h.answer(() => ({ completion: 'complete', toolCalls: [{ name: 'write', arguments: '{"state":[]}' }] }));
     accepted(await h.updater.update({ stage: 'after', index: 2 }));
-    const data = h.requests[1].messages.filter(message => message.role === 'tool').map(message => JSON.parse(String(message.content)));
-    assert.equal(data[0].beforeUpdate.outcome, 'applied'); assert.equal(data[1].actions.length, 0);
-    assert.equal(data[1].state.hero.health, 60);
+    const manuscript = mounted(h.requests[1], 'read_manuscript'), guide = mounted(h.requests[1], 'read_writing_guide');
+    assert.equal(manuscript.beforeUpdate.outcome, 'applied'); assert.equal(guide.actions.length, 0);
+    assert.equal(guide.state.hero.health, 60);
 });
 
 // B5: technical failures stop prose and keep a visible retry/skip outcome;
@@ -548,8 +553,7 @@ test('B11: no-change before actions keep converted parameters across reload and 
     h.append({ mes: 'Both healing items were used.', name: 'Hero' });
     h.answer(() => ({ completion: 'complete', toolCalls: [{ name: 'write', arguments: '{"state":[]}' }] }));
     accepted(await h.updater.update({ stage: 'after', index: 2 }));
-    const manuscript = h.requests[1].messages.find(message => message.role === 'tool')!;
-    assert.deepEqual(JSON.parse(String(manuscript.content)).beforeUpdate, outcome);
+    assert.deepEqual(mounted(h.requests[1], 'read_manuscript').beforeUpdate, outcome);
     assert.deepEqual(h.f.saved().state, initial);
 });
 

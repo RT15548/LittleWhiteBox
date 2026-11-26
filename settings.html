@@ -98,6 +98,8 @@
               <option value="novelai">NovelAI</option>
               <option value="sdwebui">SD WebUI</option>
               <option value="comfyui">ComfyUI</option>
+              <option value="gemini">Gemini</option>
+              <option value="openai">GPT Image</option>
             </select>
             <button id="xiaobaix_draw_open_settings" class="menu_button menu_button_icon littlewhitebox-row-action" type="button" title="打开画图详细设置">
               <i class="fa-solid fa-palette"></i>
@@ -623,9 +625,9 @@
 	      renderEnabled: 'xiaobaix_render_enabled',
 	    };
 	    const MODULE_KEYS = ['templateEditor', 'tasks', 'xiaobaiOs', 'variablesCore', 'recorded', 'preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'storySummary', 'storyOutline', 'tts', 'enaPlanner'];
-	    const DRAW_PROVIDER_VALUES = new Set(['disabled', 'novelai', 'sdwebui', 'comfyui']);
 	    function normalizeDrawProvider(provider) {
-	      return DRAW_PROVIDER_VALUES.has(provider) ? provider : 'disabled';
+	      const options = $id('xiaobaix_draw_provider')?.options || [];
+	      return Array.from(options).some(option => option.value === provider) ? provider : 'disabled';
 	    }
       function triggerChange(element) {
         element?.dispatchEvent(new Event('change', { bubbles: true }));

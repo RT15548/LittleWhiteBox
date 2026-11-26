@@ -1,0 +1,16 @@
+export const DOSSIER_COPY = Object.freeze({
+    roster: '人物名册', protagonist: '主角', graph: '关系图',
+    states: '状态', relations: '关系', history: '经历', aliases: '称呼与别名',
+    edit: '编辑', add: '新增状态', addRelation: '新增关系',
+    noStates: '暂无状态记录', noRelations: '暂无关系记录', noHistory: '暂无经历记录',
+    noPerson: '选择一位人物', arc: '人物弧光', moments: '关键时刻', events: '相关剧情',
+    from: '对方', subject: '对象', predicate: '项目', value: '内容', trend: '关系走向',
+    trajectory: '当前阶段', progress: '变化进度（%）', momentInput: '关键时刻（每行一条）',
+    save: '保存', saving: '保存中…', cancel: '取消', remove: '删除',
+    removeConfirm: '删除这条记录？', confirmRemove: '确认删除',
+    required: '请填写完整后保存。', duplicate: '这个项目已有记录，请编辑已有条目。',
+    changedChat: '聊天已切换，请在当前聊天重新打开编辑。',
+    factTitle: '编辑状态', newFactTitle: '新增状态', relationTitle: '编辑关系',
+    newRelationTitle: '新增关系', arcTitle: '编辑人物弧光',
+    outgoing: name => `对${name}的看法`, incoming: name => `${name}的看法`,
+});

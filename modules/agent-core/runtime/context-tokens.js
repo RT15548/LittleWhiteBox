@@ -6,7 +6,19 @@ import {
 } from '../adapters/openai-compatible-replay-policy.js';
 
 const TOKEN_ESTIMATE_BYTES_PER_TOKEN = 3.35;
+// One image sent within the request image limits (long edge ≤ 1568 px) costs about this many input tokens.
+export const IMAGE_PART_TOKEN_ESTIMATE = 1600;
 const textEncoder = new TextEncoder();
+
+function imagePartTokens(message) {
+    return Array.isArray(message?.content)
+        ? message.content.filter(part => part?.type === 'image_url').length * IMAGE_PART_TOKEN_ESTIMATE
+        : 0;
+}
+
+function imageTokens(messages = []) {
+    return messages.reduce((sum, message) => sum + imagePartTokens(message), 0);
+}
 
 /** @typedef {{ tokens: number, source: 'tokenizer' | 'estimated' }} ConversationTokenCount */
 
@@ -68,8 +80,8 @@ function buildTokenCounterMessages(messages = [], tools = [], providerConfig = {
 
 // Price model-visible history in order, using the same replay policy as the whole request.
 export function estimateMessageTokenCosts(messages, tools, providerConfig) {
-    return buildTokenCounterMessages(messages, tools, providerConfig).map(entry =>
-        entry.content || entry.reasoning_content ? estimateTokenCount(JSON.stringify(entry) + ',') : 0);
+    return buildTokenCounterMessages(messages, tools, providerConfig).map((entry, index) =>
+        (entry.content || entry.reasoning_content ? estimateTokenCount(JSON.stringify(entry) + ',') : 0) + imagePartTokens(messages[index]));
 }
 
 export function buildTokenCounterPayload(messages = [], tools = [], providerConfig = {}) {
@@ -88,7 +100,7 @@ export function estimateTokenCount(value = '') {
 
 /** @param {{ messages?: Record<string, unknown>[], tools?: Record<string, unknown>[], providerConfig?: Record<string, unknown> }} [options] */
 export function estimateConversationTokens({ messages = [], tools = [], providerConfig = {} } = {}) {
-    return estimateTokenCount(JSON.stringify(buildTokenCounterPayload(messages, tools, providerConfig)));
+    return estimateTokenCount(JSON.stringify(buildTokenCounterPayload(messages, tools, providerConfig))) + imageTokens(messages);
 }
 
 export function getTokenizerModelHint(providerConfig = {}) {
@@ -119,7 +131,7 @@ async function postJson(url, body, signal, requestHeaders) {
 }
 
 /**
- * Host tokenizer count of the text/tool projection, not provider billing or image usage.
+ * Host tokenizer count of the text/tool projection plus the fixed image estimate, not provider billing.
  * /count may return an unmarked estimate on failure; /encode lets us verify token IDs.
  * Counting is best-effort: unavailable Host headers or tokenization use the same
  * local estimate as previews. Callers must not cache that estimate as resolved.
@@ -143,9 +155,9 @@ export async function resolveConversationTokens({ messages = [], tools = null, p
             || !data.ids.every(id => Number.isSafeInteger(id) && id >= 0)) {
             throw new Error('tokenizer_invalid_response');
         }
-        return { tokens: data.count, source: 'tokenizer' };
+        return { tokens: data.count + imageTokens(messages), source: 'tokenizer' };
     } catch {
         signal?.throwIfAborted();
-        return { tokens: estimateTokenCount(flattenedText), source: 'estimated' };
+        return { tokens: estimateTokenCount(flattenedText) + imageTokens(messages), source: 'estimated' };
     }
 }

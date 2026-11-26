@@ -4,7 +4,7 @@
 
 InspectPage returns the live floor, frameId, documentId and rendered content. CardFiles open returns the current card's workspace paths. These identify different objects: editing a workspace file does not change saved card data, and saving card data does not replace an already-running iframe.
 
-Read the relevant card files to find where that page comes from. A regex .html file is its replacement HTML; the paired .json defines its match and placement. A task .js is executable task source, not a message rendering template. An existing chat message does not change just because the card's greeting file changed.
+Read the relevant card files to find where that page comes from. Each regex or task is one .md document: its JSON header holds settings, and its body holds the replacement text or task commands. ReadSkill builtin-card-files describes the file layout. An existing chat message does not change just because the card's greeting file changed.
 
 Use RunJavaScriptApi to read the current chat identity and the target message when needed. Keep that identity for the rebuild and verify that the same chat and message are still selected before operating. Use the floor reported by InspectPage, not an assumed last message. Saving a file through CardFiles is separate from editing existing chat text.
 

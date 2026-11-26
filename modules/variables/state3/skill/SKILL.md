@@ -45,9 +45,9 @@ Also identify who submits each event: the independent updater, a player button, 
 
 For example, "the first summit grants a relic" becomes: condition — the player reaches the summit; consequence — the relic is added; changes — inventory and a claimed flag; repeat — once, so the claimed flag is part of the condition.
 
-Variables hold what later rules and choices depend on: completion flags, counts, stages, deadlines, resources and relationships. The plot summary module records what happened in the story, so a variable that retells events duplicates it. Text variables suit short current facts, such as a location or a mood.
+Variables hold states, tiers and tags that later rules, choices or narration use: completion flags, counts, stages, deadlines, resources, relationship tiers and locations. Store an event's resulting state, such as a permission being granted, rather than its narration. The plot summary module records what happened.
 
-For a current situation or short note recorded each turn, use a string field with `access[].direct: true`. Its `access[].update` specifies that each update replaces the field with the latest relevant facts rather than appending a history. The updater submits this field alongside the turn's other changes; no separate tool or script is needed.
+Text fields default to names or short state labels. A field dedicated to describing what just happened is a story record, whether it holds one sentence or a paragraph, uses a string or an array, or replaces or appends its contents. Create such fields only when the user explicitly asks for them.
 
 Each fact is stored once. A value that follows from other state, such as a status implied by current conditions, a location implied by the collection that holds a member, or a total over a list, is calculated rather than stored: a `derive` rule produces it, or the function that needs it computes it from the source. A second stored copy depends on every action remembering to update it; when one action misses it, structure checks and constraints still pass while the two fields disagree, and both models read the disagreement as fact.
 

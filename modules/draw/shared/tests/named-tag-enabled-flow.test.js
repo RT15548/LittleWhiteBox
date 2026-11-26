@@ -250,7 +250,7 @@ test('the prepared planner request (prompt sent to the model) excludes disabled 
         expansionOptions: { runtime: { substituteParams: text => text } },
         agentOptions: { providerConfig: { provider: 'openai-compatible', model: 'test-model' } },
     });
-    const prompt = JSON.stringify(snapshot.planner.prompt);
+    const prompt = JSON.stringify({ prompt: snapshot.planner.prompt, tools: snapshot.planner.handoffTools });
     assert.ok(prompt.includes('white dress'));
     assert.ok(prompt.includes('blush'));
     assert.ok(!prompt.includes(SECRET));

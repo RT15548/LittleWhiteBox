@@ -1,496 +1,163 @@
-function normalizePatchText(value = '') {
-    return String(value ?? '').replace(/\r\n?/g, '\n');
+import { applyPatchLineEdits } from './text-edit.js';
+
+const INPUT_ERROR = 'apply_patch_invalid_input';
+const PATCH_FILE_FIELDS = new Set(['path', 'content', 'delete', 'moveTo', 'edits']);
+const PATCH_EDIT_FIELDS = new Set(['oldString', 'startLine', 'endLine', 'insertAtLine', 'newString']);
+const isRecord = value => value && typeof value === 'object' && !Array.isArray(value);
+const has = (record, key) => Object.hasOwn(record, key);
+const isLine = value => Number.isSafeInteger(value) && value > 0;
+
+export function patchError(code, message, details = {}) {
+    return Object.assign(new Error(message), { patchIssue: { code, ...details, message } });
 }
 
-function splitTextForPatchApplication(normalizedText = '') {
-    const normalized = String(normalizedText ?? '');
-    if (normalized === '') {
-        return {
-            lines: [],
-            hadTerminalNewline: false,
-        };
+function invalid(message, details) {
+    throw patchError(INPUT_ERROR, message, details);
+}
+
+function editMode(edit, details) {
+    if (!isRecord(edit) || Object.keys(edit).some(key => !PATCH_EDIT_FIELDS.has(key)) || typeof edit.newString !== 'string') {
+        invalid('Each edit needs a string newString and one valid location.', details);
     }
-
-    const hadTerminalNewline = normalized.endsWith('\n');
-    const body = hadTerminalNewline ? normalized.slice(0, -1) : normalized;
-    return {
-        lines: body === '' ? [''] : body.split('\n'),
-        hadTerminalNewline,
-    };
+    const old = has(edit, 'oldString');
+    const range = has(edit, 'startLine') || has(edit, 'endLine');
+    const insert = has(edit, 'insertAtLine');
+    if (Number(old) + Number(range) + Number(insert) !== 1) invalid('Choose oldString, startLine/endLine, or insertAtLine for this edit.', details);
+    if (old && (typeof edit.oldString !== 'string' || edit.oldString === '')) invalid('oldString must be non-empty text.', details);
+    if (range && (!isLine(edit.startLine) || !isLine(edit.endLine))) invalid('startLine and endLine must be positive integers.', details);
+    if (insert && !isLine(edit.insertAtLine)) invalid('insertAtLine must be a positive integer.', details);
+    return old ? 'text' : 'line';
 }
 
-function joinPatchedLines(lines = [], hadTerminalNewline = false) {
-    const content = Array.isArray(lines) ? lines.join('\n') : '';
-    return hadTerminalNewline ? `${content}\n` : content;
-}
-
-function isFileOperationHeader(line = '') {
-    return line.startsWith('*** Add File: ')
-        || line.startsWith('*** Delete File: ')
-        || line.startsWith('*** Update File: ');
-}
-
-function createParseError(message) {
-    throw new Error(`apply_patch_parse_error:${message}`);
-}
-
-function createApplyError(message) {
-    throw new Error(`apply_patch_apply_error:${message}`);
-}
-
-function parseNonNegativeInteger(value) {
-    const parsed = Number.parseInt(String(value || ''), 10);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
-}
-
-function parseHunkMarker(marker = '') {
-    if (!marker.startsWith('@@')) createParseError('expected hunk marker');
-    const body = marker.slice(2).trim();
-    if (!body) {
-        return { header: '' };
+export function parseApplyPatch(args) {
+    if (!isRecord(args) || Object.keys(args).some(key => key !== 'files') || !Array.isArray(args.files) || !args.files.length) {
+        invalid('Provide a non-empty files array.');
     }
-
-    const unifiedMatch = body.match(/^-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s*@@(?:\s*(.*))?$/);
-    if (unifiedMatch) {
-        return {
-            header: String(unifiedMatch[5] || '').trim(),
-            oldStartLine: parseNonNegativeInteger(unifiedMatch[1]),
-            oldLineCount: unifiedMatch[2] === undefined ? 1 : Math.max(0, Number.parseInt(unifiedMatch[2], 10) || 0),
-            newStartLine: parseNonNegativeInteger(unifiedMatch[3]),
-            newLineCount: unifiedMatch[4] === undefined ? 1 : Math.max(0, Number.parseInt(unifiedMatch[4], 10) || 0),
-        };
-    }
-
-    return {
-        header: body,
-    };
+    const operations = Array.from(args.files, (file, fileIndex) => {
+        if (!isRecord(file) || typeof file.path !== 'string' || !file.path.trim()) invalid('Each file needs a path.', { fileIndex });
+        const path = file.path.trim();
+        const details = { path, fileIndex };
+        if (Object.keys(file).some(key => !PATCH_FILE_FIELDS.has(key))) invalid('File entries use path with content, delete, moveTo, or edits.', details);
+        const add = has(file, 'content');
+        const remove = has(file, 'delete');
+        const move = has(file, 'moveTo');
+        const update = has(file, 'edits');
+        if (add && !remove && !move && !update && typeof file.content === 'string') return { type: 'add', path, content: file.content };
+        if (remove && !add && !move && !update && file.delete === true) return { type: 'delete', path };
+        if (add || remove || (!move && !update)) invalid('Use content to add, delete: true to remove, or moveTo and/or edits for an existing file.', details);
+        if (move && (typeof file.moveTo !== 'string' || !file.moveTo.trim())) invalid('moveTo must be a destination path.', details);
+        if (update && (!Array.isArray(file.edits) || !file.edits.length)) invalid('edits must be a non-empty array.', details);
+        const edits = update ? file.edits : [];
+        const modes = Array.from(edits, (edit, editIndex) => editMode(edit, { ...details, editIndex }));
+        if (new Set(modes).size > 1) invalid('Use either oldString or line numbers for all edits to this file.', details);
+        return { type: 'update', path, moveTo: move ? file.moveTo.trim() : '', edits };
+    });
+    return { operations };
 }
 
-function parseAddFile(lines, startIndex) {
-    const header = lines[startIndex];
-    const path = header.slice('*** Add File: '.length).trim();
-    if (!path) createParseError('missing add-file path');
-
-    const contentLines = [];
-    let index = startIndex + 1;
-    while (index < lines.length && !isFileOperationHeader(lines[index]) && lines[index] !== '*** End Patch') {
-        const line = lines[index];
-        if (!line.startsWith('+')) createParseError(`invalid add-file line for ${path}`);
-        contentLines.push(line.slice(1));
-        index += 1;
-    }
-
-    if (!contentLines.length) createParseError(`add-file ${path} has no content`);
-
-    return {
-        operation: {
-            type: 'add',
-            path,
-            content: contentLines.join('\n'),
-        },
-        nextIndex: index,
-    };
-}
-
-function parseDeleteFile(lines, startIndex) {
-    const header = lines[startIndex];
-    const path = header.slice('*** Delete File: '.length).trim();
-    if (!path) createParseError('missing delete-file path');
-    return {
-        operation: {
-            type: 'delete',
-            path,
-        },
-        nextIndex: startIndex + 1,
-    };
-}
-
-function parseUpdateFile(lines, startIndex) {
-    const header = lines[startIndex];
-    const path = header.slice('*** Update File: '.length).trim();
-    if (!path) createParseError('missing update-file path');
-
-    let index = startIndex + 1;
-    let moveTo = '';
-    if (index < lines.length && lines[index].startsWith('*** Move to: ')) {
-        moveTo = lines[index].slice('*** Move to: '.length).trim();
-        if (!moveTo) createParseError(`missing move target for ${path}`);
-        index += 1;
-    }
-
-    const hunks = [];
-    while (index < lines.length && !isFileOperationHeader(lines[index]) && lines[index] !== '*** End Patch') {
-        const marker = lines[index];
-        if (!marker.startsWith('@@')) createParseError(`expected hunk marker for ${path}`);
-        const hunkMarker = parseHunkMarker(marker);
-        index += 1;
-
-        const hunkLines = [];
-        let oldCount = 0, newCount = 0;
-        while (index < lines.length && !lines[index].startsWith('@@') && !isFileOperationHeader(lines[index]) && lines[index] !== '*** End Patch') {
-            const line = lines[index];
-            if (line === '*** End of File' || (oldCount === hunkMarker.oldLineCount && newCount === hunkMarker.newLineCount)) break;
-            const prefix = line === '' ? ' ' : line[0];
-            if (![' ', '+', '-'].includes(prefix)) createParseError(`invalid hunk line for ${path}`);
-            hunkLines.push({
-                type: prefix === ' ' ? 'context' : prefix === '+' ? 'add' : 'remove',
-                text: line.slice(1),
-            });
-            if (prefix !== '+') oldCount++;
-            if (prefix !== '-') newCount++;
-            index += 1;
-        }
-
-        if (hunkMarker.oldLineCount !== undefined && (oldCount !== hunkMarker.oldLineCount || newCount !== hunkMarker.newLineCount)) {
-            createParseError(`hunk line count mismatch for ${path}`);
-        }
-        const endOfFile = lines[index] === '*** End of File';
-        if (endOfFile) index++;
-        // Outside a complete numbered range a bare blank separates hunks.
-        if (hunkMarker.oldLineCount !== undefined) while (lines[index] === '') index++;
-        if (!hunkLines.length) createParseError(`empty hunk for ${path}`);
-        hunks.push({
-            header: hunkMarker.header,
-            oldStartLine: hunkMarker.oldStartLine,
-            oldLineCount: hunkMarker.oldLineCount,
-            newStartLine: hunkMarker.newStartLine,
-            newLineCount: hunkMarker.newLineCount,
-            lines: hunkLines,
-            endOfFile,
-        });
-    }
-
-    if (!hunks.length && !moveTo) createParseError(`update-file ${path} has no hunks`);
-
-    return {
-        operation: {
-            type: 'update',
-            path,
-            moveTo,
-            hunks,
-        },
-        nextIndex: index,
-    };
-}
-
-export function parseApplyPatch(patchText = '') {
-    const normalized = normalizePatchText(patchText);
-    const lines = normalized.split('\n');
-    if (lines[0] !== '*** Begin Patch') createParseError('missing *** Begin Patch header');
-
-    const operations = [];
-    let index = 1;
-    while (index < lines.length) {
-        const line = lines[index];
-        if (line === '*** End Patch') {
-            index += 1;
-            while (index < lines.length && lines[index] === '') {
-                index += 1;
-            }
-            if (!operations.length) createParseError('patch has no file operations');
-            if (index < lines.length) createParseError('unexpected content after *** End Patch');
-            return { operations };
-        }
-
-        if (line.startsWith('*** Add File: ')) {
-            const parsed = parseAddFile(lines, index);
-            operations.push(parsed.operation);
-            index = parsed.nextIndex;
-            continue;
-        }
-        if (line.startsWith('*** Delete File: ')) {
-            const parsed = parseDeleteFile(lines, index);
-            operations.push(parsed.operation);
-            index = parsed.nextIndex;
-            continue;
-        }
-        if (line.startsWith('*** Update File: ')) {
-            const parsed = parseUpdateFile(lines, index);
-            operations.push(parsed.operation);
-            index = parsed.nextIndex;
-            continue;
-        }
-
-        createParseError(`unexpected line: ${line}`);
-    }
-
-    createParseError('missing *** End Patch footer');
-}
-
-const LINE_ALIGNMENT_PROFILES = [
-    { key: 'verbatim' },
-    { key: 'rstrip_aware' },
-    { key: 'edge_trimmed' },
-    { key: 'punctuation_folded' },
-];
-const GLYPH_FOLDING_PATTERN = /[\u2018\u2019\u201A\u201B\u201C\u201D\u201E\u201F\u2010\u2011\u2012\u2013\u2014\u2015\u2026\u00A0]/;
-
-function foldPatchGlyphVariants(value = '') {
-    return String(value ?? '')
-        .replace(/[\u2018\u2019\u201A\u201B]/g, '\'')
+const MATCH_FALLBACKS = [
+    line => line.trimEnd(),
+    line => line.trim(),
+    line => line.trim()
+        .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
         .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
         .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015]/g, '-')
         .replace(/\u2026/g, '...')
-        .replace(/\u00A0/g, ' ');
+        .replace(/\u00A0/g, ' '),
+];
+
+function textView(content) {
+    const lineBreak = /\r\n|\r|\n/g;
+    const lines = [];
+    let start = 0;
+    for (const match of content.matchAll(lineBreak)) {
+        lines.push({ text: content.slice(start, match.index), start, end: match.index, separator: match[0] });
+        start = match.index + match[0].length;
+    }
+    lines.push({ text: content.slice(start), start, end: content.length, separator: '' });
+    return lines;
 }
 
-function hasGlyphFoldingCandidate(value = '') {
-    return GLYPH_FOLDING_PATTERN.test(String(value ?? ''));
-}
-
-function prepareLineForAlignment(line = '', profileKey = 'verbatim') {
-    const text = String(line ?? '');
-    if (profileKey === 'rstrip_aware') {
-        return text.trimEnd();
+function exactMatches(lines, oldString) {
+    const normalized = lines.map(line => line.text).join('\n');
+    const matches = [];
+    let index = normalized.indexOf(oldString);
+    if (index < 0) return matches;
+    const offsets = [];
+    let offset = 0;
+    let lineIndex = 0;
+    for (const line of lines) {
+        offsets.push(offset);
+        offset += line.text.length + 1;
     }
-    if (profileKey === 'edge_trimmed' || profileKey === 'punctuation_folded') {
-        return text.trim();
-    }
-    return text;
-}
-
-function compareLineUnderProfile(leftLine = '', rightLine = '', profileKey = 'verbatim') {
-    if (profileKey !== 'punctuation_folded') {
-        return {
-            equal: prepareLineForAlignment(leftLine, profileKey) === prepareLineForAlignment(rightLine, profileKey),
-            usedGlyphFolding: false,
-        };
-    }
-
-    const alignedLeft = prepareLineForAlignment(leftLine, 'edge_trimmed');
-    const alignedRight = prepareLineForAlignment(rightLine, 'edge_trimmed');
-    if (alignedLeft === alignedRight) {
-        return { equal: true, usedGlyphFolding: false };
-    }
-
-    const canFoldGlyphs = hasGlyphFoldingCandidate(leftLine) || hasGlyphFoldingCandidate(rightLine);
-    if (!canFoldGlyphs) {
-        return { equal: false, usedGlyphFolding: false };
-    }
-
-    return {
-        equal: foldPatchGlyphVariants(alignedLeft) === foldPatchGlyphVariants(alignedRight),
-        usedGlyphFolding: true,
+    const originalOffset = target => {
+        while (lineIndex + 1 < offsets.length && offsets[lineIndex + 1] <= target) lineIndex++;
+        return lines[lineIndex].start + target - offsets[lineIndex];
     };
-}
-
-function blockMatchesAtWithProfile(fileLines = [], targetLines = [], startIndex = 0, profileKey = 'verbatim') {
-    if (startIndex < 0 || startIndex + targetLines.length > fileLines.length) return false;
-    let usedGlyphFolding = false;
-    for (let index = 0; index < targetLines.length; index += 1) {
-        const comparison = compareLineUnderProfile(fileLines[startIndex + index], targetLines[index], profileKey);
-        if (!comparison.equal) {
-            return false;
+    while (index >= 0 && matches.length < 2) {
+        const start = originalOffset(index);
+        // Only the first match needs an end; a second start proves ambiguity.
+        if (matches.length) matches.push({ start });
+        else {
+            matches.push({ start, end: originalOffset(index + oldString.length) });
+            // A second match may overlap the first one.
+            lineIndex = 0;
         }
-        usedGlyphFolding = usedGlyphFolding || comparison.usedGlyphFolding;
+        index = normalized.indexOf(oldString, index + 1);
     }
-    if (profileKey === 'punctuation_folded') {
-        return usedGlyphFolding;
-    }
-    return true;
+    return matches;
 }
 
-function findAnchorLineIndexes(fileLines = [], targetLine = '', startIndex = 0, profileKey = 'verbatim') {
+function lineMatches(lines, oldLines, project) {
+    const needle = oldLines.map(project);
+    const actual = lines.map(({ text }) => project(text));
     const matches = [];
-    for (let index = Math.max(0, startIndex); index < fileLines.length; index += 1) {
-        const comparison = compareLineUnderProfile(fileLines[index], targetLine, profileKey);
-        if (comparison.equal && (profileKey !== 'punctuation_folded' || comparison.usedGlyphFolding)) {
-            matches.push(index);
+    for (let index = 0; index <= lines.length - needle.length && matches.length < 2; index++) {
+        if (needle.every((line, offset) => actual[index + offset] === line)) {
+            matches.push({ start: lines[index].start, end: lines[index + needle.length - 1].end });
         }
     }
     return matches;
 }
 
-function findContiguousBlockMatches(fileLines = [], targetLines = [], startIndex = 0, profileKey = 'verbatim') {
-    if (!targetLines.length) return [];
-    const matches = [];
-    const maxStart = fileLines.length - targetLines.length;
-    if (maxStart < 0) return matches;
-
-    for (let index = Math.max(0, startIndex); index <= maxStart; index += 1) {
-        if (blockMatchesAtWithProfile(fileLines, targetLines, index, profileKey)) {
-            matches.push(index);
-        }
-    }
-    return matches;
-}
-
-function buildHunkFailureMessage(hunkIndex, pathText, kind, details = {}) {
-    const parts = [`hunk ${hunkIndex + 1} for ${pathText || 'file'} ${kind}`];
-    const extras = [];
-
-    if (Object.prototype.hasOwnProperty.call(details, 'usesHeader')) {
-        extras.push(`usesHeader=${details.usesHeader ? 'yes' : 'no'}`);
-    }
-    if (Object.prototype.hasOwnProperty.call(details, 'comparisonProfile')) {
-        extras.push(`comparisonProfile=${details.comparisonProfile}`);
-    }
-    if (Object.prototype.hasOwnProperty.call(details, 'failureKind')) {
-        extras.push(`failureKind=${details.failureKind}`);
-    }
-    if (Object.prototype.hasOwnProperty.call(details, 'headerMatchCount')) {
-        extras.push(`headerMatchCount=${details.headerMatchCount}`);
-    }
-    if (Object.prototype.hasOwnProperty.call(details, 'oldBlockMatchCount')) {
-        extras.push(`oldBlockMatchCount=${details.oldBlockMatchCount}`);
-    }
-
-    if (extras.length) {
-        parts.push(`(${extras.join(', ')})`);
-    }
-
-    return parts.join(' ');
-}
-
-function resolveHunkMatch(fileLines, hunk, oldLines, searchStart, rangeIndex, options = {}) {
-    const pathText = options.path || 'file';
-    const preferredStart = Math.max(searchStart, rangeIndex ?? searchStart);
-    const usesHeader = Boolean(String(hunk.header || '').trim());
-    const headerText = String(hunk.header || '').trim();
-    let deferredHeaderFailure = null;
-
-    if (rangeIndex >= searchStart) {
-        for (const profile of LINE_ALIGNMENT_PROFILES) {
-            if (!blockMatchesAtWithProfile(fileLines, oldLines, rangeIndex, profile.key)) continue;
-            if (!usesHeader || fileLines.some((line, i) => i <= rangeIndex && compareLineUnderProfile(line, headerText, profile.key).equal)) {
-                return { index: rangeIndex, comparisonProfile: profile.key };
+function applyTextReplacements(original, edits, path) {
+    let content = original;
+    const results = edits.map(({ oldString, newString }, editIndex) => {
+        const lines = textView(content);
+        const oldText = oldString.replace(/\r\n?/g, '\n');
+        // A fragment can match exactly anywhere. The existing loose patch
+        // profiles still apply to complete lines, never to surrounding code.
+        let matches = exactMatches(lines, oldText);
+        if (!matches.length) {
+            const oldLines = oldText.split('\n');
+            const hasTerminalMarker = lines.at(-1).start === content.length;
+            const matchableLines = hasTerminalMarker && !oldText.endsWith('\n') ? lines.slice(0, -1) : lines;
+            for (const project of MATCH_FALLBACKS) {
+                matches = lineMatches(matchableLines, oldLines, project);
+                if (matches.length) break;
             }
         }
-    }
-    if (!usesHeader) {
-        for (const profile of LINE_ALIGNMENT_PROFILES) {
-            const preferredMatches = findContiguousBlockMatches(fileLines, oldLines, preferredStart, profile.key);
-            if (preferredMatches.length === 1) {
-                return { index: preferredMatches[0], comparisonProfile: profile.key };
-            }
-            if (preferredMatches.length > 1) {
-                createApplyError(buildHunkFailureMessage(hunk.index, pathText, 'old block matched multiple locations', {
-                    usesHeader: false,
-                    comparisonProfile: profile.key,
-                    failureKind: 'ambiguous_block_match',
-                    oldBlockMatchCount: preferredMatches.length,
-                }));
-            }
-
-            if (preferredStart > 0) {
-                const allMatches = findContiguousBlockMatches(fileLines, oldLines, 0, profile.key);
-                if (allMatches.length === 1) {
-                    return { index: allMatches[0], comparisonProfile: profile.key };
-                }
-                if (allMatches.length > 1) {
-                    createApplyError(buildHunkFailureMessage(hunk.index, pathText, 'old block matched multiple locations', {
-                        usesHeader: false,
-                        comparisonProfile: profile.key,
-                        failureKind: 'ambiguous_block_match',
-                        oldBlockMatchCount: allMatches.length,
-                    }));
-                }
-            }
+        if (matches.length !== 1) {
+            const ambiguous = matches.length > 1;
+            throw patchError(ambiguous ? 'ambiguous_block_match' : 'missing_block_match',
+                ambiguous ? 'oldString matches more than one location.' : 'oldString was not found in the current file.', { path, editIndex });
         }
-
-        createApplyError(buildHunkFailureMessage(hunk.index, pathText, 'old block did not match the current file', {
-            usesHeader: false,
-            comparisonProfile: 'all_profiles',
-            failureKind: 'missing_block_match',
-            oldBlockMatchCount: 0,
-        }));
-    }
-
-    for (const profile of LINE_ALIGNMENT_PROFILES) {
-        const preferredHeaderMatches = findAnchorLineIndexes(fileLines, headerText, preferredStart, profile.key);
-        const allHeaderMatches = preferredStart > 0
-            ? findAnchorLineIndexes(fileLines, headerText, 0, profile.key)
-            : preferredHeaderMatches;
-        const headerMatches = preferredHeaderMatches.length ? preferredHeaderMatches : allHeaderMatches;
-        const headerMatchCount = headerMatches.length;
-
-        if (!headerMatchCount) {
-            continue;
-        }
-
-        const matchedIndexes = new Set();
-        let totalBlockMatches = 0;
-        headerMatches.forEach((headerIndex) => {
-            const blockMatches = findContiguousBlockMatches(fileLines, oldLines, Math.max(preferredStart, headerIndex), profile.key);
-            totalBlockMatches += blockMatches.length;
-            blockMatches.forEach((matchIndex) => matchedIndexes.add(matchIndex));
-        });
-
-        if (matchedIndexes.size === 1) {
-            return { index: Array.from(matchedIndexes)[0], comparisonProfile: profile.key };
-        }
-
-        if (!matchedIndexes.size) {
-            deferredHeaderFailure = buildHunkFailureMessage(hunk.index, pathText, 'header matched but old block did not match under that header', {
-                usesHeader: true,
-                comparisonProfile: profile.key,
-                failureKind: 'header_anchor_without_block',
-                headerMatchCount,
-                oldBlockMatchCount: totalBlockMatches,
-            });
-            continue;
-        }
-
-        createApplyError(buildHunkFailureMessage(hunk.index, pathText, 'matched multiple locations under header', {
-            usesHeader: true,
-            comparisonProfile: profile.key,
-            failureKind: 'ambiguous_header_scoped_match',
-            headerMatchCount,
-            oldBlockMatchCount: matchedIndexes.size,
-        }));
-    }
-
-    if (deferredHeaderFailure) {
-        createApplyError(deferredHeaderFailure);
-    }
-
-    createApplyError(buildHunkFailureMessage(hunk.index, pathText, 'header did not match the current file', {
-        usesHeader: true,
-        comparisonProfile: 'all_profiles',
-        failureKind: 'missing_header_anchor',
-        headerMatchCount: 0,
-        oldBlockMatchCount: 0,
-    }));
-}
-
-export function applyPatchUpdateToText(originalText = '', hunks = [], options = {}) {
-    const normalized = normalizePatchText(originalText);
-    const {
-        lines: fileLines,
-        hadTerminalNewline,
-    } = splitTextForPatchApplication(normalized);
-    const originalLineCount = fileLines.length;
-    let searchStart = 0;
-
-    hunks.forEach((hunk, hunkIndex) => {
-        const oldLines = hunk.lines
-            .filter((line) => line.type !== 'add')
-            .map((line) => line.text);
-
-        if (!oldLines.length) {
-            createApplyError(`hunk ${hunkIndex + 1} for ${options.path || 'file'} has no match context`);
-        }
-
-        const rangeIndex = Number.isFinite(hunk.oldStartLine)
-            ? hunk.oldStartLine - 1 + (fileLines.length - originalLineCount)
-            : undefined;
-        const match = resolveHunkMatch(fileLines, { ...hunk, index: hunkIndex }, oldLines, searchStart, rangeIndex, options);
-        // Context can match loosely, but its original bytes are not part of the edit.
-        const newLines = [];
-        let cursor = match.index;
-        for (const line of hunk.lines) {
-            if (line.type === 'add') newLines.push(line.text);
-            else {
-                if (line.type === 'context') newLines.push(fileLines[cursor]);
-                cursor++;
-            }
-        }
-        fileLines.splice(match.index, oldLines.length, ...newLines);
-        searchStart = match.index + newLines.length;
+        const [{ start, end }] = matches;
+        const separator = lines.find(line => line.end >= start && line.separator)?.separator
+            || lines.find(line => line.separator)?.separator || '\n';
+        const replacement = newString.replace(/\r\n?|\n/g, separator);
+        content = content.slice(0, start) + replacement + content.slice(end);
+        return { index: editIndex, matchedBy: 'old_string' };
     });
+    return { content, results };
+}
 
-    return {
-        content: joinPatchedLines(fileLines, hadTerminalNewline),
-        hunksApplied: hunks.length,
-    };
+export function applyPatchUpdateToText(content, edits, path) {
+    if (has(edits[0], 'oldString')) return applyTextReplacements(content, edits, path);
+    const result = applyPatchLineEdits(content, edits);
+    if (!result.ok) {
+        const failure = result.results.find(item => !item.ok);
+        throw patchError(failure.error, failure.message, { path, editIndex: failure.index, suggestion: failure.suggestion });
+    }
+    return { content: result.content, results: result.results };
 }

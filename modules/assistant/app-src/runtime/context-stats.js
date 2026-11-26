@@ -4,9 +4,6 @@ import { buildTokenCounterPayload, estimateTokenCount, estimateConversationToken
 const textEncoder = new TextEncoder();
 const CONTEXT_DEBUG_PREVIEW_CHARS = 140;
 const CONTEXT_DEBUG_TOP_ENTRY_COUNT = 6;
-// The byte-based estimate ran 5.4% under a provider's own count on one long
-// tool run (234,501 vs 247,149); compaction starts early enough to absorb that.
-const ESTIMATE_MARGIN = 0.9;
 
 function normalizeDebugPreview(value, limit = CONTEXT_DEBUG_PREVIEW_CHARS) {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -105,7 +102,7 @@ export function createContextStatsController(deps) {
     // Estimated input one request can carry: the reply shares the window with it.
     function requestInputLimit() {
         const reply = Number(getActiveProviderConfig()?.maxTokens) || 0;
-        return Math.floor((MAX_CONTEXT_TOKENS - reply) * ESTIMATE_MARGIN);
+        return Math.floor(MAX_CONTEXT_TOKENS - reply);
     }
 
     function compactionThreshold() {

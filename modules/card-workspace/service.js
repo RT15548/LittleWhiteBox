@@ -9,8 +9,31 @@ import { cardLifecycle } from './lifecycle.js';
 import { equalText } from './comparison.js';
 import { variableFileGroup, variableGroupChanged } from '../variables/state3/definition/card-files.js';
 import { flattenLocalSourceFiles, normalizeLocalSourceFile } from '../assistant/shared/local-workspace-kernel.js';
+import { workspaceRepository } from '../assistant/shared/workspace-repository.js';
+import { createCardAssetActions } from './asset-actions.js';
+import { SET_CARD_AVATAR_ACTION } from './assistant-contract.js';
+import { setCardAvatar } from './avatar.js';
+
+function openResult(selected, root, files, reused, warnings = []) {
+    const directory = cardFileDirectory(files, { onAssetIssue: issue => warnings.push({ path: issue.taskPath, message: issue.error }) });
+    return { root, avatar: selected.avatar, name: selected.name, files: directory, reused, ...(warnings.length ? { warnings } : {}) };
+}
+
+export async function handleAssistantCardAssets(args, options = {}) {
+    const { avatar } = currentCard();
+    const run = createCardAssetActions({ repository: workspaceRepository, readCharacter });
+    return cardLifecycle.run([avatar], () => {
+        if (currentCard().avatar !== avatar) throw new Error(COPY.changedCard);
+        return run(args, avatar, options);
+    });
+}
 
 export async function runCardFiles(args, options = {}) {
+    if (args.action === SET_CARD_AVATAR_ACTION) {
+        const { avatar, sourcePath } = args;
+        if (typeof avatar !== 'string' || !avatar) throw new Error(COPY.avatarTarget);
+        return cardLifecycle.run([avatar], () => setCardAvatar(avatar, sourcePath, options.signal));
+    }
     if (args.action === 'open') {
         const selected = currentCard();
         return cardLifecycle.run([selected.avatar], () => openFiles(selected, options.signal));
@@ -32,7 +55,7 @@ async function openFiles(selected, signal) {
     }
     const files = cardFiles(avatar, card.data, books, await readDesign(avatar, signal) ?? '');
     await storeOpenedFiles(files, { observed, scopeRoot: root });
-    return { root, avatar, name: selected.name, files: cardFileDirectory(files), reused: false };
+    return openResult(selected, root, files, false);
 }
 
 async function storeOpenedFiles(files, options) {
@@ -59,8 +82,7 @@ async function reuseFiles(selected, root, signal) {
         await storeOpenedFiles([{ path, content }], { observed });
     }
     const present = (await readFiles()).filter(file => file.path.startsWith(root));
-    return { root, avatar: selected.avatar, name: selected.name, files: cardFileDirectory(present), reused: true,
-        ...(warnings.length ? { warnings } : {}) };
+    return openResult(selected, root, present, true, warnings);
 }
 
 function selectedPaths(paths) {

@@ -46,7 +46,7 @@ description: 给角色卡做前端：正文排版、辅助面板或一体游玩�
 
 旧楼是当时发生的事；当前操作台与历史正文分开。数值从变量读取，不让模型每楼重抄全部状态。只在最新楼展示的正则使用 `maxDepth: 0`。
 
-图片可自备、运行时生成或混合使用。按场景与人物需要安排，没有图时正文和操作仍然可用。聊天已有图片时，在自定义阅读器里复用图片卡及其操作，接法见[一体界面参考](<../references/xiaobaix-heavy-ui.md#host-features>)；独立绘图和语音见[媒体接口](<../references/xiaobaix-capabilities.md#media>)。
+图片可自备、运行时生成或混合使用。固定素材用[随卡图片](<portable-images.md>)装进卡，前端可按变量状态选择图。聊天已有图片时，在自定义阅读器里复用图片卡及其操作，接法见[一体界面参考](<../references/xiaobaix-heavy-ui.md#host-features>)；独立绘图和语音见[媒体接口](<../references/xiaobaix-capabilities.md#media>)。
 
 ## 在哪里执行代码
 

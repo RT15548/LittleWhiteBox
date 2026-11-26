@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="maintenance/ui.css">
     <link rel="stylesheet" href="maintenance/chat-ui.css">
     <link rel="stylesheet" href="archive.css">
+    <link rel="stylesheet" href="dossier.css">
     <link rel="stylesheet" href="workspace.css">
     <style>
         #xb-frame-boot {
@@ -130,22 +131,16 @@
                 </div>
             </section>
             <section id="archive-people" role="tabpanel" aria-labelledby="archive-tab-people" hidden>
+                <div class="archive-section-head dossier-page-head"><h2 data-dossier-copy="roster"></h2><div class="archive-actions"><button class="archive-text" id="archive-graph-toggle" aria-expanded="false" data-dossier-copy="graph"></button><button class="archive-text sec-btn" data-section="aliases" data-dossier-copy="aliases"></button></div></div>
+                <div class="archive-graph" id="archive-graph" hidden>
+                    <div class="archive-section-head"><h2>人物关系</h2><div class="archive-actions"><button class="archive-text" id="btn-fullscreen-relations">全屏查看</button><button class="archive-text sec-btn" data-section="characters">编辑关系</button></div></div>
+                    <div id="relation-chart"></div>
+                </div>
                 <div class="archive-people-layout">
-                    <div class="archive-graph">
-                        <div class="archive-section-head"><h2>人物关系</h2><div class="archive-actions"><button class="archive-text" id="archive-profile-open"></button><button class="archive-text" id="btn-fullscreen-relations">全屏查看</button><button class="archive-text sec-btn" data-section="characters">编辑关系</button></div></div>
-                        <div class="archive-roster" id="archive-roster"></div>
-                        <div id="relation-chart"></div>
-                    </div>
+                    <nav class="archive-roster" id="archive-roster" aria-label="人物名册"></nav>
                     <div id="archive-profile-home">
                         <section class="archive-profile" id="archive-profile">
-                            <div class="archive-section-head"><h2>人物档案</h2><button class="archive-text sec-btn" data-section="arcs">编辑</button></div>
-                            <select id="archive-person-select" class="archive-person-select" aria-label="选择人物档案"></select>
                             <div id="profile-content"></div>
-                            <details class="archive-aliases">
-                                <summary>称呼与别名</summary>
-                                <div id="aliases-list"></div>
-                                <button class="archive-text sec-btn" data-section="aliases">管理全部别名</button>
-                            </details>
                         </section>
                     </div>
                 </div>
@@ -153,7 +148,7 @@
             <section id="archive-world" role="tabpanel" aria-labelledby="archive-tab-world" hidden>
                 <div class="archive-world-layout">
                     <nav class="archive-world-index" id="archive-world-index" aria-label="世界状态对象"></nav>
-                    <div><div class="archive-section-head"><h2>世界状态</h2><button class="archive-text sec-btn" data-section="facts">编辑</button></div><div id="facts-list"></div></div>
+                    <div><div class="archive-section-head"><h2>世界状态</h2><button class="archive-text" id="archive-world-add" data-dossier-copy="add"></button></div><div id="facts-list"></div></div>
                 </div>
             </section>
         </div>

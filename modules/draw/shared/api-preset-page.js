@@ -31,6 +31,7 @@ export function createApiPresetPage({
     formSelector,
     readConfig,
     fillConfig,
+    validateForm,
     persist,
     confirm = message => globalThis.confirm(message),
     prompt = (message, fallback) => globalThis.prompt(message, fallback),
@@ -77,6 +78,7 @@ export function createApiPresetPage({
                 return { apiPresets, activeApiPresetId };
             },
             readConfig,
+            validateForm,
             getEffectiveConfig: () => getEffectiveConfig(),
             onCommit: commit,
             confirm,

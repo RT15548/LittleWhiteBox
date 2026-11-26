@@ -1,0 +1,12 @@
+.mm-fieldset { min-width: 0; margin: 0; }
+.mm-agent-retry, .mm-shared-settings, .mm-test-results:not(:empty), #mm-references:not(:empty) { margin-top: 12px; }
+.mm-test-results { grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); }
+.mm-test-results figure, #mm-references figure { margin: 0; min-width: 0; }
+.mm-test-results .gallery-slot-thumb { height: auto; max-height: 420px; object-fit: contain; }
+.mm-image-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.mm-image-actions .btn { white-space: normal; }
+.mm-system-rule { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.mm-request-preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 26rem; overflow: auto; }
+.mm-send-mode[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--bg-primary); font-weight: 500; }
+#mm-image-api[hidden], #mm-model-list[hidden] { display: none; }
+#mm-model-list { width: auto; min-width: 0; max-width: min(100%, 28rem); }

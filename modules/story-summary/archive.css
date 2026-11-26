@@ -6,7 +6,6 @@
     font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
 }
 .archive [hidden], .archive-drawer [hidden] { display: none !important; }
-#archive-profile-open { display: none; }
 .archive button, .archive-drawer button { cursor: pointer; font-family: inherit; }
 .archive button:disabled, .archive-drawer button:disabled { cursor: default; opacity: .5; }
 .archive button:focus-visible, .archive summary:focus-visible, .archive input:focus-visible,
@@ -69,31 +68,8 @@
 .archive-event-main p { margin: 8px 0; font-size: 14px; line-height: 1.95; color: var(--txt2); white-space: pre-wrap; overflow-wrap: anywhere; }
 .archive-event-meta { display: flex; align-items: center; gap: 4px 15px; flex-wrap: wrap; font-size: 11px; color: var(--txt3); }
 .archive-event-meta .archive-text { color: var(--archive-accent); min-height: 36px; }
-.archive-people-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 40px; }
 .archive-graph { min-width: 0; }
 #archive-people #relation-chart { height: clamp(340px, 46vw, 560px); min-height: 0; width: 100%; }
-.archive-roster { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
-.archive-person { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 7px 12px; border: 0; border-radius: 6px; color: var(--txt2); background: none; font-size: 13px; overflow-wrap: anywhere; text-align: left; }
-.archive-person[aria-pressed="true"] { color: var(--archive-accent); background: var(--archive-accent-soft); }
-.archive-person:hover { background: var(--bg3); }
-.archive-avatar { flex: 0 0 28px; width: 28px; height: 28px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--bg3); color: var(--txt); }
-.archive-profile { min-width: 0; padding-left: 32px; border-left: 1px solid var(--bdr); }
-.archive-person-select { width: 100%; min-height: 44px; margin-bottom: 20px; padding: 8px 12px; border: 1px solid var(--bdr); border-radius: 6px; background: var(--bg); color: var(--txt); font: inherit; }
-.archive-person-select:focus-visible { outline: 2px solid var(--archive-accent); outline-offset: 3px; }
-.archive-profile .prof-arc { padding: 0; margin-bottom: 24px; }
-.archive-profile .prof-name { font: 400 30px/1.5 'Noto Serif CJK SC', 'Songti SC', SimSun, serif; margin-bottom: 12px; }
-.archive-profile .prof-traj { font-size: 14px; line-height: 1.9; color: var(--txt2); margin-bottom: 22px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.archive-profile .prof-prog-wrap { margin-bottom: 25px; }
-.archive-profile .prof-prog-inner { background: var(--archive-accent); }
-.archive-profile .prof-moments { border-left: 1px solid var(--bdr); background: none; padding: 0 0 0 16px; }
-.archive-profile .prof-moments-title { font-size: 12px; margin: 0 0 14px; letter-spacing: 0; }
-.archive-profile .prof-moment { padding-left: 0; margin-bottom: 16px; font-size: 13px; line-height: 1.9; overflow-wrap: anywhere; }
-.archive-profile .prof-moment::before { width: 5px; height: 5px; left: -19px; top: 9px; background: var(--archive-accent); }
-.archive-profile .rel-item { padding: 6px 0; flex-wrap: wrap; }
-.archive-profile .rel-label { font-size: 13px; overflow-wrap: anywhere; min-width: 100px; }
-.archive-profile .rel-target { font-size: 13px; white-space: normal; }
-.archive-aliases { margin-top: 24px; font-size: 12px; }
-#aliases-list { max-height: none; overflow: visible; padding: 8px 0; }
 .archive-world-index { min-width: 0; }
 .archive #facts-list { max-height: none; overflow: visible; padding: 0; }
 .archive .fact-group { margin: 0 0 34px; }
@@ -112,7 +88,6 @@
 .archive-drawer-body { height: calc(100% - 81px); padding: 28px; overflow: auto; overscroll-behavior: contain; }
 .archive-drawer-body h3 { font-size: 13px; font-weight: 500; margin: 26px 0 12px; }
 .archive-drawer-body h3:first-child { margin-top: 0; }
-.archive-drawer .archive-profile { border: 0; padding: 0; }
 .archive-drawer-body .archive-detail-heading { font: 400 28px/1.5 'Noto Serif CJK SC', 'Songti SC', SimSun, serif; margin: 15px 0 24px; overflow-wrap: anywhere; }
 .archive-detail-text { font-size: 15px; line-height: 2; white-space: pre-wrap; overflow-wrap: anywhere; }
 .archive-participants { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -131,8 +106,6 @@
 @media (max-width: 1050px) {
     .archive { padding-inline: 28px; }
     .archive-story, .archive-world-layout { grid-template-columns: 150px minmax(0, 1fr); gap: 30px; }
-    .archive-people-layout { grid-template-columns: minmax(0, 1fr) minmax(260px, 1fr); gap: 24px; }
-    .archive-profile { padding-left: 24px; }
 }
 @media (max-width: 768px) {
     .archive { padding: 0 20px 32px; }
@@ -151,7 +124,7 @@
     .archive-search:focus-within, .archive-search:has(input:not(:placeholder-shown)) { width: 100%; padding-bottom: 8px; }
     .archive-search:focus-within input, .archive-search input:not(:placeholder-shown) { width: 100%; }
     .archive-content { padding-top: 10px; }
-    .archive-story, .archive-people-layout, .archive-world-layout { display: block; }
+    .archive-story, .archive-world-layout { display: block; }
     .archive-index > .archive-label { display: none; }
     #archive-story-index, .archive-world-index { display: flex; gap: 18px; overflow-x: auto; margin-bottom: 4px; padding-bottom: 0; }
     .archive-index-button { flex: 0 0 auto; width: auto; max-width: 200px; border: 0; padding: 10px 0; font-size: 12px; }
@@ -172,17 +145,10 @@
     .archive-event-meta { gap: 3px 12px; font-size: 10px; }
     .archive-event-meta .archive-text { min-height: 36px; font-size: 11px; }
     #archive-people #relation-chart { height: 330px; }
-    #archive-profile-home { display: none; }
-    #archive-profile-open { display: inline-block; }
-    .archive-roster { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
-    .archive-person { min-height: 64px; border-radius: 0; border-bottom: 1px solid var(--bdr); padding: 10px 0; }
-    .archive-person[aria-pressed="true"] { background: none; }
     .archive .fact-group-title { font-size: 18px; }
     .archive .fact-item { grid-template-columns: 72px minmax(0, 1fr); gap: 6px 14px; padding: 16px 0; font-size: 13px; }
     .archive .fact-since { grid-column: 2; }
     .archive-drawer { width: 100vw; }
-    .archive-drawer .archive-profile > .archive-section-head { justify-content: flex-end; margin-bottom: 8px; }
-    .archive-drawer .archive-profile > .archive-section-head h2 { display: none; }
     .archive-drawer-head { padding: 14px 20px; }
     .archive-drawer-body { padding: 23px 20px; height: calc(100% - 69px); }
     .archive-reading .tl-pg-btn, .archive-reading .tl-pg-num { min-height: 44px; }

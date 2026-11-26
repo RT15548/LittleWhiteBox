@@ -2,7 +2,7 @@
 
 const { MAX_TIMEOUT_MS, parseTimeout } = require('../providers/upstream.js');
 
-const MAX_JOB_ITEMS = 20;
+const { MAX_JOB_ITEMS } = require('../../shared/image-job-limits.cjs');
 
 function createServiceError(message, code = 'invalid_request', status = 400) {
     const error = new Error(message);

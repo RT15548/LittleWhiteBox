@@ -43,6 +43,7 @@ export function buildAppMarkup(state) {
                                 configSave: state.configSave,
                                 inlineToastText: state.toast,
                                 showInlineToast: false,
+                                showImageInput: true,
                                 isBusy: state.isBusy,
                                 canDeletePreset: (state.config?.presetNames || []).length > 1,
                                 activePage: state.configPage,

@@ -3,6 +3,27 @@ import { getPathExtension, isSupportedPublicTextPath } from '../../agent-core/to
 export const LOCAL_SOURCE_PREFIX = 'local/';
 export const LOCAL_SOURCE_FILE_KIND = 'session-local-source';
 
+/** @typedef {{ path: string, publicPath: string, relativePath: string, name: string, sizeBytes: number, source: typeof LOCAL_SOURCE_FILE_KIND, extension: string, rootPath: string }} LocalSourceFileBase */
+/** @typedef {LocalSourceFileBase & { kind?: undefined, content: string, originalContent: string | null, originalGroupHash?: string }} LocalSourceTextFile */
+/** @typedef {LocalSourceFileBase & { kind: 'image', mimeType: string, blobId: string }} LocalSourceImageFile */
+/** @typedef {LocalSourceTextFile | LocalSourceImageFile} LocalSourceFile */
+
+const IMAGE_TYPES = new Map([
+    ['.png', 'image/png'], ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'],
+    ['.webp', 'image/webp'], ['.gif', 'image/gif'],
+]);
+
+export function getWorkspaceImageMimeType(path = '') {
+    return IMAGE_TYPES.get(getPathExtension(path)) || '';
+}
+
+export function normalizeWorkspaceImagePath(rawPath = '') {
+    const path = normalizeLocalSourcePath(rawPath);
+    if (!path.startsWith(LOCAL_SOURCE_PREFIX) || path.includes('..') || !getWorkspaceImageMimeType(path)) return '';
+    if (path.split('/').some(part => !part || part === '.' || /[\p{Cc}]/u.test(part))) return '';
+    return path;
+}
+
 export function sanitizeLocalSourceLabel(value, fallback = 'source') {
     const normalized = String(value || '')
         .trim()
@@ -228,25 +249,34 @@ export function buildLocalFileRecordFromPath(publicPath, content = '', options =
     };
 }
 
+/** @returns {LocalSourceFile | null} */
 export function normalizeLocalSourceFile(file = {}) {
     if (!file || typeof file !== 'object') return null;
     const path = normalizeLocalSourcePath(file.path || file.publicPath || '');
     if (!path.startsWith(LOCAL_SOURCE_PREFIX) || path.includes('..')) return null;
     const name = String(file.name || '').trim() || path.split('/').pop() || 'file';
     const relativePath = normalizeLocalSourcePath(file.relativePath || getRelativeLocalFilePath(path) || name) || name;
-    const content = typeof file.content === 'string' ? file.content : '';
-    return {
+    const common = {
         path,
         publicPath: path,
         relativePath,
         name,
+        source: LOCAL_SOURCE_FILE_KIND,
+        extension: getPathExtension(path),
+        rootPath: normalizeLocalSourceRootPath(file.rootPath, getLocalSourceLabelFromPath(path) || 'source'),
+    };
+    if (file.kind === 'image') {
+        if (!normalizeWorkspaceImagePath(path) || file.mimeType !== getWorkspaceImageMimeType(path)
+            || !Number.isSafeInteger(file.sizeBytes) || file.sizeBytes < 1 || typeof file.blobId !== 'string' || !file.blobId) return null;
+        return { ...common, kind: 'image', mimeType: file.mimeType, sizeBytes: file.sizeBytes, blobId: file.blobId };
+    }
+    const content = typeof file.content === 'string' ? file.content : '';
+    return {
+        ...common,
         sizeBytes: Math.max(0, Number(file.sizeBytes) || new TextEncoder().encode(content).length),
         content,
         originalContent: normalizeOriginalContent(file, content),
         ...(typeof file.originalGroupHash === 'string' ? { originalGroupHash: file.originalGroupHash } : {}),
-        source: LOCAL_SOURCE_FILE_KIND,
-        extension: getPathExtension(path),
-        rootPath: normalizeLocalSourceRootPath(file.rootPath, getLocalSourceLabelFromPath(path) || 'source'),
     };
 }
 
@@ -256,7 +286,7 @@ export function normalizeLocalSourceFileEntry(file = {}) {
 
 export function createLocalSourceRecord({ sourceId, label, rootPath, importedAt, files, directories } = {}) {
     const normalizedLabel = String(label || '').trim() || 'source';
-    const normalizedFiles = Array.isArray(files) ? files.map(normalizeLocalSourceFile).filter(Boolean) : [];
+    const normalizedFiles = Array.isArray(files) ? files.map(normalizeLocalSourceFile).filter(file => file !== null) : [];
     return {
         sourceId: String(sourceId || '').trim(),
         label: normalizedLabel,
@@ -300,7 +330,7 @@ export function normalizeLocalSources(localSources = []) {
             const sourceId = String(source.sourceId || '').trim();
             if (!sourceId) return null;
             const files = Array.isArray(source.files)
-                ? source.files.map(normalizeLocalSourceFile).filter(Boolean)
+                ? source.files.map(normalizeLocalSourceFile).filter(file => file !== null)
                 : [];
             return createLocalSourceRecord({
                 sourceId,
@@ -311,7 +341,8 @@ export function normalizeLocalSources(localSources = []) {
                 directories: source.directories,
             });
         })
-        .filter((source) => source && (source.files.length || source.directories.length || source.rootPath));
+        .filter(source => source !== null)
+        .filter(source => source.files.length || source.directories.length || source.rootPath);
 }
 
 export function normalizeLocalSourcesSnapshot(localSources = []) {
@@ -397,75 +428,61 @@ export function findLocalDirectoryByPath(localSources = [], targetPath = '') {
     return null;
 }
 
-export function upsertLocalFileInSources(localSources = [], targetPath = '', content = '', options = {}) {
-    const normalizedTargetPath = normalizeWritableLocalFilePath(targetPath);
-    if (!normalizedTargetPath) {
-        throw new Error('local_path_required');
-    }
+function assertLocalFileSlot(sources, path) {
+    if (findBlockingLocalFilePath(sources, path)) throw new Error('local_parent_path_blocked');
+    if (findLocalDirectoryByPath(sources, path)) throw new Error('local_destination_exists');
+}
 
-    const normalizedSources = normalizeLocalSources(localSources);
-    const blockingPath = findBlockingLocalFilePath(normalizedSources, normalizedTargetPath);
-    if (blockingPath) {
-        throw new Error('local_parent_path_blocked');
-    }
-    if (findLocalDirectoryByPath(normalizedSources, normalizedTargetPath)) {
-        throw new Error('local_destination_exists');
-    }
-    const sourceRootPath = getLocalSourceRootPathFromPath(normalizedTargetPath);
-    const sourceLabel = sourceRootPath === LOCAL_SOURCE_PREFIX ? 'local' : getLocalSourceLabelFromPath(normalizedTargetPath);
-    let fileExisted = false;
-    let existingFile = null;
-    let sourceFound = false;
-    const nextSources = normalizedSources.map((source) => {
-        if (String(source.rootPath || '') !== sourceRootPath) return source;
-        sourceFound = true;
-        return {
-            ...source,
-            files: source.files.map((file) => {
-                if (file.path !== normalizedTargetPath) return file;
-                fileExisted = true;
-                existingFile = file;
-                return file;
-            }),
-        };
-    });
-
-    const nextFile = buildLocalFileRecordFromPath(normalizedTargetPath, content, {
-        originalContent: Object.prototype.hasOwnProperty.call(options, 'originalContent')
-            ? options.originalContent
-            : fileExisted
-                // null = created in the workspace (no baseline); keep it through edits.
-                ? (existingFile && Object.prototype.hasOwnProperty.call(existingFile, 'originalContent')
-                    ? existingFile.originalContent
-                    : existingFile?.content ?? String(content ?? ''))
-                : null,
-        ...(typeof options.originalGroupHash === 'string' || typeof existingFile?.originalGroupHash === 'string'
-            ? { originalGroupHash: options.originalGroupHash ?? existingFile.originalGroupHash } : {}),
-    });
-
-    const sourcesWithTarget = sourceFound
-        ? nextSources
-        : [
-            ...nextSources,
-            createEphemeralLocalSourceRecord(sourceLabel, normalizedSources, sourceRootPath),
-        ].sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), 'zh-CN'));
-
+function placeLocalFile(sources, file) {
+    const sourceLabel = file.rootPath === LOCAL_SOURCE_PREFIX ? 'local' : getLocalSourceLabelFromPath(file.path);
+    const withTarget = sources.some(source => source.rootPath === file.rootPath) ? sources : [
+        ...sources, createEphemeralLocalSourceRecord(sourceLabel, sources, file.rootPath),
+    ].sort((left, right) => left.label.localeCompare(right.label, 'zh-CN'));
     return {
-        nextSources: sourcesWithTarget.map((source) => {
-            if (String(source.rootPath || '') !== sourceRootPath) return source;
-            const nextFiles = source.files
-                .filter((file) => file.path !== normalizedTargetPath)
-                .concat(nextFile)
-                .sort((left, right) => String(left.path || '').localeCompare(String(right.path || ''), 'zh-CN'));
-            return {
-                ...source,
-                files: nextFiles,
-            };
+        nextSources: withTarget.map(source => source.rootPath !== file.rootPath ? source : {
+            ...source,
+            files: source.files.filter(entry => entry.path !== file.path).concat(file)
+                .sort((left, right) => left.path.localeCompare(right.path, 'zh-CN')),
         }),
-        file: nextFile,
-        fileExisted,
+        file,
         sourceLabel,
     };
+}
+
+export function assertAvailableWorkspaceImagePath(sources, rawPath) {
+    const path = normalizeWorkspaceImagePath(rawPath);
+    if (!path) throw new Error('workspace_image_path_invalid');
+    assertLocalFileSlot(sources, path);
+    if (findLocalFileByPath(sources, path)) throw new Error('local_destination_exists');
+    return path;
+}
+
+export function insertWorkspaceImageFile(sources, rawPath, image) {
+    const normalizedSources = normalizeLocalSources(sources);
+    const path = assertAvailableWorkspaceImagePath(normalizedSources, rawPath);
+    const file = normalizeLocalSourceFile({
+        kind: 'image', path, rootPath: getLocalSourceRootPathFromPath(path),
+        mimeType: image.mimeType, sizeBytes: image.sizeBytes, blobId: image.blobId,
+    });
+    if (!file) throw new Error('workspace_image_format_invalid');
+    return placeLocalFile(normalizedSources, file);
+}
+
+export function upsertLocalFileInSources(localSources = [], targetPath = '', content = '', options = {}) {
+    const path = normalizeWritableLocalFilePath(targetPath);
+    if (!path) throw new Error('local_path_required');
+
+    const sources = normalizeLocalSources(localSources);
+    assertLocalFileSlot(sources, path);
+    const existing = findLocalFileByPath(sources, path)?.file;
+    if (existing?.kind === 'image') throw new Error('unsupported_text_file');
+    const file = buildLocalFileRecordFromPath(path, content, {
+        // null = created in the workspace (no baseline); keep it through edits.
+        originalContent: Object.hasOwn(options, 'originalContent') ? options.originalContent
+            : existing ? existing.originalContent : null,
+        originalGroupHash: options.originalGroupHash ?? existing?.originalGroupHash,
+    });
+    return { ...placeLocalFile(sources, file), fileExisted: !!existing };
 }
 
 export function upsertLocalSourceFile(localSources = [], targetPath = '', content = '', options = {}) {
@@ -624,9 +641,11 @@ export function moveLocalPathInSources(localSources = [], fromPath = '', toPath 
         } else if (normalizedRawToPath.endsWith('/')) {
             throw new Error('local_path_not_found');
         } else {
-            normalizedToFilePath = normalizeWritableLocalFilePath(toPath);
+            normalizedToFilePath = fromFileMatch.file.kind === 'image'
+                ? normalizeWorkspaceImagePath(toPath) : normalizeWritableLocalFilePath(toPath);
             if (!normalizedToFilePath) {
-                throw new Error(getWritableLocalPathError(toPath) || 'local_path_required');
+                throw new Error(fromFileMatch.file.kind === 'image'
+                    ? 'workspace_image_path_invalid' : getWritableLocalPathError(toPath) || 'local_path_required');
             }
         }
         if (normalizedToFilePath === fromFileMatch.file.path) {
@@ -733,10 +752,12 @@ export function moveLocalPathInSources(localSources = [], fromPath = '', toPath 
     }
     movedFiles.forEach((file) => {
         const nextPath = mappingByFromPath.get(file.path);
-        const upsert = upsertLocalFileInSources(nextSources, nextPath, file.content, {
-            originalContent: file.originalContent,
-            ...(typeof file.originalGroupHash === 'string' ? { originalGroupHash: file.originalGroupHash } : {}),
-        });
+        const upsert = file.kind === 'image'
+            ? insertWorkspaceImageFile(nextSources, nextPath, file)
+            : upsertLocalFileInSources(nextSources, nextPath, file.content, {
+                originalContent: file.originalContent,
+                originalGroupHash: file.originalGroupHash,
+            });
         nextSources = upsert.nextSources;
         movedEntries.push(upsert.file);
     });
@@ -750,8 +771,8 @@ export function moveLocalPathInSources(localSources = [], fromPath = '', toPath 
             && normalizeLocalDirectoryPath(fromPath) !== normalizeLocalDirectoryPath(toPath)
             && !!findLocalDirectoryByPath(localSources, toPath)
         ),
-        fromPath: targetMappings.length === 1 ? targetMappings[0].fromPath : fromPath,
-        toPath: targetMappings.length === 1 ? targetMappings[0].toPath : toPath,
+        fromPath: mode === 'file' ? targetMappings[0].fromPath : fromPath,
+        toPath: mode === 'file' ? targetMappings[0].toPath : toPath,
     };
 }
 

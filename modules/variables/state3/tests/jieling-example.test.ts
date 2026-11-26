@@ -21,11 +21,13 @@ const files = walk(folder).map(path => ({ path: 'card/' + relative(folder, path)
 const file = (path: string) => files.find(item => item.path === 'card/' + path)!.content;
 const bundle: Bundle = variableBundleFromFiles('card/', files);
 
-type Member = { age: number; job: string; kink: string; control: number; status: string; room: string; note: string; wants: string; is: string[]; hates: string[] };
+type Attitude = '抗拒' | '观望' | '投入';
+type Incident = { week: number; open: boolean; who: string[]; kind: '私下越界' | '当场冲突' | '外泄' };
+type Member = { age: number; job: string; kink: string; control: number; status: string; room: string; attitude: Attitude; wants: string; is: string[]; hates: string[] };
 type Club = { week: number; funds: number; reputation: number; exposure: number; waiting: number; phase: string;
-    members: Record<string, Member>; incidents: { week: number; open: boolean; who: string[]; kind: string; summary: string }[];
+    members: Record<string, Member>; incidents: Incident[];
     rooms: Record<string, { members: string[]; open: boolean; pairs: { a: string; b: string; relation: string }[] }>;
-    lastWeek: null | { week: number; rooms: Record<string, string>; roomMembers: Record<string, string[]>; gains: Record<string, number>; graduated: string[]; quit: string[]; incidents: unknown[]; income: number; rent: number };
+    lastWeek: null | { week: number; rooms: Record<string, string>; roomMembers: Record<string, string[]>; gains: Record<string, number>; graduated: string[]; quit: string[]; incidents: Incident[]; income: number; rent: number };
     flags: { firstGraduate: boolean } };
 
 async function center(dice: () => number, setup?: (club: Club) => void) {
@@ -61,18 +63,18 @@ async function center(dice: () => number, setup?: (club: Club) => void) {
 function progressedCenter(dice: () => number, setup?: (club: Club) => void) {
     return center(dice, club => {
         club.members = {
-            '周秀兰': { age: 52, job: '会计', kink: '年下', wants: '年下', is: ['年上', '温柔'], hates: ['粗暴'], control: 35, status: '在读', room: '一号室', note: '' },
-            '林一舟': { age: 21, job: '学生', kink: '年上', wants: '年上', is: ['年下'], hates: [], control: 40, status: '在读', room: '一号室', note: '' },
-            '陈默': { age: 34, job: '程序员', kink: '被支配', wants: '支配', is: ['被支配'], hates: ['露出'], control: 30, status: '在读', room: '二号室', note: '' },
-            '苏曼': { age: 29, job: '教练', kink: '支配', wants: '被支配', is: ['支配', '露出'], hates: [], control: 45, status: '在读', room: '二号室', note: '' },
-            '赵建国': { age: 47, job: '司机', kink: '窥视', wants: '露出', is: ['窥视'], hates: ['制服'], control: 50, status: '在读', room: '二号室', note: '' },
-            '何小满': { age: 24, job: '骑手', kink: '足', wants: '足', is: ['年下'], hates: [], control: 25, status: '在读', room: '', note: '' },
+            '周秀兰': { age: 52, job: '会计', kink: '年下', wants: '年下', is: ['年上', '温柔'], hates: ['粗暴'], control: 35, status: '在读', room: '一号室', attitude: '观望' },
+            '林一舟': { age: 21, job: '学生', kink: '年上', wants: '年上', is: ['年下'], hates: [], control: 40, status: '在读', room: '一号室', attitude: '观望' },
+            '陈默': { age: 34, job: '程序员', kink: '被支配', wants: '支配', is: ['被支配'], hates: ['露出'], control: 30, status: '在读', room: '二号室', attitude: '观望' },
+            '苏曼': { age: 29, job: '教练', kink: '支配', wants: '被支配', is: ['支配', '露出'], hates: [], control: 45, status: '在读', room: '二号室', attitude: '观望' },
+            '赵建国': { age: 47, job: '司机', kink: '窥视', wants: '露出', is: ['窥视'], hates: ['制服'], control: 50, status: '在读', room: '二号室', attitude: '观望' },
+            '何小满': { age: 24, job: '骑手', kink: '足', wants: '足', is: ['年下'], hates: [], control: 25, status: '在读', room: '', attitude: '观望' },
         };
         setup?.(club);
     });
 }
 
-const admit = (name: string) => ({ action: 'admit', params: { name, age: 30, job: '职员', kink: '制服', wants: '制服', is: ['温柔'], hates: [], control: 40, note: '' } });
+const admit = (name: string) => ({ action: 'admit', params: { name, age: 30, job: '职员', kink: '制服', wants: '制服', is: ['温柔'], hates: [], control: 40, attitude: '观望' } });
 
 test('解铃会 installs from its CardFiles layout; every worldbook entry can enter a prompt', () => {
     const compiled = compileDefinition(bundle);
@@ -225,8 +227,8 @@ test('a week settles sessions, rent and standing once; refusals change nothing a
         assert.equal(after.waiting, 1 + Math.floor(after.reputation / 25));
 
         // Room full: a fourth member fits, a fifth is refused with the reason, and nothing changes.
-        await p.model([{ action: 'admit', params: { name: '韩露', age: 31, job: '护士', kink: '迷恋制服。', wants: '制服', is: ['温柔'], hates: [], control: 40, note: '说话很轻。' } }]);
-        await p.model([{ action: 'admit', params: { name: '吴桐', age: 27, job: '设计师', kink: '需要被支配。', wants: '支配', is: ['被支配'], hates: [], control: 30, note: '迟到了。' } }]);
+        await p.model([{ action: 'admit', params: { name: '韩露', age: 31, job: '护士', kink: '制服', wants: '制服', is: ['温柔'], hates: [], control: 40, attitude: '观望' } }]);
+        await p.model([{ action: 'admit', params: { name: '吴桐', age: 27, job: '设计师', kink: '被支配', wants: '支配', is: ['被支配'], hates: [], control: 30, attitude: '抗拒' } }]);
         p.tick();
         await p.assign('韩露', '一号室');
         const full = p.club(), calls = p.controls.applyCalls;
@@ -240,20 +242,27 @@ test('a week settles sessions, rent and standing once; refusals change nothing a
 
 test('weekly exposure counts existing and new incidents, and eases only with none open', async t => {
     for (const sample of [
-        { existing: false, die: 1, added: 1, exposure: 25 },
-        { existing: true, die: 6, added: 0, exposure: 30 },
-        { existing: true, die: 1, added: 1, exposure: 35 },
-        { existing: false, die: 6, added: 0, exposure: 15 },
+        { existing: false, die: 1, exposure: 30 },
+        { existing: true, die: 6, exposure: 30 },
+        { existing: true, die: 1, exposure: 40 },
+        { existing: false, die: 6, exposure: 15 },
     ]) {
         await t.test(`existing=${sample.existing}, die=${sample.die}`, async turn => {
             const p = await progressedCenter(() => sample.die, club => {
                 club.exposure = 20;
-                if (sample.existing) {club.incidents.push({ week: 1, who: ['苏曼'], kind: '外泄', summary: '工作单位知道了。', open: true });}
+                if (sample.existing) {club.incidents.push({ week: 1, who: ['苏曼'], kind: '外泄', open: true });}
             });
             turn.mock.method(Math, 'random', p.random);
             try {
+                await p.assign('何小满', '一号室');
+                const before = p.club();
                 await p.click('endweek');
-                assert.equal(p.club().lastWeek!.incidents.length, sample.added);
+                const generated: Incident[] = sample.die === 1 ? [
+                    { week: 1, who: ['周秀兰', '林一舟'], kind: '私下越界', open: true },
+                    { week: 1, who: ['陈默', '苏曼'], kind: '当场冲突', open: true },
+                ] : [];
+                assert.deepEqual(p.club().lastWeek!.incidents, generated);
+                assert.deepEqual(p.club().incidents, [...before.incidents, ...generated]);
                 assert.equal(p.club().exposure, sample.exposure);
             } finally { p.close(); }
         });
@@ -305,10 +314,10 @@ test('new interviews use the final weekly reputation and do not refill during ad
         assert.equal(p.club().flags.firstGraduate, true);
         assert.equal(p.club().reputation, 58);
         assert.equal(p.club().waiting, 3, 'the donation crosses the next interview threshold');
-        assert.equal((await p.model([{ action: 'admit', params: { name: '韩露', age: 31, job: '护士', kink: '迷恋制服。', wants: '制服', is: ['温柔'], hates: [], control: 40, note: '说话很轻。' } }])).ok, true);
+        assert.equal((await p.model([{ action: 'admit', params: { name: '韩露', age: 31, job: '护士', kink: '制服', wants: '制服', is: ['温柔'], hates: [], control: 40, attitude: '观望' } }])).ok, true);
         assert.equal((await p.model([{ action: 'decline', params: {} }])).ok, true);
         assert.equal(p.club().waiting, 1);
-        assert.equal((await p.model([{ action: 'note', params: { member: '陈默', note: '愿意下周继续来。' } }])).ok, true);
+        assert.equal((await p.model([{ action: 'attitude', params: { member: '陈默', attitude: '投入' } }])).ok, true);
         assert.equal((await p.model([])).ok, true);
         assert.equal(p.club().waiting, 1, 'ordinary same-week settlements preserve used interviews');
         p.tick();
@@ -370,18 +379,23 @@ test('the update model records new members: interviews and fees are consumed onc
     try {
         const start = p.club();
         assert.deepEqual(start.members, {});
-        const admitted = await p.model([{ action: 'admit', params: { name: '韩露', age: 31, job: '护士', kink: '迷恋制服，在医院更衣室被同事撞见过。', wants: '制服', is: ['温柔'], hates: ['粗暴'], control: 40, note: '说话很轻。' } }]);
+        const admitted = await p.model([{ action: 'admit', params: { name: '韩露', age: 31, job: '护士', kink: '制服', wants: '制服', is: ['温柔'], hates: ['粗暴'], control: 40, attitude: '观望' } }]);
         assert.equal(admitted.ok, true);
         assert.equal(p.club().waiting, start.waiting - 1);
         assert.equal(p.club().funds, start.funds + 500);
-        assert.equal(p.club().members['韩露'].room, '');
+        assert.deepEqual(p.club().members['韩露'], {
+            age: 31, job: '护士', kink: '制服', wants: '制服', is: ['温柔'], hates: ['粗暴'],
+            control: 40, status: '在读', room: '', attitude: '观望',
+        });
         assert.deepEqual(p.club().rooms['一号室'].members, []);
         const firstAdmission = p.club();
         assert.equal((await p.model([admit('韩露')])).ok, false, 'a duplicate cannot charge another admission fee');
         const outOfBounds = admit('无效申请人');
         outOfBounds.params.control = 61;
         assert.equal((await p.model([outOfBounds])).ok, false, 'the model cannot exceed the arrival control cap');
-        assert.deepEqual(p.club(), firstAdmission);
+        const another = admit('无效申请人');
+        assert.equal((await p.model([{ ...another, params: { ...another.params, attitude: '在读' } }])).ok, false);
+        assert.deepEqual(p.club(), firstAdmission, 'a rejected admission neither charges a fee nor consumes an interview');
 
         // The model cannot settle what belongs to the panel or set numbers directly.
         const direct = await p.model([{ op: 'set', path: ['club', 'funds'], value: 99999 }]);
@@ -390,7 +404,7 @@ test('the update model records new members: interviews and fees are consumed onc
         assert.equal(panelAction.ok, false);
         assert.equal(p.club().funds, start.funds + 500);
 
-        assert.equal((await p.model([{ action: 'admit', params: { name: '吴桐', age: 27, job: '设计师', kink: '需要被支配。', wants: '支配', is: ['被支配'], hates: [], control: 30, note: '迟到了。' } }])).ok, true);
+        assert.equal((await p.model([{ action: 'admit', params: { name: '吴桐', age: 27, job: '设计师', kink: '被支配', wants: '支配', is: ['被支配'], hates: [], control: 30, attitude: '抗拒' } }])).ok, true);
         assert.equal(p.club().waiting, 0);
         assert.equal(p.club().funds, start.funds + 1000);
         const noInterviews = p.club();
@@ -398,12 +412,23 @@ test('the update model records new members: interviews and fees are consumed onc
         assert.equal(noInterview.ok, false, 'no interviews left this week');
         assert.equal((await p.model([{ action: 'decline', params: {} }])).ok, false);
         assert.deepEqual(p.club(), noInterviews);
-        const updated = await p.model([{ action: 'note', params: { member: '韩露', note: '第一次主动开口讲了公司那件事。' } }]);
-        assert.equal(updated.ok, true);
-        assert.equal(p.club().members['韩露'].note, '第一次主动开口讲了公司那件事。');
+        const update = { action: 'attitude', params: { member: '韩露', attitude: '投入' } };
+        const invalidUpdate = { action: 'attitude', params: { member: '吴桐', attitude: '愿意下周继续来。' } };
+        assert.equal((await p.model([update, invalidUpdate])).ok, false);
+        assert.deepEqual(p.club(), noInterviews, 'an invalid tier rejects the whole batch');
+        assert.equal((await p.model([update])).ok, true);
+        const engaged = p.club();
+        assert.deepEqual(engaged.members['韩露'], { ...noInterviews.members['韩露'], attitude: '投入' });
+        assert.equal(engaged.waiting, noInterviews.waiting);
+        p.tick();
+        assert.ok(p.element('pool').querySelector('[data-pick="韩露"]')?.textContent?.includes(engaged.members['韩露'].attitude));
 
-        const leak = await p.model([{ action: 'report', params: { who: ['韩露'], kind: '外泄', summary: '学员在健身房说出了她来这里的事。' } }]);
-        assert.equal(leak.ok, true);
+        const report = { action: 'report', params: { who: ['韩露'], kind: '外泄' } };
+        assert.equal((await p.model([{ ...report, params: { ...report.params, summary: '事情传到了外面。' } }])).ok, false);
+        assert.deepEqual(p.club(), engaged);
+        assert.equal((await p.model([report])).ok, true);
+        const leak: Incident = { week: start.week, who: ['韩露'], kind: '外泄', open: true };
+        assert.deepEqual(p.club().incidents, [leak]);
         assert.equal(p.club().exposure, start.exposure + 25);
         p.tick();
         const [button] = p.incidentButtons();

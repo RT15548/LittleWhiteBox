@@ -526,7 +526,7 @@ test('final prompt preserves saved L0/L1 and old L2 regardless of current manual
 
 // Acceptance: queued panel edits must preserve preceding source retirement and
 // unrelated panel edits. Cost: silently unsaved changes or resurrected stale anchors.
-function manualPanelEntry(errors, execution = null) {
+function manualPanelEntry(errors, execution = null, messages = []) {
     return entry(['handleFrameMessage', 'buildFramePayload', 'cancelActiveSummaryExecution'], {
         ...mod, structuredClone, document: { getElementById: () => ({}) }, isTrustedMessage: () => true,
         getContext: () => host.context, getChatIdentity, VALID_SECTIONS: ['keywords', 'arcs', 'facts'],
@@ -534,12 +534,44 @@ function manualPanelEntry(errors, execution = null) {
         cancelRecallAndClearPrompt() {}, memoryMaintenance: { cancel: () => assert.fail('manual edit cancelled maintenance') },
         activeSummaryExecution: execution, cancelPendingHide() {}, refreshEntityLexiconAndWarmup() {},
         runVectorWriteTask: vectorWrites.runVectorWriteTask, VECTOR_WRITE_SCOPES: vectorWrites.VECTOR_WRITE_SCOPES,
-        postToFrame() {}, reportMemorySaveFailure: error => errors.push(error.code),
+        memorySaveError, postToFrame: message => messages.push(message), reportMemorySaveFailure: error => errors.push(error.code),
     });
 }
 
 function editSection(panel, section, data, previous = structuredClone(ext().storySummary.json[section])) {
     return panel.handleFrameMessage({ data: { type: 'UPDATE_SECTION', section, previous, data } });
+}
+
+// Acceptance: a dossier's single-record edit reports success only after durable
+// readback, preserves other memory, and rejects a different chat. Cost: data loss.
+for (const scenario of ['saved', 'failed', 'stale-chat']) {
+    test(`dossier record save acknowledgement: ${scenario}`, async () => {
+        await importFixture();
+        const original = structuredClone(disk());
+        const fact = structuredClone(ext().storySummary.json.facts[0]);
+        const messages = [], errors = [];
+        const panel = manualPanelEntry(errors, null, messages);
+        if (scenario === 'failed') host.mode = 'old';
+        const identity = scenario === 'stale-chat' ? 'another-chat' : getChatIdentity(host.context);
+        const writes = host.writes;
+        await panel.handleFrameMessage({ data: { type: 'UPDATE_SECTION', section: 'facts', previous: [fact],
+            data: [{ ...fact, o: '人物档案里的修正' }], requestId: 41, identity } });
+        const result = messages.find(message => message.type === 'SUMMARY_SECTION_SAVED');
+        assert.equal(result.requestId, 41);
+        assert.equal(result.identity, identity);
+        if (scenario === 'saved') {
+            assert.equal(result.error, undefined);
+            const saved = disk().storySummary.json.facts;
+            assert.equal(saved[0].o, '人物档案里的修正');
+            assert.deepEqual(saved.slice(1), original.storySummary.json.facts.slice(1));
+            assert.deepEqual(disk().storySummary.json.events, original.storySummary.json.events);
+            assert.equal(messages.findIndex(message => message.type === 'SUMMARY_FULL_DATA') < messages.indexOf(result), true);
+        } else {
+            assert.ok(result.error);
+            assert.deepEqual(disk(), original);
+            if (scenario === 'stale-chat') assert.equal(host.writes, writes);
+        }
+    });
 }
 
 // Acceptance: saving a manual correction cancels generation synchronously, even

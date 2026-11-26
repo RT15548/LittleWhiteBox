@@ -1,18 +1,16 @@
 /**
  * Request-structure view shared by the SD WebUI and ComfyUI settings panels.
  * Renders the chain produced by `buildScenePlannerChainPreview`: system / user sections
- * plus the tool field table. Editable sections resolve their live text via `getEditable`;
+ * plus the tool field table. Edit buttons link to live editors via `getEditable`;
  * tool field rows become editable textareas when `onFieldEdit` / `onFieldReset` are provided.
  */
 export function renderScenePlannerChain(container, chain, { getEditable, onFieldEdit, onFieldReset } = {}) {
+    const { ownerDocument: document } = container;
     container.replaceChildren();
 
-    const previewText = (section) => {
-        const editable = section.editable ? getEditable?.(section.key) : null;
-        const content = editable
-            ? (editable.value.trim() || '(当前为空，不注入)')
-            : (typeof section.content === 'string' ? section.content : '(运行时按本次请求生成)');
-        return content.length > 1200 ? `${content.slice(0, 1200)}\n...(已截断)` : content;
+    const previewText = (section, full) => {
+        const content = typeof section.content === 'string' ? section.content : '(运行时按本次请求生成)';
+        return !full && content.length > 1200 ? `${content.slice(0, 1200)}\n...(已截断)` : content;
     };
     const focusEditable = (key) => {
         const target = getEditable?.(key);
@@ -51,7 +49,7 @@ export function renderScenePlannerChain(container, chain, { getEditable, onField
                 const sectionSummary = document.createElement('div');
                 sectionSummary.className = 'chain-section-summary';
                 sectionSummary.textContent = `${sectionIndex + 1}. ${section.summary || ''}`;
-                if (section.editable) {
+                if (section.editable && getEditable?.(section.key)) {
                     const edit = document.createElement('button');
                     edit.type = 'button';
                     edit.className = 'chain-editable';
@@ -77,11 +75,17 @@ export function renderScenePlannerChain(container, chain, { getEditable, onField
 
                 const sectionPreview = document.createElement('div');
                 sectionPreview.className = 'chain-section-content';
+                const full = item.role === 'tools';
+                if (full) {
+                    sectionPreview.style.maxHeight = '20rem';
+                    sectionPreview.style.overflow = 'auto';
+                    sectionPreview.tabIndex = 0;
+                    sectionPreview.addEventListener('click', event => event.stopPropagation());
+                }
                 sectionRow.appendChild(sectionPreview);
                 sectionRow.addEventListener('click', (event) => {
                     event.stopPropagation();
-                    sectionRow.classList.toggle('expanded');
-                    sectionPreview.textContent = previewText(section);
+                    if (sectionRow.classList.toggle('expanded')) sectionPreview.textContent = previewText(section, full);
                 });
                 sectionList.appendChild(sectionRow);
             });

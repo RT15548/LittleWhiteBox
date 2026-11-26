@@ -1,5 +1,5 @@
 import type { Bundle } from '../types.js';
-export interface CardFile { path: string; content: string; originalContent?: string; originalGroupHash?: string }
+export interface CardFile { path: string; content: string; originalContent?: string | null; originalGroupHash?: string }
 import { CARD_EXTENSION, DEFINITION_FILE, FUNCTION_DIRECTORY, TOOL_DIRECTORY, SCRIPT_DIRECTORY, SCRIPT_PHASES } from './format.js';
 import { digest } from './digest.js';
 

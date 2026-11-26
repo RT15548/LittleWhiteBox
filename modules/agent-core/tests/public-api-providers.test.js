@@ -198,7 +198,7 @@ function assertRequest(provider, streaming, request, wires, round) {
     const expectedTools = protocol === 'google' && hosted
         ? [{ type: 'function', function: { name: tools[0].function.name, parametersJsonSchema: tools[0].function.parameters } }]
         : hosted || protocol === 'openai-compatible' ? tools
-        : protocol === 'openai-responses' ? [{ type: 'function', name: tools[0].function.name, parameters: tools[0].function.parameters }]
+        : protocol === 'openai-responses' ? [{ type: 'function', name: tools[0].function.name, parameters: tools[0].function.parameters, strict: false }]
             : protocol === 'anthropic' ? [{ name: tools[0].function.name, input_schema: tools[0].function.parameters }]
                 : [{ functionDeclarations: [{ name: tools[0].function.name, parametersJsonSchema: tools[0].function.parameters }] }];
     assert.deepEqual(body.tools, expectedTools);

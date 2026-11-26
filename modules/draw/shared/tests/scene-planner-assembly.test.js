@@ -9,21 +9,22 @@ const ORDER = ['opening', 'frame', 'guide', 'rules', 'tools', 'worldInfo', 'cont
 let sequence = 0;
 const custom = (role, content, enabled = true) => createCustomBlock({ role, content, enabled }, [], () => ++sequence / 36 ** 6);
 const plan = (layout, builtinTexts = TEXTS) => planScenePlannerMessages({ layout, builtinTexts }).templates;
+const docs = (layout, builtinTexts = TEXTS) => planScenePlannerMessages({ layout, builtinTexts }).documents;
 const results = templates => templates.filter(item => item.role === 'tool');
 
 // The external message protocol, not the prose wording, is the contract under test.
-test('default request reads materials, reads requirements, then receives approval in three paired exchanges', () => {
+test('default request reads materials, reads requirements, then receives approval in four paired exchanges', () => {
     const templates = plan();
-    assert.deepEqual(templates.map(item => item.role), ['system', 'user', 'assistant', 'tool', 'assistant', 'tool', 'assistant', 'tool']);
+    assert.deepEqual(templates.map(item => item.role), ['system', 'user', 'assistant', 'tool', 'assistant', 'tool', 'assistant', 'tool', 'assistant', 'tool']);
     const calls = templates.flatMap(item => item.tool_calls || []);
-    assert.deepEqual(calls.map(call => call.function.name), ['read_scene_materials', 'read_drawing_guide', 'request_draw_approval']);
+    assert.deepEqual(calls.map(call => call.function.name), ['read_scene_materials', 'read_drawing_guide', 'read_work_requirements', 'request_draw_approval']);
     assert.deepEqual(calls.map(call => call.id), results(templates).map(item => item.tool_call_id));
-    assert.equal(new Set(calls.map(call => call.id)).size, 3);
+    assert.equal(new Set(calls.map(call => call.id)).size, 4);
     calls.forEach(call => assert.deepEqual(JSON.parse(call.function.arguments), {}));
     assert.equal(templates[0].template, `OPEN\n\nFRAME\n\n${M}`);
-    assert.equal(results(templates)[0].template, 'WORLD\n\nCONTENT');
-    assert.equal(results(templates)[1].template, 'GUIDE\n\nRULES\n\nLIMITS');
-    assert.equal(results(templates)[2].approved, true);
+    assert.equal(docs()[0].template, 'WORLD\n\nCONTENT');
+    assert.equal(docs()[1].template, 'GUIDE\n\nRULES\n\nLIMITS');
+    assert.equal(results(templates)[3].approved, true);
 });
 
 test('absent, invalid and explicit default layouts use one assembly path', () => {
@@ -36,16 +37,16 @@ test('absent, invalid and explicit default layouts use one assembly path', () =>
 test('empty document sections disappear without dropping the completed read exchange', () => {
     const templates = plan(undefined, { ...TEXTS, opening: ' ', guide: '', rules: '\t', worldInfo: '', limits: '' });
     assert.equal(templates[0].template, `FRAME\n\n${M}`);
-    assert.equal(results(templates)[0].template, 'CONTENT');
-    assert.equal(results(templates)[1].template, '');
-    assert.equal(results(templates).length, 3);
+    const documents = docs(undefined, { ...TEXTS, opening: ' ', guide: '', rules: '\t', worldInfo: '', limits: '' });
+    assert.equal(documents[0].template, 'CONTENT');
+    assert.equal(documents[1].template, '');
+    assert.equal(results(templates).length, 4);
 });
 
 test('legacy document order cannot rearrange the fixed readings', () => {
     const layout = reorderBlocks(createDefaultLayout(), ['opening', 'frame', 'limits', 'rules', 'guide', 'tools', 'content', 'worldInfo']);
-    const templates = plan(layout);
-    assert.equal(results(templates)[0].template, 'WORLD\n\nCONTENT');
-    assert.equal(results(templates)[1].template, 'GUIDE\n\nRULES\n\nLIMITS');
+    assert.equal(docs(layout)[0].template, 'WORLD\n\nCONTENT');
+    assert.equal(docs(layout)[1].template, 'GUIDE\n\nRULES\n\nLIMITS');
 });
 
 test('custom blocks retain their roles and relative order outside atomic tool pairs', () => {
@@ -98,7 +99,7 @@ test('protocol markers in document and custom text cannot create a second protoc
     const layout = addBlock(createDefaultLayout(), custom('user', `BEFORE${M}AFTER`), 99);
     const templates = plan(layout, { ...TEXTS, opening: `O${M}P`, content: `C${M}ONTENT` });
     assert.equal(templates.map(item => item.template).join('').split(M).length - 1, 1);
-    assert.equal(results(templates)[0].template, 'WORLD\n\nCONTENT');
+    assert.equal(docs(layout, { ...TEXTS, opening: `O${M}P`, content: `C${M}ONTENT` })[0].template, 'WORLD\n\nCONTENT');
     assert.equal(templates.find(item => item.template === 'BEFOREAFTER').role, 'user');
 });
 

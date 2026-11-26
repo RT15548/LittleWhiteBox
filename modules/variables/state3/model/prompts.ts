@@ -9,20 +9,44 @@ export function buildUpdateTask(compiled: Compiled, state: Json, context: unknow
     const custom = activeTools(compiled.bundle, stage);
     return buildHandoff({
         systemPrompt: [
+            '# Task',
             stage === 'before'
-                ? 'Resolve the player action marked <variable-update-target> before the story reply is written. Use the card rules to determine its outcome.'
-                : 'Update the variables for the completed story reply marked <variable-update-target>.',
-            'read_manuscript supplies the context assembled by SillyTavern in its original order. Earlier passages and recalled memories explain the situation; they are not new events to apply again.',
-            'read_writing_guide supplies the state at this update, writable scopes and actions assigned to this stage, and the shared rules and triggers.',
-            'Each writable entry permits direct edits at its path and descendants, except its excluded paths. An excluded path protects itself, its descendants and replacement of its ancestors. The state schema defines valid values, required fields and allowed object keys.',
-            ...(stage === 'after' ? ['When beforeUpdate is supplied with the manuscript, it describes this turn’s already settled player action. Its effects are already in the supplied state. Apply only additional events in the story reply.'] : []),
-            'Each field description explains its meaning; its update text, when present, says when and how to change it. Action descriptions explain complete behaviours.',
-            'Actions apply their described effects; settlement computes derived values, corrections and trigger effects automatically. Submit an event through its matching action. Direct edits within writable scopes cover changes not already handled by that action or the automatic rules. If an event has neither a matching action nor an allowed direct edit in this stage, leave it out of this submission. Separate events may change the same field.',
-            'For numeric changes or changes requiring judgement, add a short reason identifying the supporting passage event. Straightforward factual updates need no restatement. Include old only when explicitly comparing the prior value helps explain the change; copying whole objects or arrays adds no useful comparison.',
-            'After request_write_approval returns approval, call write once with only the changes caused by the marked passage.',
-            ...(custom.length ? [`The additional tools can query or process information for this update. Use them when needed, then submit write in a separate call. At most ${TOOL_CALL_LIMIT} additional tool calls are available. A failed submission receives one correction opportunity.`] : []),
-        ].join('\n\n'),
-        manuscript: context, guide: buildUpdateView(compiled, state, stage), tools: [...getTools(compiled, stage),
+                ? 'You resolve the player action marked <variable-update-target> before the story reply is written. The card rules decide its outcome. Everything before that message is already reflected in the state.'
+                : 'You update the story variables for the reply marked <variable-update-target>. Everything before that reply is already reflected in the state; this update records what the reply itself changes.',
+            ...(custom.length ? ['', '# Additional tools', `The additional tools can query or process information for this update. Use them when needed, then submit write in a separate call. At most ${TOOL_CALL_LIMIT} additional tool calls are available. A failed submission receives one correction opportunity.`] : []),
+        ].join('\n'),
+        manuscript: context,
+        manuscriptDescription: [
+            'Read the conversation context for this update. Returns confirmation of reading the manuscript mounted below.',
+            stage === 'before'
+                ? '- messages: the conversation up to and including the marked player message. Earlier passages and recalled memories are background; their events are already in the state.'
+                : '- messages: the conversation up to and including the marked reply. Earlier passages and recalled memories are background; their events are already in the state.',
+            ...(stage === 'after' ? ['- beforeUpdate, when present: this turn’s player action, resolved before the reply was written. Its changes are already in the state; the reply may add further events.'] : []),
+        ].join('\n'),
+        guide: buildUpdateView(compiled, state, stage),
+        guideDescription: [
+            'Read the starting state, schema, actions and rules for this update. Returns confirmation of reading the writing guide mounted below.',
+            '',
+            '# What the guide contains',
+            '- state: current values.',
+            '- schema: valid values, required fields and allowed object keys.',
+            '- fields: what each field means. write lists how it can change in this update: "direct" or action ids. update, when present, says when and how to change it.',
+            '- actions: complete behaviours and their parameters.',
+            '- writable: paths open to direct edits, with their descendants. An excluded path keeps itself and its descendants protected, and its ancestors cannot be replaced as a whole.',
+            '- rules, triggers, constraints: what the system derives, corrects, fires or checks after your submission.',
+            '',
+            '# Turning events into changes',
+            '- An event that matches an action goes through that action; the action applies all of its described effects.',
+            '- Derived values, corrections and trigger effects are computed automatically after submission.',
+            '- Direct edits cover the rest: changes inside writable paths that no action or rule already produces.',
+            '- An event with neither a matching action nor a writable path stays out of this update.',
+            '- Items run in the order submitted. Separate events may each change the same field; list them in story order.',
+            '',
+            '# Writing each item',
+            '- reason: for numeric changes and judgement calls, name the event in the passage that supports it. Plain factual updates go without one.',
+            '- old: only when the prior value explains the change, as that single value rather than a copied object or array.',
+        ].join('\n'),
+        tools: [...getTools(compiled, stage),
             ...custom.map(([name, entry]) => ({ type: 'function' as const, function: { name, description: entry.description, parameters: entry.parameters as JsonObject } }))],
     });
 }

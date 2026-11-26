@@ -46,7 +46,14 @@ export async function runDrawRunRecoveryPass({ excludedRunIds = new Set(), ackno
     const owner = getImageChatIdentity(ctx);
     records = records.filter(record => !record.submission || record.submission.owner === owner);
     const restored = restoreDrawRunTargets(ctx, records, { syncActiveSwipe: syncMesToSwipe, isEditing: isMessageBeingEdited });
-    if (restored.size) requestDrawChatSave(ctx);
+    if (restored.size) {
+        requestDrawChatSave(ctx);
+        for (const [messageId, expectedMessage] of restored) if (expectedMessage) {
+            // Unmounted floors render from the restored message on the host's normal mount path.
+            observeBackgroundTask(syncRenderedMessageFromState(messageId, { chatId: ctx.chatId, expectedMessage }),
+                { source: import.meta.url, operation: 'renderRestoredDrawRunSlots' });
+        }
+    }
     const markers = ctx.chat.flatMap((message, messageId) => listDrawRunMarkers(message).map(entry => ({
         ...entry, message, messageId, chatId: String(ctx.chatId),
     }))).filter(entry => !excludedRunIds.has(entry.runId));

@@ -7,6 +7,7 @@ import { initialize, settle } from '../engine/settle.js';
 import { buildDescriptionView, buildUpdateView } from '../model/views.js';
 import { getInputSchema, getTools } from '../model/tools.js';
 import { buildUpdateTask } from '../model/prompts.js';
+import { APPROVAL, GUIDE_RESULT, HANDOFF, MANUSCRIPT_RESULT, REQUIREMENTS_RESULT, WORK_REQUIREMENTS } from '../../updater/handoff.js';
 import { correctionTask } from '../../updater/correction.js';
 import { accepted, fixture } from './fixture.js';
 import { contains, overlaps } from '../engine/data.js';
@@ -15,15 +16,25 @@ import * as agentCore from '../../../agent-core/browser-entry.js';
 import { createPublicAgentApi } from '../../../agent-core/public-api.js';
 import type { Json, JsonObject } from '../types.js';
 
-test('K9: V5 supplies three ordered exchanges; correction appends the rejected response and diagnostics to the same task', async () => {
+test('K9: V5 supplies four ordered exchanges with payloads mounted in tool descriptions; correction appends the rejected response and diagnostics to the same task', async () => {
     const compiled = compileDefinition(equipmentExample()), start = accepted(await initialize(compiled));
     const context = { target: { floor: 2, swipeId: 0 }, messages: [{ role: 'assistant', content: 'Completed passage.' }] };
     const task = buildUpdateTask(compiled, start.state, context);
     const exchanges = task.messages.filter(message => message.role === 'tool');
-    assert.deepEqual(exchanges.map(message => message.toolName), ['read_manuscript', 'read_writing_guide', 'request_write_approval']);
-    assert.deepEqual(JSON.parse(String(exchanges[0].content)), context);
-    assert.deepEqual(JSON.parse(String(exchanges[1].content)), buildUpdateView(compiled, start.state));
-    assert.equal(task.toolChoice, 'auto'); assert.equal(task.tools![0].function.name, 'write');
+    assert.deepEqual(exchanges.map(message => message.toolName),
+        [HANDOFF.manuscript, HANDOFF.guide, HANDOFF.requirements, HANDOFF.approval]);
+    assert.deepEqual(exchanges.map(message => JSON.parse(String(message.content))), [
+        { status: MANUSCRIPT_RESULT },
+        { status: GUIDE_RESULT },
+        { status: REQUIREMENTS_RESULT },
+        { approval: APPROVAL },
+    ]);
+    assert.equal(task.toolChoice, 'auto');
+    assert.deepEqual(task.tools!.map(tool => tool.function.name),
+        [HANDOFF.manuscript, HANDOFF.guide, HANDOFF.requirements, HANDOFF.approval, HANDOFF.write]);
+    assert.ok(task.tools![0].function.description!.endsWith(JSON.stringify(context)));
+    assert.ok(task.tools![1].function.description!.endsWith(JSON.stringify(buildUpdateView(compiled, start.state))));
+    assert.ok(task.tools![2].function.description!.endsWith(WORK_REQUIREMENTS));
     const submission = { text: '', toolCalls: [{ id: 'local', name: 'write', arguments: '{"state":[]}' }], completion: 'complete', truncated: false };
     const corrected = correctionTask(task, submission, [{ code: 'action-precondition' }], 'state');
     assert.deepEqual(corrected.messages.slice(0, -1), task.messages);
@@ -52,7 +63,7 @@ test('K9: V5 exchanges are sendable to DeepSeek with provider-default thinking',
     await session.chat(task);
     session.dispose();
     const replayed = bodies[0].messages.filter(message => message.tool_calls);
-    assert.equal(replayed.length, 3);
+    assert.equal(replayed.length, 4);
     for (const message of replayed) {assert.ok(message.reasoning_content?.trim());}
 });
 

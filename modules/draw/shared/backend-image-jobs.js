@@ -2,6 +2,9 @@ import { createIdentifier } from '../../../shared/common/identifier.js';
 import { SERVER_PLUGIN_BASE, SERVER_PLUGIN_VERSION } from '../../../shared/server-plugin/identity.js';
 import { SERVER_PLUGIN_COPY } from '../../../shared/server-plugin/copy.js';
 import { drawingRuntimeHeaders } from './drawing-runtime-client.js';
+import protocol from './multimodal-image-protocol.cjs';
+import { withImageRequestOutcome } from './image-request-outcome.js';
+import { formatOpenAiImageError, openAiResultOutcome } from '../providers/multimodal/openai-image-errors.js';
 
 const JOBS_ENDPOINT = `${SERVER_PLUGIN_BASE}/v1/jobs`;
 const STATUS_ENDPOINT = `${SERVER_PLUGIN_BASE}/status`;
@@ -85,7 +88,7 @@ function createDetachedError(jobId) {
 
 // 后端 item error 是 { code, status?, message } 的纯对象。转成 Error 时必须保留 status/code，
 // 否则前端只能靠 message 猜分类，401/429 这类正文没写数字的错误会退化成“未知错误”。
-export function createBackendItemError(item) {
+export function createBackendItemError(item, { imageApi } = {}) {
     // alreadyDelivered 的项是成功事实（早先已交付并 ACK），调用方必须从画廊恢复而不是报错。
     if (item?.alreadyDelivered === true) return null;
     if (item?.state === 'cancelled') {
@@ -93,12 +96,15 @@ export function createBackendItemError(item) {
     }
     const raw = item?.error || null;
     if (raw?.code === 'timeout') {
+        if (imageApi === 'responses') return formatOpenAiImageError({ code: protocol.OPENAI_IMAGE_CODES.timedOut });
         return new ImageBackendJobsError(raw.message || '请求超时', { code: 'timeout' });
     }
-    return new ImageBackendJobsError(String(raw?.message || '后端生图失败'), {
+    const error = new ImageBackendJobsError(String(raw?.message || '后端生图失败'), {
         status: Number.isInteger(raw?.status) ? raw.status : 0,
         code: String(raw?.code || 'backend_item_failed'),
     });
+    const outcome = imageApi || error.code === protocol.OPENAI_IMAGE_CODES.interrupted ? openAiResultOutcome(error) : undefined;
+    return outcome ? withImageRequestOutcome(error, outcome) : error;
 }
 
 export async function readImageBlobBase64(blob) {
@@ -698,7 +704,12 @@ export function createImageBackendJobsClient({
                 throw detached;
             }
             try {
-                await options.beforeIrreversible?.();
+                const record = await options.beforeIrreversible?.();
+                // This is the last synchronous decision before the first POST.
+                // After an uncertain POST only the original payload/id may be retried.
+                if (!createUncertain && options.isCreateCurrent && !options.isCreateCurrent(record)) {
+                    return { notSubmitted: true };
+                }
                 job = await createJob(createPayload, { signals: [cancelSignal, detachSignal] });
             } catch (error) {
                 if (!(error instanceof ImageBackendJobsError) || !error.retriable) throw error;

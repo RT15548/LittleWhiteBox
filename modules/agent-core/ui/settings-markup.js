@@ -2,7 +2,7 @@ import { buildWebSettingsMarkup } from './web-settings.js';
 import { buildSamplingSettingsMarkup } from './sampling-settings.js';
 import { buildVertexSettingsMarkup } from './vertex-settings.js';
 import { PROVIDER_OPTIONS } from '../provider-resolution.js';
-import { AGENT_JSAPI_PERMISSION_LABEL, AGENT_PERMISSION_MODE_LABEL } from '../config.js';
+import { AGENT_IMAGE_INPUT_COPY, AGENT_JSAPI_PERMISSION_LABEL, AGENT_PERMISSION_MODE_LABEL } from '../config.js';
 function escapeHtml(text = '') {
     return String(text || '')
         .replace(/&/g, '&amp;')
@@ -149,6 +149,7 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
         inlineToastText = '',
         showInlineToast = true,
         showAssistantPermissions = true,
+        showImageInput = false,
         showDelegateSettings = true,
         showWebSettings = true,
         activePage = 'main',
@@ -174,6 +175,13 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
             <label>
                 <span>${escapeHtml(AGENT_PERMISSION_MODE_LABEL)}</span>
                 <select id="xb-assistant-permission-mode"></select>
+            </label>` : '';
+    const imageInputMarkup = (scope) => showImageInput ? `
+            <label class="xb-assistant-checkbox-row">
+                <span>${escapeHtml(AGENT_IMAGE_INPUT_COPY.label)}<small>${escapeHtml(AGENT_IMAGE_INPUT_COPY.hint)}</small></span>
+                <span class="xb-assistant-checkbox-control">
+                    <input id="${scope === 'delegate' ? 'xb-assistant-delegate-model-image-input' : 'xb-assistant-model-image-input'}" type="checkbox" />
+                </span>
             </label>` : '';
     const tabsMarkup = showDelegateSettings ? `
             <div class="xb-assistant-config-tabs" role="tablist" aria-label="API 配置分页">
@@ -228,6 +236,7 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                     <span>Tool 调用格式</span>
                     <select id="xb-assistant-delegate-tool-mode"></select>
                 </label>
+                ${imageInputMarkup('delegate')}
                 <label>
                     <span>Reasoning 模式</span>
                     <select id="xb-assistant-delegate-reasoning-mode"></select>
@@ -308,6 +317,7 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                 <span>Tool 调用格式</span>
                 <select id="xb-assistant-tool-mode"></select>
             </label>
+            ${imageInputMarkup('main')}
             ${assistantPermissionMarkup}
             <label>
                 <span>Reasoning 模式</span>

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html class="lwb-draw-ui" lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Draw</title>
+<script src="../../shared/theme-boot.js"></script>
+<link rel="stylesheet" href="../../shared/settings-shell.css">
+<link rel="stylesheet" href="../../shared/provider-settings-sections.css">
+<link rel="stylesheet" href="../../shared/settings-icons.css">
+<link rel="stylesheet" href="../../shared/preset-list-view.css">
+<link rel="stylesheet" href="../../shared/agent-settings-surface.css">
+<link rel="stylesheet" href="../../shared/character-library-dialog.css">
+<link rel="stylesheet" href="../../shared/character-library-ui.css">
+<link rel="stylesheet" href="../../shared/character-group-height.css">
+<link rel="stylesheet" href="../../shared/character-group-presets-ui.css">
+<link rel="stylesheet" href="../../shared/prompt-layout-editor.css">
+<link rel="stylesheet" href="./settings-ui.css">
+<script type="module">
+import { loadBuildEntry, reportBuildFailure } from '../../../../core/build-assets.js';
+loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
+</script>
+</head>
+<body>
+<div class="app-container">
+    <header class="app-header">
+        <div class="header-logo"><i class="fa-solid fa-palette" aria-hidden="true"></i><span id="mm-title"></span></div>
+        <div class="header-badge on"><i class="fa-solid fa-circle" aria-hidden="true"></i><span data-copy="enabled"></span></div>
+        <div class="header-spacer"></div>
+        <div class="header-toggles">
+            <label class="header-toggle"><input type="checkbox" name="showFloorButton"><span data-copy="floor"></span></label>
+            <label class="header-toggle"><input type="checkbox" name="showFloatingButton"><span data-copy="floating"></span></label>
+        </div>
+        <div class="header-mode">
+            <button type="button" data-mode="manual" data-copy="manualShort"></button>
+            <button type="button" data-mode="auto" data-copy="autoShort"></button>
+        </div>
+        <button class="header-close" data-label="close" type="button">✕</button>
+    </header>
+    <div class="app-body">
+        <nav class="app-sidebar"></nav>
+        <main class="app-main">
+            <div id="mm-global-status" class="status-text" role="status"></div>
+            <section class="view" data-page="test">
+                <div class="view-header"><h2 class="view-title" data-copy="test"></h2></div>
+                <div class="card">
+                    <label class="form-group">
+                        <span class="form-label" data-copy="prompt"></span>
+                        <textarea id="mm-prompt" class="input" rows="3" aria-describedby="mm-prompt-hint"></textarea>
+                        <span id="mm-prompt-hint" class="form-hint" data-copy="promptHint"></span>
+                    </label>
+                    <div class="form-group">
+                        <div class="form-label" data-copy="references"></div>
+                        <div class="btn-group">
+                            <button class="btn" id="mm-reference-upload" type="button"><i class="fa-solid fa-upload" aria-hidden="true"></i> <span data-copy="uploadReferences"></span></button>
+                            <input id="mm-reference-files" type="file" multiple hidden>
+                            <button class="btn" id="mm-reference-clear" type="button" data-copy="clearReferences" hidden></button>
+                            <span class="form-hint" data-copy="uploadFormats"></span>
+                        </div>
+                        <p class="form-hint" data-copy="referencesHint"></p>
+                        <p class="form-hint" id="mm-reference-limit"></p>
+                        <div class="gallery-slots" id="mm-references"></div>
+                        <div id="mm-reference-status" class="status-text" role="status"></div>
+                    </div>
+                    <div class="action-status-row">
+                        <div class="btn-group">
+                            <button id="mm-generate" class="btn btn-primary" type="button"><i class="fa-solid fa-play" aria-hidden="true"></i> <span data-copy="generate"></span></button>
+                            <button id="mm-cancel" class="btn btn-danger" type="button" data-copy="cancel" hidden></button>
+                        </div>
+                        <div id="mm-test-status" class="status-text" role="status"></div>
+                    </div>
+                    <div id="mm-test-results" class="gallery-slots mm-test-results"></div>
+                </div>
+                <div class="tip-box"><i class="fa-solid fa-lightbulb" aria-hidden="true"></i><div>
+                    <div data-draw-usage></div>
+                </div></div>
+            </section>
+            <section class="view" data-page="api">
+                <div class="view-header"><h2 class="view-title" data-copy="apiPage"></h2></div>
+                <fieldset id="mm-api-form" class="card mm-fieldset">
+                    <div id="mm-api-presets" class="api-preset-list"></div>
+                    <label class="form-group">
+                        <span class="form-label" data-copy="apiBaseUrl"></span>
+                        <input name="apiBaseUrl" class="input" type="url" spellcheck="false" autocomplete="off">
+                    </label>
+                    <div class="form-row">
+                        <label class="form-group">
+                            <span class="form-label" data-copy="apiKey"></span>
+                            <input name="apiKey" class="input" type="password" autocomplete="new-password">
+                        </label>
+                        <label class="form-group">
+                            <span class="form-label" data-copy="timeout"></span>
+                            <input name="timeout" class="input" type="number" min="10" max="600" step="1">
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <span class="form-label" id="mm-send-label" data-copy="sendMode"></span>
+                        <div class="btn-group" role="group" aria-labelledby="mm-send-label">
+                            <button class="btn mm-send-mode" type="button" data-send-mode="frontend"><i class="fa-solid fa-globe" aria-hidden="true"></i> <span data-copy="frontend"></span></button>
+                            <button class="btn mm-send-mode" type="button" data-send-mode="backend"><i class="fa-solid fa-server" aria-hidden="true"></i> <span data-copy="backend"></span></button>
+                        </div>
+                        <p id="mm-frontend-hint" class="form-hint" data-copy="frontendHint"></p>
+                        <div id="mm-backend-status" hidden>
+                            <p id="mm-backend-message" class="form-hint" role="status"></p>
+                            <div id="mm-backend-guide"></div>
+                        </div>
+                    </div>
+                    <div id="mm-image-api" class="form-group" hidden>
+                        <span class="form-label" id="mm-image-api-label" data-copy="imageApi"></span>
+                        <div class="btn-group" role="group" aria-labelledby="mm-image-api-label">
+                            <button class="btn mm-send-mode" type="button" data-image-api="images" data-copy="imagesApi"></button>
+                            <button class="btn mm-send-mode" type="button" data-image-api="responses" data-copy="responsesApi"></button>
+                        </div>
+                        <p id="mm-images-hint" class="form-hint" data-copy="imagesHint"></p>
+                        <p id="mm-responses-hint" class="form-hint" data-copy="responsesHint" hidden></p>
+                        <div id="mm-responses-model" hidden>
+                            <label class="form-group">
+                                <span class="form-label" data-copy="responsesModel"></span>
+                                <input name="responsesModel" class="input" type="text" spellcheck="false" autocomplete="off" aria-describedby="mm-responses-model-hint">
+                                <span class="form-hint" id="mm-responses-model-hint" data-copy="responsesModelHint"></span>
+                            </label>
+                            <div class="btn-group">
+                                <button id="mm-pull-models" type="button" class="btn" data-copy="pullModels"></button>
+                                <select id="mm-model-list" class="input" data-label="chooseModel" hidden></select>
+                            </div>
+                            <div id="mm-model-status" class="status-text" role="status"></div>
+                        </div>
+                    </div>
+                    <button id="mm-api-save" class="btn btn-primary" type="button"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> <span data-copy="save"></span></button>
+                    <div id="mm-api-status" class="status-text" role="status"></div>
+                </fieldset>
+            </section>
+            <section class="view" data-page="params">
+                <div class="view-header"><h2 class="view-title" data-copy="parameters"></h2></div>
+                <div data-presets="params"></div>
+                <fieldset id="mm-params-form" class="card mm-fieldset">
+                    <label class="form-group"><span class="form-label" data-copy="model"></span><input name="model" class="input" type="text" spellcheck="false"></label>
+                    <div class="form-row" id="mm-model-options"></div>
+                    <label class="form-group"><span class="form-label" data-copy="maxImages"></span><input name="maxImages" class="input" type="number" step="1" required aria-describedby="mm-max-images-hint"><span id="mm-max-images-hint" class="form-hint" data-copy="maxImagesHint"></span></label>
+                    <label class="form-group"><span class="form-label" data-copy="prefix"></span><textarea name="positivePrefix" class="input" rows="3"></textarea></label>
+                </fieldset>
+                <div class="card mm-shared-settings">
+                    <label class="form-group">
+                        <span class="form-label" data-copy="imageTitle"></span>
+                        <select name="imageTitleMode" class="input">
+                            <option value="none" data-copy="noImageTitle"></option>
+                            <option value="overlay" data-copy="overlayTitle"></option>
+                            <option value="collapse" data-copy="collapseTitle"></option>
+                        </select>
+                    </label>
+                    <div id="mm-image-title-status" class="status-text" role="status"></div>
+                </div>
+            </section>
+            <section class="view" data-page="llm">
+                <div class="view-header"><h2 class="view-title" data-copy="agent"></h2></div>
+                <div class="tip-box"><i class="fa-solid fa-robot" aria-hidden="true"></i><div data-copy="agentNote"></div></div>
+                <div id="mm-agent" class="draw-agent-settings-surface xb-agent-settings-surface"></div>
+                <div class="card mm-agent-retry">
+                    <div class="card-title" data-copy="openRetry"></div>
+                    <div class="planner-retry-row">
+                        <label for="mm-planner-retries" data-copy="retryCount"></label>
+                        <input id="mm-planner-retries" type="number" class="input" min="0" max="10" step="1" inputmode="numeric">
+                    </div>
+                    <p class="form-hint" data-planner-retry-hint></p>
+                    <div id="mm-agent-status" class="status-text" role="status"></div>
+                </div>
+            </section>
+            <section class="view" data-page="prompts">
+                <div class="view-header"><h2 class="view-title" data-copy="prompts"></h2></div>
+                <p class="form-hint" data-copy="promptCustomization"></p>
+                <div data-presets="prompt"></div>
+                <div id="mm-layout"></div>
+                <div id="mm-prompt-editors" hidden></div>
+                <div id="mm-extra-prompt-fields"></div>
+                <div data-draw-shared-section="filter"></div>
+            </section>
+            <section class="view" data-page="worldbook" data-draw-shared-section="worldbook"></section>
+            <section class="view wide" data-page="characters" data-draw-shared-section="characters"></section>
+            <section class="view wide" data-page="gallery" data-draw-shared-section="gallery"></section>
+        </main>
+    </div>
+    <nav class="mobile-nav"><div class="mobile-nav-inner"></div></nav>
+</div>
+</body>
+</html>

@@ -1,10 +1,11 @@
+import { DRAW_SKILL } from '../../draw/assistant/contract.js';
 import { CARD_SKILL, FRONTEND_SKILL } from '../../card-workspace/assistant-contract.js';
 import { LIVE_PAGE_SKILL } from '../../live-page-inspection/tool-contract.ts';
 import { STATE2_SKILL } from '../../variables/state2/skill/contract.js';
 import { STATE3_SKILL } from '../../variables/state3/skill/contract.ts';
 import { PLANNING_SKILL, SKILL_MANAGEMENT_SKILL, COORDINATION_TOOLS } from '../skills/contract.js';
 
-export const BUILTIN_SKILLS = Object.freeze([CARD_SKILL, FRONTEND_SKILL, STATE3_SKILL, STATE2_SKILL, LIVE_PAGE_SKILL, PLANNING_SKILL, SKILL_MANAGEMENT_SKILL]);
+export const BUILTIN_SKILLS = Object.freeze([DRAW_SKILL, CARD_SKILL, FRONTEND_SKILL, STATE3_SKILL, STATE2_SKILL, LIVE_PAGE_SKILL, PLANNING_SKILL, SKILL_MANAGEMENT_SKILL]);
 const skillsById = new Map(BUILTIN_SKILLS.map(skill => [skill.id, skill]));
 const skillTools = new Set(BUILTIN_SKILLS.flatMap(skill => skill.tools));
 const mainOnlyTools = new Set(Object.values(COORDINATION_TOOLS));

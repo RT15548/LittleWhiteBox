@@ -4,6 +4,8 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { indexedDB } from 'fake-indexeddb';
+import jobManager from '../../../../server-plugin/littlewhitebox-server/image-jobs/job-manager.js';
+import openai from '../../server/providers/openai/adapter.js';
 
 import { deriveDrawRunChildJobId, deriveDrawRunItemIds } from '../draw-run-identifiers.js';
 import { hashSceneSource, normalizeMessageSceneSourceText } from '../scene-source.js';
@@ -74,6 +76,70 @@ const bundle = await build({
 });
 // eslint-disable-next-line no-unsanitized/method -- 只执行本测试现场构建的本地模块，没有外部输入。
 const api = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text + '\n//# sourceURL=draw-recovery-test.mjs').toString('base64')}`);
+
+test('reattachment preserves unknown Responses timeouts and keeps other upstream bodies out of stored cards', async t => {
+    const fixtures = [
+        { provider: 'openai', imageApi: 'responses', slotId: 'timeout-responses', expected: 'unknown' },
+        { provider: 'openai', imageApi: 'images', slotId: 'timeout-images', expected: 'failed' },
+        { provider: 'openai', imageApi: 'responses', slotId: 'gateway', expected: 'unknown' },
+        { provider: 'openai', imageApi: 'responses', slotId: 'disconnected', expected: 'unknown' },
+        { provider: 'sd-webui', slotId: 'upstream-failure', expected: 'failed' },
+        { provider: 'comfyui', slotId: 'comfy-failure', expected: 'failed' },
+    ];
+    const echo = 'private prompt and key echoed by the gateway';
+    const upstream = t.mock.method(globalThis, 'fetch', async (url, { signal, body }) => {
+        assert.match(url.href, /^https:\/\/offline\.invalid\/v1\//);
+        const request = JSON.parse(body);
+        if (request.model === 'gateway') return Response.json({ error: { message: echo } }, { status: 504 });
+        if (request.model === 'disconnected') throw new TypeError(echo);
+        return new Response(new ReadableStream({ start(controller) {
+            controller.enqueue(new TextEncoder().encode('data: {"type":"response.created"}\n\n'));
+            signal.addEventListener('abort', () => controller.error(signal.reason), { once: true });
+        } }));
+    });
+    const manager = jobManager.createAsyncImageJobManager({ adapters: { openai,
+        'sd-webui': { async execute() { throw Object.assign(new Error(echo), { status: 401, code: 'upstream_error' }); } },
+        comfyui: { async execute() { throw Object.assign(new Error(echo), { code: 'comfy_execution_failed' }); } },
+    } });
+    t.after(() => manager.close());
+    const message = { name: 'Fixture', mes: fixtures.map(({ slotId }) => `[image:${slotId}]`).join(' '), swipe_id: 0 };
+    host.ctx = { chatId: 'failure-recovery-chat', chat: [message] };
+    host.previews.clear();
+    host.selections.clear();
+    const owner = 'fixture';
+    for (const { provider, imageApi, slotId } of fixtures) {
+        const record = await api.recordPendingImageJob({ jobId: slotId, provider,
+            delivery: { mode: 'slots', chatId: host.ctx.chatId, messageId: '0' },
+            items: [{ index: 0, slotId, imgId: slotId, previewMetadata: { providerMetadata: imageApi ? { imageApi, responsesModel: slotId } : null } }] });
+        await api.markPendingImageJobActive(record.jobId, record.leaseId);
+        await api.renewPendingImageJobLease(record.jobId, record.leaseId, { now: 0 });
+        manager.createJob({ owner, provider, requestId: slotId, context: { url: 'https://offline.invalid/v1',
+            key: 'offline-key', imageApi, responsesModel: slotId }, delay: { min: 1, max: 1 },
+        items: [{ kind: 'image', timeout: 35, request: { payload: { model: 'fixture-image', prompt: 'paint' } } }] });
+    }
+    for (let attempt = 0; attempt < 100 && !fixtures.every(({ slotId }) => manager.getJob(owner, slotId)?.state === 'completed'); attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    const requests = [];
+    const client = api.createImageBackendJobsClient({ getOwner: () => owner, fetchImpl: async (url, init = {}) => {
+        requests.push(init.method);
+        return Response.json(url.endsWith('/v1/jobs') ? { ok: true, jobs: manager.listJobs(owner) }
+            : { ok: true, job: manager.getJob(owner, decodeURIComponent(url.split('/').at(-1))) });
+    } });
+    api.startImageJobRecovery({ client });
+    t.after(() => api.stopImageJobRecovery());
+    await api.reconcilePendingImageJobs();
+    for (const { slotId, expected } of fixtures) {
+        assert.equal(host.previews.get(slotId)?.status, expected);
+        assert.equal(await api.getPendingImageJob(slotId), null);
+    }
+    assert.ok(host.previews.get('timeout-responses').errorMessage);
+    assert.deepEqual(host.previews.get('gateway').providerMetadata, { imageApi: 'responses', responsesModel: 'gateway' });
+    assert.match(host.previews.get('comfy-failure').errorMessage, /ComfyUI/);
+    assert.equal(JSON.stringify([...host.previews.values()]).includes(echo), false);
+    assert.equal(upstream.mock.callCount(), 4);
+    assert.equal(requests.includes('POST'), false);
+});
 
 for (const backendState of ['cancelled', 'missing']) for (const preserveSlotsOnCancel of [true, false]) test(`replayed cancellation settles pending cards and preserves newer rerolls (${backendState}, preserve=${preserveSlotsOnCancel})`, async t => {
     const suffix = `${backendState}-${preserveSlotsOnCancel}`, slotId = 'cancel-' + suffix, keptSlot = 'kept-' + suffix;

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
+import { isNovelFixedDrawSize } from '../draw-size.js';
 import { createDrawPublicApi, validateDrawInput } from '../public-api.js';
 import { MediaApiError } from '../../../../shared/media-api.js';
 import { buildSdImageRequest } from '../../providers/sd-webui/compiler.js';
@@ -21,7 +22,7 @@ function adapter(file, name, context) {
     const source = readFileSync(new URL(file, import.meta.url), 'utf8');
     const start = source.indexOf(`export const ${name} = `) + `export const ${name} = `.length;
     const end = source.indexOf('\n};', start) + 2;
-    return runInNewContext(`(${source.slice(start, end)})`, { structuredClone, MediaApiError, validateDrawInput, joinTags, ...context });
+    return runInNewContext(`(${source.slice(start, end)})`, { structuredClone, MediaApiError, validateDrawInput, isNovelFixedDrawSize, joinTags, ...context });
 }
 
 function novelDefaults() {
@@ -76,6 +77,10 @@ test('SD explicit generation options reach its existing compiler unchanged', asy
         sdImageRequestQueue: { enqueue(run) { execute = run; return Promise.resolve([]); } },
         requestSdImage: async input => { sent = input; return []; },
     });
+    for (const overrideSize of ['portrait', 'auto', '63x2048', '2049x512']) {
+        assert.throws(() => publicApi.generate({ prompt: 'x', overrideSize }, { host: 'configured' }, {}), { code: 'invalid_request', field: 'overrideSize' });
+        assert.equal(execute, undefined);
+    }
     await publicApi.generate({ prompt: 'dynamic', params, negativePrompt: '' }, { host: 'configured' }, {});
     params.steps = 90;
     await execute();
@@ -98,6 +103,8 @@ test('Comfy explicit zero CFG and seed survive, and unsupported custom-workflow 
     assert.equal(prepared.workflow['3'].inputs.cfg, 0); assert.equal(prepared.workflow['3'].inputs.seed, 0);
     assert.throws(() => publicApi.generate({ prompt: 'x', params: { model: 'ignored' } },
         { host: 'configured', connectionMode: 'direct', workflowMode: 'custom', customWorkflow: { json: '{}' } }, {}), { code: 'unsupported_field' });
+    assert.throws(() => publicApi.generate({ prompt: 'x', overrideSize: '832x1216' },
+        { host: 'configured', connectionMode: 'direct', workflowMode: 'custom', customWorkflow: { json: '{}' } }, {}), { code: 'unsupported_field', field: 'overrideSize' });
     assert.equal(queued, 1);
 });
 
@@ -129,6 +136,10 @@ test('SD and NovelAI compilation failures are invalid_request, while transport f
     novel.snapshot = () => ({ apiKey: 'fixture', apiBaseUrl: 'https://fixture.invalid',
         paramsPresets: [{ ...DEFAULT_PARAMS_PRESET, id: 'p' }], selectedParamsPresetId: 'p' });
     const novelApi = createDrawPublicApi({ isEnabled: () => true, getProvider: () => 'novelai', providers: { novelai: novel }, captureGallery: () => async () => {} });
+    for (const overrideSize of ['portrait', 'auto', '512x768']) {
+        await assert.rejects(novelApi.generate({ prompt: 'dynamic', overrideSize }), { code: 'invalid_request', field: 'overrideSize' });
+        assert.equal(queued, 1);
+    }
     for (const size of [{}, { width: 512 }]) {
         await assert.rejects(novelApi.generate({ prompt: 'dynamic', params: {
             model: 'nai-diffusion-5-full', cfg_rescale: 2, ...size,

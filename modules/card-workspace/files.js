@@ -2,6 +2,7 @@ import { locateVariableFile, projectVariableFiles } from '../variables/state3/de
 import { CARD_EXTENSION } from '../variables/state3/definition/format.js';
 import { CARD_ROOT, rootFor } from './paths.js';
 import { serializeItemDocument, itemDocumentPath, ITEM_KINDS } from './item-document.js';
+import { projectAssetTask } from './asset-task.js';
 export { CARD_ROOT, rootFor } from './paths.js';
 
 // File layout and projections are shared by the tool, host and workspace UI.
@@ -40,7 +41,7 @@ export function projectCard(data) {
 
 export function projectItem(target, value) {
     if (value == null) return null;
-    return serializeItemDocument(target.kind, value, target.id);
+    return serializeItemDocument(target.kind, target.kind === 'tasks' ? projectAssetTask(value) : value, target.id);
 }
 
 export function cardFiles(avatar, data, books, design = '') {

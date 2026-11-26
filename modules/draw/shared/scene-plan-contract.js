@@ -344,6 +344,9 @@ function normalizeImages(images, options = {}) {
             );
         }
         if (!Array.isArray(image.characters)) failSchema(`${path}.characters`, '必须是 array', image.characters);
+        if (options.promptStyle === 'natural' && image.characters.length) {
+            failSchema(`${path}.characters`, '必须为空数组，完整画面写入 scene', image.characters);
+        }
         if (maxCharactersPerImage && image.characters.length > maxCharactersPerImage) {
             failSchema(`${path}.characters`, `最多包含 ${maxCharactersPerImage} 人`, image.characters.length);
         }

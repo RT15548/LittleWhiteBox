@@ -12,6 +12,8 @@ import { CARD_EXTENSION } from '../variables/state3/definition/format.js';
 import { projectVariableFiles } from '../variables/state3/definition/card-files.js';
 import { variableCardHost } from '../variables/state3/definition/card-host.js';
 import { readDesign, writeDesign } from './design.js';
+import { compileAssetTask } from './asset-task.js';
+import { readWorkspaceImage } from '../assistant/shared/workspace-images.js';
 
 const variableFiles = variableCardHost({ readCharacter, assertCard, request, publishCharacter, unconfirmed: COPY.unconfirmed });
 export const refreshVariableFiles = variableFiles.refresh;
@@ -131,7 +133,8 @@ export async function saveFile(target, file, signal, companions = []) {
     const defaults = target.kind === 'regex'
         ? { scriptName: target.id, findRegex: '', replaceString: '', trimStrings: [], placement: [2], disabled: false, markdownOnly: true, promptOnly: false, runOnEdit: true, substituteRegex: 0, minDepth: null, maxDepth: null }
         : { name: target.id, commands: '', disabled: false, interval: 1, floorType: 'all', triggerTiming: 'chat_changed' };
-    const next = { ...defaults, ...previous, ...edit, id: target.id };
+    const edited = { ...defaults, ...previous, ...edit, id: target.id };
+    const next = target.kind === 'tasks' ? await compileAssetTask(target, previous, edited, readWorkspaceImage, signal) : edited;
     assertCard(target.avatar);
     if (target.kind === 'tasks') {
         // The task domain owns persistence, cancellation and its UI refresh.

@@ -188,7 +188,12 @@ export function initState3() {
             const resultIndex = resultMessage ? getContext().chat.indexOf(resultMessage) : snapshot.index;
             if (lastResult && resultIndex >= 0) {
                 const existing = results.find(item => item.index === resultIndex);
-                if (existing) {existing.result = lastResult;} else {results.push({ index: resultIndex, result: lastResult,
+                // Public staged commits can outlive the last retained feedback.
+                // A newer receipt on this floor owns its display, not the cache.
+                if (lastResult.ok && lastResult.receipt && existing?.result.ok && existing.result.receipt
+                    && existing.result.receipt.revision > lastResult.receipt.revision) {
+                    lastResult = undefined; resultMessage = undefined;
+                } else if (existing) {existing.result = lastResult;} else {results.push({ index: resultIndex, result: lastResult,
                     stage: ctx.chat[resultIndex]?.is_user ? 'before' : 'after', edited: false });}
             }
             page?.mountControl(snapshot.index, results, { updates, beforeIndex, lastReceiptIndex: snapshot.lastReceiptIndex, definition });
@@ -270,13 +275,16 @@ export function initState3() {
             ? service.restoreSelection(change.previous, change.next, { check: change.historical, signal: lifecycle.signal }) : undefined;
         const initialization = initializeGreeting();
         if (restoration || initialization) {
+            // The host may move messages while persistence is pending. Capture
+            // this selection's receipt now, never from its old position later.
+            const snapshot = adapter.capture(index);
+            const restoredReceipt = snapshot.records[snapshot.index]?.entries.at(-1);
             observeBackgroundTask(report(retain((async () => {
                 const [restored, initialized] = await Promise.all([restoration, initialization]);
                 const result = initialized ?? restored;
                 if (!result) {return service.inspect();}
                 if (!result.ok) {return result;}
-                const snapshot = adapter.capture(index);
-                const receipt = snapshot.records[snapshot.index]?.entries.at(-1);
+                const receipt = result.receipt ?? restoredReceipt;
                 return { ...result, ...(receipt ? { receipt } : {}) };
             })(), index)), { source: import.meta.url, operation: 'selection-save' });
             await syncProjection();

@@ -7,6 +7,8 @@ const AUTO_DONE_KEYS = Object.freeze({
     novelai: 'xb_novel_auto_done',
     'sd-webui': 'xb_sd_auto_done',
     comfyui: 'xb_comfy_auto_done',
+    gemini: 'xb_gemini_auto_done',
+    openai: 'xb_openai_auto_done',
 });
 
 function requireMessage(message) {

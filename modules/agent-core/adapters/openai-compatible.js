@@ -1232,7 +1232,14 @@ export class OpenAICompatibleAdapter {
             const errorText = await response.text().catch(() => '');
             const error = new Error(describeOpenAICompatibleHttpError(errorText, response.status));
             error.status = response.status;
+            error.headers = response.headers;
             error.body = errorText;
+            try {
+                error.error = JSON.parse(errorText)?.error;
+            } catch (parseError) {
+                if (!(parseError instanceof SyntaxError)) throw parseError;
+                // Non-JSON failures retain their original body and HTTP metadata.
+            }
             throw error;
         }
         const assistantSnapshot = {

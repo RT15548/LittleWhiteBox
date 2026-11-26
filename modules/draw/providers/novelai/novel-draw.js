@@ -153,6 +153,7 @@ import {
 import { NovelV5RequestError, V5_QUALITY_IDS, V5_UC_IDS } from "./novel-v5-request.js";
 import { compile as compileNovelScenePlan, compileNovelImageRequest, getNovelVibeNames } from "./compiler.js";
 import { readNovelV5ErrorText, readNovelV5FinalImage, NovelV5StreamError } from "./novel-v5-stream.js";
+import { isNovelFixedDrawSize } from '../../shared/draw-size.js';
 import { validateDrawInput } from '../../shared/public-api.js';
 import { imageBlob } from '../../shared/image-collection.js';
 import { runPublicImageJob } from '../../shared/public-image-job.js';
@@ -2229,7 +2230,7 @@ export const novelPublicGeneration = {
         const preset = settings.paramsPresets.find(item => item.id === settings.selectedParamsPresetId) || settings.paramsPresets[0];
         if (!preset || !settings.apiKey) throw new MediaApiError('not_configured');
         const defaults = normalizeParamsPreset(DEFAULT_PARAMS_PRESET, 0).params;
-        validateDrawInput(request, defaults);
+        validateDrawInput(request, defaults, { isFixedSizeSupported: isNovelFixedDrawSize });
         const params = { ...DEFAULT_PARAMS_PRESET.params, ...preset.params, ...request.params };
         const model = String(params.model);
         const isV5 = isNovelV5Model(model);

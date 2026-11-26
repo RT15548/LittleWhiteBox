@@ -1,1 +1,1 @@
-([incidents, week, who, kind, summary]) => [...incidents, { week, who, kind, summary, open: true }]
+([incidents, week, who, kind]) => [...incidents, { week, who, kind, open: true }]

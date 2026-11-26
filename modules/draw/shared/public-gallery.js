@@ -19,7 +19,7 @@ export function capturePublicGallery(request, provider) {
     };
     const slotId = `public-${createIdentifier()}`;
     return async (images, metadata = {}) => {
-        const failures = [];
+        const gallery = [], failures = [];
         for (const [index, blob] of images.entries()) {
             const imgId = `${slotId}-${index}`;
             try {
@@ -30,17 +30,23 @@ export function capturePublicGallery(request, provider) {
                     characterPrompts: request.characterPrompts,
                     presetId: metadata.presetId ?? request.paramsPresetId,
                     vibeNames: metadata.vibeNames || '',
+                    providerMetadata: metadata.providerMetadata,
                 });
-                // Use the existing switch, but never make the card wait for a server upload.
-                observeBackgroundTask(autoSaveDeliveredImage({ imgId, slotId, filePrefix, generatedAt }),
-                    { source: import.meta.url, operation: 'autoSaveDeliveredImage' });
-            } catch (error) { failures.push(error); }
+            } catch (error) {
+                failures.push(error);
+                gallery.push({ saved: false });
+                continue;
+            }
+            gallery.push({ saved: true });
+            // Use the existing switch, but never make the card wait for a server upload.
+            observeBackgroundTask(autoSaveDeliveredImage({ imgId, slotId, filePrefix, generatedAt }),
+                { source: import.meta.url, operation: 'autoSaveDeliveredImage' });
         }
         if (failures.length) {
-            // Handle local persistence separately from generation. Rejecting a
-            // successful paid request would invite callers to buy the same image again.
+            // Local collection and generation are independent outcomes.
             console.error({ source: import.meta.url, operation: 'savePublicGallery' }, new AggregateError(failures));
             drawNotify.error(DRAW_SLOT_COPY.publicGallerySaveFailed);
         }
+        return gallery;
     };
 }

@@ -7,7 +7,7 @@ import { PendingJobState } from './pending-image-jobs.js';
 // markers win; only an unambiguous original branch may recover a missing marker.
 export function restoreDrawRunTargets(ctx, records, { syncActiveSwipe, isEditing = () => false } = {}) {
     const owner = getImageChatIdentity(ctx);
-    const changed = new Set();
+    const changed = new Map();
     for (const record of records) {
         if (!record.submission || record.submission.owner !== owner) continue;
         const { marker, messageDate } = record.submission;
@@ -32,16 +32,17 @@ export function restoreDrawRunTargets(ctx, records, { syncActiveSwipe, isEditing
         if (record.state === PendingJobState.ADOPTING && !findDrawRunMarker(ctx.chat, record.originRunId)) {
             setDrawRunMarker({ ...target, runId: record.originRunId, marker,
                 syncActiveSwipe: () => syncActiveSwipe(target.messageId) });
-            changed.add(target.messageId);
+            if (!changed.has(target.messageId)) changed.set(target.messageId, null);
         }
         const text = getDrawRunMarkerText(target);
         const items = record.items.filter(item => item.placement && !item.discarded);
         if (!items.length || record.items.some(item => isSceneSlotAlive(text, item.slotId))) continue;
         const prefix = imagePlacementSource(text, items[0].placement);
         if (prefix === null) continue;
-        setDrawRunMarkerText(target, insertScenePlacementsPreservingSlots(prefix,
-            items.map(item => ({ placement: item.placement.task, content: `[image:${item.slotId}]` })), { block: true }) + text.slice(prefix.length));
-        changed.add(target.messageId);
+        if (!setDrawRunMarkerText(target, insertScenePlacementsPreservingSlots(prefix,
+            items.map(item => ({ placement: item.placement.task, content: `[image:${item.slotId}]` })), { block: true }) + text.slice(prefix.length))) continue;
+        if (target.swipeIndex === (target.message.swipe_id ?? 0)) changed.set(target.messageId, target.message);
+        else if (!changed.has(target.messageId)) changed.set(target.messageId, null);
     }
     return changed;
 }

@@ -21,6 +21,12 @@ export const AGENT_JSAPI_PERMISSION_OPTIONS = Object.freeze([
     { value: 'deny', label: '禁止' },
     { value: 'allow', label: '允许' },
 ]);
+const IMAGE_INPUT_LABEL = '发送图片给模型';
+export const AGENT_IMAGE_INPUT_COPY = Object.freeze({
+    label: IMAGE_INPUT_LABEL,
+    hint: '模型不能看图时关闭；上传附件和工作区图片都不发给模型，你仍可查看原图。',
+    requestFailed: `如果当前模型不能看图，请在 API 预设里关闭「${IMAGE_INPUT_LABEL}」。`,
+});
 
 export function buildDefaultPreset() {
     return normalizeAgentPreset();
@@ -71,6 +77,7 @@ export function normalizeAgentPreset(source = {}) {
         maxTokens: normalizeMaxTokens(source.maxTokens),
         sendTemperature: source.sendTemperature !== false,
         toolMode: String(source.toolMode ?? 'tagged-json'),
+        imageInput: source.imageInput !== false,
         reasoning: normalizeReasoningConfig(source.reasoning),
         sampling: normalizeSampling(source.sampling),
         permissionMode: normalizePermissionMode(source.permissionMode),

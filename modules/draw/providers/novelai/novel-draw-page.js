@@ -2380,15 +2380,23 @@ function parseDanbooruCharName(tagName) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 let promptPreviewTexts = {};
+let promptPreviewToolNames = [];
 
 /** 宿主按当前模型算出的固定文本，供“请求结构”各行的“预览”使用；工具字段说明也在这里更新。 */
 function applyPromptChain(chain) {
     promptPreviewTexts = Object.fromEntries(chain
-        .flatMap(item => (Array.isArray(item.sections) ? item.sections : []))
+        .flatMap(item => item.sections ?? [])
         .filter(section => typeof section.content === 'string')
         .map(section => [section.key, section.content]));
-    const fields = chain.find(item => item.role === 'tools')?.fields || [];
-    promptPreviewTexts.tools = ['submit_scene_plan', ...fields.map(field => `${field.path}：${field.description}`)].join('\n');
+    const toolRows = chain.filter(item => item.role === 'tools');
+    promptPreviewToolNames = toolRows.flatMap(item => item.sections.filter(section => !section.parameter).map(section => section.key));
+    promptPreviewTexts.tools = toolRows.flatMap(item => [
+        ...item.sections.map(section => section.parameter
+            ? `${section.parameter}：${previewTextOf(section.key)}`
+            : `${section.key}\n${section.content}`),
+        ...(item.fields ?? []).map(({ path, description }) => `${path}：${description}`),
+    ]).join('\n\n');
+    layoutEditor?.refreshSummaries();
     layoutEditor?.refreshPreviews();
 }
 
@@ -4919,8 +4927,11 @@ function describeBuiltinBlock(id) {
             return { summary: summarizeLayoutText($('nd_prompt_format')?.value, '（当前为空，不注入）'), action: 'edit' };
         case 'frame':
             return { summary: '固定文本：说明下面提供了哪些材料，以及结果要通过工具交回（程序生成，不可编辑）', action: null, preview: previewTextOf('frame') };
-        case 'tools':
-            return { summary: `submit_scene_plan${collectToolBlocks(getEffectivePromptLayout(getActivePromptPresetForForm())).length ? '、已启用的附带工具' : ''}`, action: null, preview: previewTextOf('tools') };
+        case 'tools': {
+            const hasCustomTools = collectToolBlocks(getEffectivePromptLayout(getActivePromptPresetForForm())).length > 0;
+            const summary = [...promptPreviewToolNames, ...(hasCustomTools ? ['已启用的附带工具'] : [])].join('、');
+            return { summary, action: null, preview: previewTextOf('tools') };
+        }
         case 'worldInfo':
             return { summary: state.useWorldInfo === true ? '世界书注入已开启：命中的条目放在这里' : '世界书注入未开启（在世界书页面开启）', action: 'edit', preview: previewTextOf('worldInfo') };
         case 'content': {

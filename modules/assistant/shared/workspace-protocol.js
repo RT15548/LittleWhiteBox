@@ -1,4 +1,4 @@
-export const WORKSPACE_KERNEL_VERSION = '2026.10.15-write-receipts';
+export const WORKSPACE_KERNEL_VERSION = '2026.11.24-image-files';
 
 export const WORKSPACE_MESSAGE_TYPES = Object.freeze({
     HYDRATE: 'xb-assistant:workspace-hydrate',

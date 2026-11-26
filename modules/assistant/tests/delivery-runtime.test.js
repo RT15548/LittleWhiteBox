@@ -39,9 +39,9 @@ function harness(t, options = {}) {
         isJsApiEnabled: () => false,
         SYSTEM_PROMPT: systemInstructions, MAX_CONTEXT_TOKENS: 100000, SUMMARY_TRIGGER_TOKENS: 90000,
         TOOL_NAMES: { RUN_JAVASCRIPT_API: 'RunJavaScriptApi', RUN_SLASH_COMMAND: 'RunSlashCommand', DELEGATE_RUN: 'DelegateRun' },
-        createAdapter: config => !config && options.adapter ? options.adapter : ({ supportsSessionToolLoop: options.session !== false, async chat(task) {
-            const queue = config ? delegateRequests : requests;
-            const steps = config ? options.delegateSteps : options.steps;
+        createAdapter: config => config !== delegateConfig && options.adapter ? options.adapter : ({ supportsSessionToolLoop: options.session !== false, async chat(task) {
+            const queue = config === delegateConfig ? delegateRequests : requests;
+            const steps = config === delegateConfig ? options.delegateSteps : options.steps;
             const step = steps[queue.length];
             queue.push(task);
             assert.ok(step, 'Unexpected extra model request');

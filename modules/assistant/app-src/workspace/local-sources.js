@@ -1,7 +1,8 @@
 import { zipSync, strToU8 } from '../../../../libs/fflate.mjs';
 import { isSupportedPublicTextPath } from '../../../agent-core/tools/text-file-types.js';
 import {
-    buildLocalFileRecord as kernelBuildLocalFileRecord,
+    getWorkspaceImageMimeType,
+    normalizeWorkspaceImagePath,
     collectSourceDirectoryPaths as kernelCollectSourceDirectoryPaths,
     createLocalSourceRecord as kernelCreateLocalSourceRecord,
     findLocalDirectoryByPath as kernelFindLocalDirectoryByPath,
@@ -28,6 +29,7 @@ import {
 } from '../../shared/workspace-protocol.js';
 import { buildWorkspacePreconditions, captureWorkspacePath, findWorkspaceConflicts, workspaceMutationScopes, WORKSPACE_CONFLICT } from '../../shared/workspace-preconditions.js';
 import { WORKSPACE_COPY } from './workspace-copy.js';
+import { readWorkspaceImageById } from '../../shared/workspace-images.js';
 import { shouldAutoRevealWorkspace } from '../../shared/window-layout.js';
 import { TOOL_NAMES } from '../tooling.js';
 import { buildWorkspaceTree, collectDirectoryExpansionKeys } from './local-workspace-tree.js';
@@ -83,37 +85,25 @@ function pickUniqueLabel(desiredLabel, existingLabels = new Set()) {
     return kernelPickUniqueLocalSourceLabel(desiredLabel, existingLabels);
 }
 
-function buildLocalFileRecord({ sourceLabel, fileName, relativePath, content, sizeBytes }) {
-    return kernelBuildLocalFileRecord({ sourceLabel, fileName, relativePath, content, sizeBytes });
-}
-
 function createLocalSourceRecord({ sourceId, label, rootPath, importedAt, files, directories }) {
     return kernelCreateLocalSourceRecord({ sourceId, label, rootPath, importedAt, files, directories });
 }
 
 function summarizeImportResult({ importedSources, importedFiles, rejectedFiles, duplicateFiles }) {
-    if (!importedSources && !importedFiles) {
-        if (rejectedFiles) {
-            return '只支持导入文本文件到工作区';
-        }
-        return '没有可导入的文件';
-    }
-
-    const parts = [`已导入 ${importedSources} 个工作区根，${importedFiles} 个文件`];
-    if (rejectedFiles) parts.push(`忽略 ${rejectedFiles} 个非文本文件`);
-    if (duplicateFiles) parts.push(`跳过 ${duplicateFiles} 个重复路径`);
-    return parts.join('，');
+    const parts = [importedFiles
+        ? WORKSPACE_COPY.importCompleted(importedSources, importedFiles)
+        : rejectedFiles.length ? WORKSPACE_COPY.importSupportedFiles : WORKSPACE_COPY.importEmpty];
+    if (duplicateFiles) parts.push(WORKSPACE_COPY.importDuplicates(duplicateFiles));
+    const rejected = rejectedFiles.map(({ name, reason }) => (
+        WORKSPACE_COPY.importRejected(name, WORKSPACE_COPY.importRejectionReasons[reason])
+    ));
+    return [parts.join('，'), ...rejected].join('\n');
 }
 
-function resolveImportedWorkspaceTarget(importedSources = []) {
-    const normalizedSources = normalizeLocalSources(importedSources);
-    if (!normalizedSources.length) return '';
-    const firstSource = normalizedSources[0];
-    if (!firstSource) return '';
-    if (normalizedSources.length === 1 && Array.isArray(firstSource.files) && firstSource.files.length === 1) {
-        return String(firstSource.files[0]?.path || '').trim();
-    }
-    return String(firstSource.rootPath || firstSource.files?.[0]?.path || LOCAL_SOURCE_PREFIX).trim();
+function resolveImportedWorkspaceTarget(importedSources) {
+    const [first] = importedSources;
+    if (!first) return '';
+    return importedSources.length === 1 && first.files.length === 1 ? first.files[0].path : first.rootPath;
 }
 
 function waitForNextFrame() {
@@ -142,27 +132,26 @@ function formatLocalSourceDownloadName(sourceLabel, extension = '') {
     return extension ? `${base}${extension}` : base;
 }
 
-function buildLocalSourceZip(source) {
-    const entries = {};
-    collectSourceDirectoryPaths(source).forEach((directoryPath) => {
-        entries[`${directoryPath}/`] = new Uint8Array();
-    });
-    source.files.forEach((file) => {
-        entries[file.relativePath || file.name || 'untitled.txt'] = strToU8(typeof file.content === 'string' ? file.content : '');
-    });
-    return zipSync(entries, { level: 1 });
+function readDownloadBlob(file) {
+    return file.kind === 'image'
+        ? readWorkspaceImageById(file.blobId)
+        : new Blob([file.content], { type: 'text/plain;charset=utf-8' });
 }
 
-export function buildLocalSourcesArchiveEntries(localSources = []) {
-    const entries = {};
-    normalizeLocalSources(localSources).forEach((source) => {
-        collectSourceDirectoryPaths(source).forEach((directoryPath) => {
-            entries[`${String(source.rootPath || LOCAL_SOURCE_PREFIX)}${directoryPath}/`] = new Uint8Array();
-        });
-        source.files.forEach((file) => {
-            entries[file.path] = strToU8(typeof file.content === 'string' ? file.content : '');
-        });
-    });
+export async function buildLocalSourcesArchiveEntries(localSources = [], prefix = '') {
+    const entries = Object.create(null);
+    for (const source of normalizeLocalSources(localSources)) {
+        const root = source.rootPath;
+        for (const path of [root, ...collectSourceDirectoryPaths(source).map(relative => `${root}${relative}/`)]) {
+            if (path.startsWith(prefix) && path !== prefix) entries[path.slice(prefix.length)] = new Uint8Array();
+        }
+        for (const file of source.files) {
+            if (!file.path.startsWith(prefix)) continue;
+            entries[file.path.slice(prefix.length)] = file.kind === 'image'
+                ? new Uint8Array(await (await readDownloadBlob(file)).arrayBuffer())
+                : strToU8(file.content);
+        }
+    }
     return entries;
 }
 
@@ -293,6 +282,7 @@ export function createLocalSourcesManager(deps) {
         state,
         createRequestId,
         showToast,
+        describeError,
         setImportProgress,
         render,
         renderWorkspaceOnly,
@@ -424,9 +414,23 @@ export function createLocalSourcesManager(deps) {
         return true;
     }
 
+    function showWorkspaceOperationError(error) {
+        const raw = String(error?.error || error?.message || error || 'unknown_error');
+        // callWorkspaceHostTool already refreshed the snapshot and notified once.
+        if (raw === WORKSPACE_CONFLICT) return;
+        const localErrors = {
+            workspace_unsaved_changes: WORKSPACE_COPY.operationUnsavedChanges,
+            workspace_host_tool_unavailable: WORKSPACE_COPY.hostUnavailable,
+            workspace_write_failed: WORKSPACE_COPY.writeFailed,
+        };
+        const reason = Object.hasOwn(localErrors, raw) ? localErrors[raw]
+            : describeError?.({ ...error, message: raw }, WORKSPACE_COPY.operationFailedUnknown) ?? WORKSPACE_COPY.operationFailedUnknown;
+        showToast?.(WORKSPACE_COPY.operationFailed(reason));
+    }
+
     async function callWorkspaceHostTool(toolName, args = {}, options = {}) {
         if (typeof callHostTool !== 'function') {
-            throw new Error('workspace_host_tool_unavailable');
+            return { ok: false, error: 'workspace_host_tool_unavailable' };
         }
         const path = typeof options.path === 'string'
             ? options.path
@@ -439,25 +443,30 @@ export function createLocalSourcesManager(deps) {
             return { ok: false, error: 'workspace_unsaved_changes' };
         }
         let conflictSnapshot;
-        const request = callHostTool(toolName, args, {
-            onWorkspaceObserved: options.onWorkspaceObserved,
-            onWorkspaceConflict: snapshot => { conflictSnapshot = snapshot; },
-            workspaceMeta: {
-                source: options.source || WORKSPACE_SOURCES.UI_ACTION,
-                opId: createRequestId('workspace-op'),
-                preconditions: options.preconditions ?? buildWorkspacePreconditions(toolName, args, state.localSources),
-                retryContent: options.retryContent,
-                baseVersion: Number.isFinite(Number(options.baseVersion))
-                    ? Number(options.baseVersion)
-                    : getWorkspaceRuntimeMeta().version,
-                path,
-            },
-        });
-        pendingWorkspaceOperations.add(request);
+        let request;
         let result;
-        try { result = await request; }
-        catch (error) { result = { ok: false, error: String(error?.message || error) }; }
-        finally { pendingWorkspaceOperations.delete(request); }
+        try {
+            request = callHostTool(toolName, args, {
+                onWorkspaceObserved: options.onWorkspaceObserved,
+                onWorkspaceConflict: snapshot => { conflictSnapshot = snapshot; },
+                workspaceMeta: {
+                    source: options.source || WORKSPACE_SOURCES.UI_ACTION,
+                    opId: createRequestId('workspace-op'),
+                    preconditions: options.preconditions ?? buildWorkspacePreconditions(toolName, args, state.localSources),
+                    retryContent: options.retryContent,
+                    baseVersion: Number.isFinite(Number(options.baseVersion))
+                        ? Number(options.baseVersion)
+                        : getWorkspaceRuntimeMeta().version,
+                    path,
+                },
+            });
+            pendingWorkspaceOperations.add(request);
+            result = await request;
+        } catch (error) {
+            result = { ...error, ok: false, error: String(error?.message || error) };
+        } finally {
+            pendingWorkspaceOperations.delete(request);
+        }
         if (result?.error === WORKSPACE_CONFLICT) {
             options.onWorkspaceConflict?.(conflictSnapshot);
             if (options.source !== WORKSPACE_SOURCES.EDITOR) {
@@ -518,8 +527,11 @@ export function createLocalSourcesManager(deps) {
 
     async function applyAuthoritativeLocalSources(nextSources, toastText = '', directoryChange = null) {
         const normalizedNextSources = normalizeLocalSources(nextSources);
+        const images = sources => JSON.stringify((sources || []).flatMap(source => source.files.filter(file => file.kind === 'image').map(file => [file.blobId, file.path])));
+        const imagesChanged = images(state.localSources) !== images(normalizedNextSources);
         state.localSources = normalizedNextSources;
         ensureWorkspaceSelection();
+        if (imagesChanged) deps.onWorkspaceImagesChanged?.();
         if (directoryChange) {
             deps.onWorkspaceDirectoryChanged?.(directoryChange.fromPath, directoryChange.toPath);
             renderWorkspaceOnly?.();
@@ -555,9 +567,9 @@ export function createLocalSourcesManager(deps) {
     }
 
     function getCurrentWorkspaceDirectoryPath() {
-        const selectedTreeDirectory = normalizeLocalDirectoryPath(state.selectedTreePath);
-        if (selectedTreeDirectory) return selectedTreeDirectory;
-        const selectedFile = normalizeWritableLocalFilePath(state.selectedFilePath);
+        const selectedDirectory = String(state.selectedTreePath || '').endsWith('/') && normalizeLocalDirectoryPath(state.selectedTreePath);
+        if (selectedDirectory) return selectedDirectory;
+        const selectedFile = findLocalFileByPath(state.localSources, state.selectedFilePath)?.file.path;
         if (selectedFile) {
             return `${selectedFile.split('/').slice(0, -1).join('/')}/`;
         }
@@ -757,7 +769,7 @@ export function createLocalSourcesManager(deps) {
             const existingLabels = new Set(normalizeLocalSources(state.localSources).map((source) => source.label));
             const importedSources = [];
             let importedFiles = 0;
-            let rejectedFiles = 0;
+            const rejectedFiles = [];
             let duplicateFiles = 0;
             const totalFiles = normalizedFiles.length;
             let processedFiles = 0;
@@ -799,8 +811,15 @@ export function createLocalSourcesManager(deps) {
                         ? normalizeLocalSourcePath(rawRelativePath.split('/').slice(1).join('/')) || normalizeLocalSourcePath(file.name || '')
                         : normalizeLocalSourcePath(file.name || '');
                     const candidatePath = relativePath || normalizeLocalSourcePath(file.name || '');
-                    if (!isSupportedPublicTextPath(candidatePath)) {
-                        rejectedFiles += 1;
+                    const path = `${LOCAL_SOURCE_PREFIX}${sourceLabel}/${candidatePath}`;
+                    const mimeType = getWorkspaceImageMimeType(path);
+                    const isImage = !!mimeType && !!normalizeWorkspaceImagePath(path);
+                    const rejectionReason = isImage
+                        ? file.size === 0 ? 'empty_image'
+                            : file.type && file.type !== mimeType ? 'image_mime_mismatch' : ''
+                        : isSupportedPublicTextPath(candidatePath) ? '' : 'unsupported_format';
+                    if (rejectionReason) {
+                        rejectedFiles.push({ name: rawRelativePath || file.name, reason: rejectionReason });
                         processedFiles += 1;
                         updateImportProgress();
                         continue;
@@ -813,6 +832,13 @@ export function createLocalSourcesManager(deps) {
                     }
                     usedPaths.add(candidatePath);
 
+                    if (isImage) {
+                        sourceFiles.push({ path, blob: file.slice(0, file.size, mimeType) });
+                        processedFiles += 1;
+                        updateImportProgress();
+                        await waitForNextFrame();
+                        continue;
+                    }
                     const content = await readFileAsText(file, {
                         onProgress: (loadedBytes, totalBytesForFile) => {
                             if (!totalBytesForFile) return;
@@ -828,26 +854,14 @@ export function createLocalSourcesManager(deps) {
                             });
                         },
                     });
-                    sourceFiles.push(buildLocalFileRecord({
-                        sourceLabel,
-                        fileName: file.name || candidatePath,
-                        relativePath: candidatePath,
-                        content,
-                        sizeBytes: file.size,
-                    }));
+                    sourceFiles.push({ path, content });
                     processedFiles += 1;
                     updateImportProgress();
                     await waitForNextFrame();
                 }
 
                 if (!sourceFiles.length) continue;
-
-                importedSources.push(createLocalSourceRecord({
-                    sourceId: createRequestId('local-source'),
-                    label: sourceLabel,
-                    importedAt: Date.now(),
-                    files: sourceFiles,
-                }));
+                importedSources.push({ rootPath: `${LOCAL_SOURCE_PREFIX}${sourceLabel}/`, files: sourceFiles });
                 importedFiles += sourceFiles.length;
             }
 
@@ -868,14 +882,7 @@ export function createLocalSourcesManager(deps) {
                 duplicateFiles,
             });
 
-            const files = importedSources.flatMap((source) => (
-                Array.isArray(source.files)
-                    ? source.files.map((file) => ({
-                        path: file.path,
-                        content: file.content,
-                    }))
-                    : []
-            ));
+            const files = importedSources.flatMap(source => source.files);
             const result = await callWorkspaceHostTool(INTERNAL_WORKSPACE_TOOL_NAMES.BATCH_WRITE_FILES, {
                 files,
             }, {
@@ -883,17 +890,19 @@ export function createLocalSourcesManager(deps) {
                 path: resolveImportedWorkspaceTarget(importedSources) || LOCAL_SOURCE_PREFIX,
             });
             if (!result || result.ok === false) {
-                showToast?.(`导入到工作区失败：${String(result?.error || 'workspace_write_failed')}`);
+                showWorkspaceOperationError(result);
                 return false;
             }
             showToast?.(summaryText);
             const autoOpenTarget = resolveImportedWorkspaceTarget(importedSources);
             if (autoOpenTarget) {
-                primeWorkspaceSelection(autoOpenTarget);
+                if (autoOpenTarget.endsWith('/')) selectWorkspaceDirectory(autoOpenTarget);
+                else selectWorkspaceFile(autoOpenTarget, { reveal: shouldAutoRevealWorkspace() });
+                render?.();
             }
             return true;
         } catch (error) {
-            showToast?.(`导入到工作区失败：${String(error?.message || error || 'unknown_error')}`);
+            showWorkspaceOperationError(error);
             return false;
         } finally {
             setImportProgress?.({ active: false });
@@ -912,54 +921,55 @@ export function createLocalSourcesManager(deps) {
             path: source.rootPath,
         });
         if (!result || result.ok === false) {
-            showToast?.(`移除工作区根失败：${String(result?.error || 'unknown_error')}`);
+            showWorkspaceOperationError(result);
             return;
         }
         showToast?.('已移除工作区根');
     }
 
-    function downloadLocalSource(sourceId) {
-        const normalizedId = String(sourceId || '').trim();
-        if (!normalizedId) return false;
-
-        const source = getDisplaySources().find((item) => item.sourceId === normalizedId);
-        if (!source || !Array.isArray(source.files) || !source.files.length) {
-            showToast?.('没有可下载的工作区内容');
-            return false;
-        }
-
-        if (source.files.length === 1) {
-            const [file] = source.files;
-            const filename = file.name || file.relativePath || 'untitled.txt';
-            downloadBlob(
-                new Blob([typeof file.content === 'string' ? file.content : ''], { type: 'text/plain;charset=utf-8' }),
-                filename,
-            );
+    async function downloadWorkspaceItem(filename, loadBlob) {
+        try {
+            downloadBlob(await loadBlob(), filename);
             showToast?.(`已下载 ${filename}`);
             return true;
+        } catch (error) {
+            console.warn({ source: import.meta.url, operation: 'downloadWorkspaceItem' }, error);
+            showToast?.(WORKSPACE_COPY.downloadFailed);
+            return false;
         }
+    }
 
-        const zipBytes = buildLocalSourceZip(source);
-        const zipName = `${formatLocalSourceDownloadName(source.label, '.zip')}`;
-        downloadBlob(new Blob([zipBytes], { type: 'application/zip' }), zipName);
-        showToast?.(`已下载 ${zipName}`);
-        return true;
+    function downloadWorkspaceArchive(sources, filename, prefix) {
+        return downloadWorkspaceItem(filename, async () => {
+            const entries = await buildLocalSourcesArchiveEntries(sources, prefix);
+            return new Blob([zipSync(entries, { level: 1 })], { type: 'application/zip' });
+        });
+    }
+
+    function downloadLocalSource(sourceId) {
+        const source = getDisplaySources().find(item => item.sourceId === sourceId);
+        if (!source) return false;
+        if (source.files.length === 1) return downloadLocalFile(source.files[0].path);
+        return downloadLocalDirectory(source.rootPath);
+    }
+
+    function downloadLocalDirectory(path) {
+        const sources = getDisplaySources();
+        const match = findLocalDirectoryByPath(sources, path);
+        if (!match) return false;
+        if (match.directoryPath === LOCAL_SOURCE_PREFIX) return downloadAllLocalSources();
+        const name = match.directoryPath.split('/').filter(Boolean).at(-1);
+        return downloadWorkspaceArchive(sources, formatLocalSourceDownloadName(name, '.zip'), match.directoryPath);
     }
 
     function downloadAllLocalSources() {
-        const normalizedSources = getDisplaySources();
-        if (!normalizedSources.length) {
+        const sources = getDisplaySources();
+        if (!sources.length) {
             showToast?.('没有可下载的工作区内容');
             return false;
         }
-
-        const entries = buildLocalSourcesArchiveEntries(normalizedSources);
-        const zipBytes = zipSync(entries, { level: 1 });
         const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-        const zipName = `local-workspace-${stamp}.zip`;
-        downloadBlob(new Blob([zipBytes], { type: 'application/zip' }), zipName);
-        showToast?.(`已下载 ${zipName}`);
-        return true;
+        return downloadWorkspaceArchive(sources, `local-workspace-${stamp}.zip`);
     }
 
     function downloadLocalFile(targetPath) {
@@ -968,12 +978,7 @@ export function createLocalSourcesManager(deps) {
             showToast?.('目标文件不存在');
             return false;
         }
-        downloadBlob(
-            new Blob([typeof match.file.content === 'string' ? match.file.content : ''], { type: 'text/plain;charset=utf-8' }),
-            match.file.name || match.file.relativePath || 'untitled.txt',
-        );
-        showToast?.(`已下载 ${match.file.name || match.file.relativePath || 'untitled.txt'}`);
-        return true;
+        return downloadWorkspaceItem(match.file.name, () => readDownloadBlob(match.file));
     }
 
     async function clearLocalSources() {
@@ -988,11 +993,11 @@ export function createLocalSourcesManager(deps) {
                 path: LOCAL_SOURCE_PREFIX,
             });
             if (!result || result.ok === false) {
-                showToast?.(`清空失败：${String(result?.error || 'unknown_error')}`);
+                showWorkspaceOperationError(result);
                 return false;
             }
         } catch (error) {
-            showToast?.(`清空失败：${String(error?.message || error || 'unknown_error')}`);
+            showWorkspaceOperationError(error);
             return false;
         }
         showToast?.('已清空工作区');
@@ -1209,9 +1214,15 @@ export function createLocalSourcesManager(deps) {
 
         const enteredPath = window.prompt('输入新的工作区路径', formatWorkspacePromptPath(currentPath));
         if (enteredPath === null) return false;
-        const normalizedNextPath = fileMatch
-            ? normalizeWorkspacePromptFilePath(enteredPath)
-            : normalizeWorkspacePromptDirectoryPath(enteredPath);
+        const image = fileMatch?.file.kind === 'image' ? fileMatch.file : null;
+        const normalizedInput = normalizeLocalSourcePath(enteredPath);
+        const normalizedNextPath = image
+            ? normalizeWorkspaceImagePath(normalizedInput.startsWith(LOCAL_SOURCE_PREFIX) ? normalizedInput : `${LOCAL_SOURCE_PREFIX}${normalizedInput}`)
+            : fileMatch ? normalizeWorkspacePromptFilePath(enteredPath) : normalizeWorkspacePromptDirectoryPath(enteredPath);
+        if (image && normalizedNextPath && getWorkspaceImageMimeType(normalizedNextPath) !== image.mimeType) {
+            showToast?.(WORKSPACE_COPY.imageRenameFormat);
+            return false;
+        }
         if (!normalizedNextPath) {
             showToast?.(`请输入有效的工作区${fileMatch ? '文件' : '目录'}路径`);
             return false;
@@ -1226,15 +1237,15 @@ export function createLocalSourcesManager(deps) {
             path: currentPath,
         });
         if (!result || result.ok === false) {
-            const message = String(result?.error || 'unknown_error');
-            if (message === 'local_destination_exists') {
-                showToast?.('目标路径已存在，请换一个路径');
-                return false;
-            }
-            showToast?.(`重命名失败：${message}`);
+            showWorkspaceOperationError(result);
             return false;
         }
-        primeWorkspaceSelection(normalizedNextPath);
+        if (image) {
+            selectWorkspaceFile(normalizedNextPath, { reveal: shouldAutoRevealWorkspace() });
+            render?.();
+        } else {
+            primeWorkspaceSelection(normalizedNextPath);
+        }
         return true;
     }
 
@@ -1260,7 +1271,7 @@ export function createLocalSourcesManager(deps) {
             path: currentPath,
         });
         if (!result || result.ok === false) {
-            showToast?.(`删除失败：${String(result?.error || 'unknown_error')}`);
+            showWorkspaceOperationError(result);
             return false;
         }
         return true;
@@ -1445,7 +1456,7 @@ export function createLocalSourcesManager(deps) {
             isModifiedFile: isLocalSourceFileModified,
             manageFiles: true,
             onDownloadAll: () => {
-                downloadAllLocalSources();
+                observeBackgroundTask(downloadAllLocalSources(), { source: import.meta.url, operation: 'onDownloadAll' });
             },
             onClearAll: () => {
                 observeBackgroundTask(clearLocalSources(), { source: import.meta.url, operation: "onClearAll" });
@@ -1477,7 +1488,10 @@ export function createLocalSourcesManager(deps) {
                 setWorkspaceViewerMode(mode);
             },
             onDownloadFile: (targetPath) => {
-                downloadLocalFile(targetPath);
+                observeBackgroundTask(downloadLocalFile(targetPath), { source: import.meta.url, operation: 'onDownloadFile' });
+            },
+            onDownloadDirectory: (targetPath) => {
+                observeBackgroundTask(downloadLocalDirectory(targetPath), { source: import.meta.url, operation: 'onDownloadDirectory' });
             },
             onRestoreFile: (targetPath) => {
                 observeBackgroundTask(restoreLocalFile(targetPath), { source: import.meta.url, operation: "onRestoreFile" });

@@ -11,6 +11,7 @@ import {
     layoutForStorage,
 } from '../prompt-layout-editor.js';
 import { BUILTIN_BLOCK_IDS, addBlock, addBlockAfter, createCustomBlock } from '../scene-planner-layout.js';
+import { SCENE_PLANNER_HANDOFF_NAMES, buildScenePlannerExchange, createScenePlannerHandoffTools, scenePlannerHandoffReceipt } from '../scene-planner-handoff.js';
 
 // 固定的"随机源"：每次返回不同的值，保证 id 唯一又可复现。
 function sequenceRandom() {
@@ -670,26 +671,37 @@ test('explicit reset still asks before removing custom messages and declining pr
     assert.equal(isDefaultLayout(ctx.getLayout()), true);
 });
 
-test('the request structure shows every fixed prebuilt message, including the approval pair, and previews any row in place', t => {
+test('fixed handoff previews show four calls and receipts, with the requirements and approval tool descriptions', t => {
     const ctx = setup(t, { describeBuiltin: id => ({ summary: `摘要-${id}`, action: null, ...(id === 'frame' ? { preview: 'FRAME-TEXT' } : {}) }) });
     const fixed = Array.from(ctx.host.querySelectorAll('[data-ple-fixed]'), node => node.getAttribute('data-ple-fixed'));
-    assert.deepEqual(fixed, ['fixed-action', 'fixed-materials-call', 'fixed-guide-call', 'fixed-approval-call', 'fixed-approval-result']);
+    const kinds = ['materials', 'guide', 'requirements', 'approval'];
+    const approval = ctx.host.querySelector('[data-ple-stage="approval"]');
+    assert.deepEqual(Array.from(approval.querySelectorAll('[data-ple-fixed]'), node => node.getAttribute('data-ple-fixed')), [
+        'fixed-requirements-call', 'fixed-requirements-result', 'fixed-requirements-description',
+        'fixed-approval-call', 'fixed-approval-result', 'fixed-approval-description',
+    ]);
     assert.equal(ctx.host.querySelector('[data-ple-fixed] [data-ple-drag]'), null);
-    assert.deepEqual(ctx.ids().filter(id => fixed.includes(id)), []);
+    assert.deepEqual(ctx.ids(), BUILTIN_BLOCK_IDS);
     const body = id => ctx.host.querySelector(`[data-ple-fixed="${id}"] [data-ple-preview-body]`);
     const toggle = id => ctx.host.querySelector(`[data-ple-preview="${id}"]`);
-    assert.equal(body('fixed-approval-result').hasAttribute('hidden'), true);
-    ctx.click(toggle('fixed-approval-result'));
-    assert.equal(body('fixed-approval-result').hasAttribute('hidden'), false);
-    assert.match(body('fixed-approval-result').textContent, /APPROVED/);
-    // 预览显示真正发出去的包装，而不只是里面那句话。
-    assert.deepEqual(JSON.parse(body('fixed-approval-result').textContent), { approved: true, content: 'APPROVED. Proceed with `submit_scene_plan`.' });
-    ctx.click(toggle('fixed-approval-result'));
-    assert.equal(body('fixed-approval-result').hasAttribute('hidden'), true);
-    // 行里的灰字只放包装里面那句话（并截到和别的行一样长），不把整串 JSON 挤进一行。
+    for (const [index, kind] of kinds.entries()) {
+        const call = `fixed-${kind}-call`;
+        const receipt = `fixed-${kind}-result`;
+        assert.equal(body(receipt).hasAttribute('hidden'), true);
+        ctx.click(toggle(call));
+        ctx.click(toggle(receipt));
+        assert.equal(body(call).value, buildScenePlannerExchange(kind)[0].template);
+        assert.equal(body(receipt).hasAttribute('hidden'), false);
+        assert.deepEqual(JSON.parse(body(receipt).value), scenePlannerHandoffReceipt(SCENE_PLANNER_HANDOFF_NAMES[index]));
+        ctx.click(toggle(receipt));
+        assert.equal(body(receipt).hasAttribute('hidden'), true);
+    }
+    const [, , requirements, approvalTool] = createScenePlannerHandoffTools().map(tool => tool.function);
+    ctx.click(toggle('fixed-requirements-description'));
+    assert.equal(body('fixed-requirements-description').value, requirements.parameters.properties.requirements.description);
+    ctx.click(toggle('fixed-approval-description'));
+    assert.equal(body('fixed-approval-description').value, approvalTool.description);
     const summaryOf = id => ctx.host.querySelector(`[data-ple-fixed="${id}"] .lwb-ple-summary`).textContent;
-    assert.ok(!summaryOf('fixed-approval-result').includes('{'));
-    assert.match(summaryOf('fixed-approval-result'), /^APPROVED\./);
     for (const id of fixed) assert.ok(Array.from(summaryOf(id)).length <= 41, `${id} summary too long`);
     assert.equal(toggle('opening'), null);
     ctx.click(toggle('frame'));
@@ -733,7 +745,7 @@ test('preview refresh updates open data in place without changing drafts or open
     assert.equal(body.value, preview);
 });
 
-test('tool-role rows are badged 工具返回 (not 工具), and only rows with an inline editor are marked editable', () => {
+test('tool descriptions and receipts are distinguished, and only rows with an inline editor are marked editable', () => {
     const { document } = parseHTML('<html><body><div id="host"></div><div id="parking" hidden><div id="opening"><textarea></textarea></div><div id="guide"><textarea></textarea></div></div></body></html>');
     const host = document.getElementById('host');
     const editor = createPromptLayoutEditor({
@@ -746,12 +758,12 @@ test('tool-role rows are badged 工具返回 (not 工具), and only rows with an
     const row = id => host.querySelector(`[data-block-id="${id}"]`);
     const badge = node => node.querySelector('[data-ple-role]');
     const approvalResult = host.querySelector('[data-ple-fixed="fixed-approval-result"]');
-    assert.equal(badge(approvalResult).textContent, '工具返回');
-    assert.equal(badge(row('worldInfo')).textContent, '工具返回');
-    assert.equal(badge(row('limits')).textContent, '工具返回');
-    assert.equal(badge(row('opening')).textContent, '系统');
-    assert.match(badge(row('limits')).getAttribute('title'), /不是工具定义/);
-    assert.equal(badge(row('opening')).hasAttribute('title'), false);
+    assert.equal(badge(approvalResult).getAttribute('data-ple-role'), 'tool');
+    for (const id of ['worldInfo', 'content', 'guide', 'rules', 'limits']) {
+        assert.equal(badge(row(id)).getAttribute('data-ple-role'), 'tools');
+    }
+    assert.notEqual(badge(row('worldInfo')).textContent, badge(approvalResult).textContent);
+    assert.equal(badge(row('opening')).getAttribute('data-ple-role'), 'system');
     // 只有 opening / guide 提供了就地编辑器：只有它们带 editable，其余内置行与固定消息行都不带。
     assert.equal(row('opening').classList.contains('lwb-ple-editable'), true);
     assert.equal(row('guide').classList.contains('lwb-ple-editable'), true);

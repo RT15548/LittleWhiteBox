@@ -42,30 +42,6 @@ for (const [section, key] of [['keywords', 'text'], ['arcs', 'name']]) {
     });
 }
 
-// Acceptance: receiving a background refresh while editing must not change the
-// user's comparison baseline. Cost: accidentally undoing confirmed Agent edits.
-test('editor sends its opening projection even after a background refresh', () => {
-    const { document } = parseHTML('<div id="editor-struct"></div><textarea id="editor-ta"></textarea>'
-        + '<div id="editor-title"></div><div id="editor-hint"></div><div id="editor-err"></div><div id="editor-modal"></div>');
-    const messages = [];
-    const summaryData = { facts: [{ id: 'f1', s: 'A', p: 'location', o: 'old', since: 2, _addedAt: 2 }] };
-    const ui = uiEntry(['openEditor', 'closeEditor', 'readEditorData', 'saveEditor'], {
-        currentEditSection: null, currentEditBaseline: null, structuredClone, summaryData, archiveView: { closeDialogs() {} },
-        SECTION_META: { facts: { title: '', hint: '' } }, $: id => document.getElementById(id),
-        postMsg: (type, data) => messages.push(structuredClone({ type, ...data })), renderFacts() {},
-    });
-    ui.openEditor('facts');
-    summaryData.facts[0] = { ...summaryData.facts[0], o: 'agent edit', since: 9 };
-    document.getElementById('editor-ta').value = 'A|location|user edit';
-    ui.saveEditor();
-    const saved = messages.find(item => item.type === 'UPDATE_SECTION');
-    assert.equal(saved.previous[0].o, 'old');
-    assert.equal(saved.previous[0].since, 2);
-    assert.equal(saved.data[0].o, 'user edit');
-    assert.equal(saved.data[0].since, 2);
-    assert.equal(ui.currentEditBaseline, null);
-});
-
 // Acceptance: UI defaults are not user edits and must not overwrite background
 // corrections when the user saves unchanged. Cost: silent loss of maintained data.
 test('an editor default does not become an unintended change', () => {

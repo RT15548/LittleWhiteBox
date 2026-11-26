@@ -1,19 +1,21 @@
 import { CARD_FIELDS, TEXT_FIELDS } from './files.js';
 
 export const CARD_FILES = 'CardFiles';
+export const CARD_ASSETS = 'CardAssets';
+export const SET_CARD_AVATAR_ACTION = 'setAvatar';
 
 export const CARD_SKILL = Object.freeze({
     id: 'builtin-card-files', title: '小白X角色卡制作',
-    summary: 'CardFlow: keep design decisions and open questions in design.md while discussing, prototyping or building to the user\'s current goal. Organizes character-card content and worldbooks and writes files back through CardFiles. Read builtin-card-frontend for presentation and builtin-state3 or builtin-state2 for gameplay state.',
+    summary: 'CardFlow: keep design decisions and open questions in design.md while discussing, prototyping or building to the user\'s current goal. CardFiles edits character-card content and can set its cover (avatar) from a workspace image. Read builtin-card-frontend for presentation and builtin-state3 or builtin-state2 for gameplay state.',
     path: 'modules/card-workspace/skill/SKILL.md',
-    tools: [CARD_FILES],
+    tools: [CARD_FILES, CARD_ASSETS],
 });
 
 export const FRONTEND_SKILL = Object.freeze({
     id: 'builtin-card-frontend', title: '角色卡前端与交互',
     summary: 'Design story presentation, supporting panels or an integrated play interface. Connect scene entry, reading, player actions and feedback while reusing host chat, variable controls and image operations. Includes a complete integrated-card example; gameplay rules belong to the variable skills.',
     path: 'modules/card-workspace/skill/frontend/SKILL.md',
-    tools: [CARD_FILES],
+    tools: [CARD_FILES, CARD_ASSETS],
 });
 
 // Field names are derived from the same projection used by CardFiles.
@@ -60,15 +62,41 @@ export function frontendSkillContent(body, pluginPath) {
 export const CARD_TOOL = Object.freeze({ type: 'function', function: {
     name: CARD_FILES,
     description: [
-        'Open the current character card as workspace files, write selected files back to the card, or reload selected files from the saved card.',
+        'Work with the selected SillyTavern character card: open, save or refresh its workspace files, or set its cover image.',
         'Edit the opened files with Read, Write and apply_patch; ReadSkill builtin-card-files describes the file layout.',
         'open returns {root, avatar, name, files:[{path, name, kind, book?}], reused, warnings?:[{path,message}]}; each entry, regex or task occupies one named file. reused is true when an existing workspace copy was kept with its edits. warnings identify a design draft whose saved version also changed; the draft is retained and other files remain accessible.',
         'save returns {ok, results:[{path, fromPath?, saved, unchanged?, hasUnsavedEdits?, missingActivationConfig?, error?}]}. path is the current file path; fromPath identifies the previous path after a rename. unchanged marks a file already equal to the card. hasUnsavedEdits marks a newer edit or removal in the workspace; it remains intact.',
         'missingActivationConfig flags an enabled worldbook entry without constant, vector, keyword or a recognized @@activate decorator, including unchanged saves. Check its intended activation: external scripts can activate entries too. If ordinary worldbook triggering is intended, set keywords or constant in the document header settings and save.',
         'refresh replaces the named workspace files with the saved card content and returns {paths, refreshed:true}.',
+        'setAvatar saves one workspace image as the selected card\'s cover and chat avatar. Returns {ok:true, avatar, name, sourcePath} after verifying the saved picture.',
+        'previewRefreshFailed:true means the cover is saved but the page needs a refresh to display it.',
+        'Use setAvatar when the user asks to apply a cover. Showing cover candidates leaves the card unchanged. For a newly drawn cover, open the target card before drawing and keep its avatar for the write.',
+        'For “上一张” or “第二张”, use the workspace path and image order from the referenced result in this conversation. Ask which image when the reference is ambiguous.',
     ].join('\n'),
     parameters: { type: 'object', properties: {
-        action: { type: 'string', enum: ['open', 'save', 'refresh'] },
-        paths: { type: 'array', items: { type: 'string' }, description: 'Exact local workspace file paths. Required for save and refresh; omitted for open. Each save changes only the named files.' },
+        action: { type: 'string', enum: ['open', 'save', 'refresh', SET_CARD_AVATAR_ACTION] },
+        paths: { type: 'array', items: { type: 'string' }, description: 'Exact local workspace file paths for save and refresh. Each save changes only the named files.' },
+        avatar: { type: 'string', description: 'Target card identifier returned by open. Required for setAvatar; the card must still be selected.' },
+        sourcePath: { type: 'string', description: 'Exact workspace image path (local/…). Required for setAvatar.' },
     }, required: ['action'], additionalProperties: false },
+} });
+
+export const CARD_ASSETS_TOOL = Object.freeze({ type: 'function', function: {
+    name: CARD_ASSETS,
+    description: [
+        'Manage portable images for the current character card. Open its working copy with CardFiles first.',
+        'list returns {ok,status,tasks:[{taskPath,name,runtime,assets}],errors:[{taskPath,error}]}. It checks all task files in the open root unless taskPath is provided. Malformed files appear in errors; status is partial when usable image tasks remain, failed when only errors remain, otherwise success.',
+        'set copies a workspace image into the card draft, replacing the image at the same key. It creates a dedicated loader at a new taskPath. remove clears a key from its draft. Both return {ok,taskPath,runtime,asset?,unchanged,draft:true,requiresWriteback:true}; unchanged means the draft already matched the request. These are workspace-only receipts.',
+        'read opens an existing key as an image for inspection and returns {ok,asset,runtime,images}. The images entries are workspace image references.',
+        'An asset is {key,digest,mime,size}; size is in bytes. A runtime is {taskId,reference,readyEvent}; reference is a host-page JavaScript expression for the loader.',
+        'CardFiles save of taskPath embeds the draft images in the card. The loader and images travel in the exported card.',
+        'A damaged saved entry stays on the card while other keys are edited. Errors identify its task and position. Use set or remove for a unique key; for a missing or duplicate key, edit only the reported entry in the task document.',
+    ].join('\n'),
+    parameters: { type: 'object', properties: {
+        action: { type: 'string', enum: ['list', 'set', 'remove', 'read'] },
+        rootPath: { type: 'string', description: 'Root returned by CardFiles open.' },
+        taskPath: { type: 'string', description: 'Dedicated image task path under tasks/ in that root. Required for set, remove and read; optional for list. For the first set, choose a new .md task path.' },
+        key: { type: 'string', maxLength: 80, pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$', description: 'Image key used by the card frontend. Required for set, remove and read.' },
+        sourcePath: { type: 'string', description: 'Path to a workspace PNG, JPEG, WebP or GIF. Required for set.' },
+    }, required: ['action', 'rootPath'], additionalProperties: false },
 } });

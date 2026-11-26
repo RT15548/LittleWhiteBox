@@ -2437,7 +2437,7 @@ function sendFrameFullData(store, totalFloors) {
             payload: buildFramePayload(store),
         });
     } else {
-        postToFrame({ type: "SUMMARY_CLEARED", payload: { totalFloors, chatIdentity: getChatIdentity(getContext()) } });
+        postToFrame({ type: "SUMMARY_CLEARED", payload: { totalFloors, chatIdentity: getChatIdentity(getContext()), userName: getContext().name1 || '' } });
     }
 }
 
@@ -2446,6 +2446,7 @@ function buildFramePayload(store) {
     const facts = json.facts || [];
     return {
         chatId: getContext().chatId || '',
+        userName: getContext().name1 || '',
         chatIdentity: getChatIdentity(getContext()),
         removedGraphPeople: store?.removedGraphPeople || [],
         keywords: json.keywords || [],
@@ -3755,6 +3756,7 @@ async function handleFrameMessage(event) {
             const { chatId } = context;
             const chatIdentity = getChatIdentity(context);
             try {
+                if (data.requestId != null && data.identity !== chatIdentity) throw new Error('metadata_commit_cancelled');
                 cancelActiveSummaryExecution();
                 cancelRecallAndClearPrompt('summary-edited');
                 if (data.section === "events") cancelEmbeddingWriteTasks('Summary events edited');
@@ -3792,8 +3794,10 @@ async function handleFrameMessage(event) {
                 if (getChatIdentity(getContext()) !== chatIdentity) break;
                 if (!committed) throw new Error('metadata_commit_cancelled');
                 postToFrame({ type: 'SUMMARY_FULL_DATA', payload: buildFramePayload(readPublishedSummaryMemory().storySummary) });
+                if (data.requestId != null) postToFrame({ type: 'SUMMARY_SECTION_SAVED', requestId: data.requestId, identity: chatIdentity });
                 if (committed.oldEvents) await syncEventVectorsOnEdit(committed.oldEvents, committed.events);
             } catch (error) {
+                if (data.requestId != null) postToFrame({ type: 'SUMMARY_SECTION_SAVED', requestId: data.requestId, identity: data.identity, error: memorySaveError(error) });
                 if (getChatIdentity(getContext()) === chatIdentity) reportMemorySaveFailure(error);
                 else console.warn({ source: import.meta.url, operation: 'UPDATE_SECTION' }, error);
             }

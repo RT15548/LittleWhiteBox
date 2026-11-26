@@ -7,6 +7,7 @@ import { MAX_CUSTOM_TOOL_CALLS } from '../custom-tools.js';
 import { executePreparedScenePlanner } from '../scene-planner-executor.js';
 import { generateAndParseScenePlan, prepareScenePlannerInput } from '../scene-planner.js';
 import { addBlockAfter, createDefaultLayout } from '../scene-planner-layout.js';
+import { SCENE_PLANNER_HANDOFF_NAMES } from '../scene-planner-handoff.js';
 import { createInProcessToolHost } from './helpers/in-process-tool-host.js';
 import { createToolBlock } from './helpers/tool-block.js';
 
@@ -93,8 +94,9 @@ for (const toolMode of ['native', 'tagged-json']) {
         assert.equal(tasks[0].scene, 'opening door, indoor');
         assert.equal(requests.length, 2);
         assert.deepEqual(host.calls, [{ name: 'note', args: { content: '先想想' } }]);
-        // 两个工具都发给了模型；工具块的说明消息也在请求里，但代码不在。
-        if (toolMode === 'native') assert.deepEqual(requests[0].tools.map(tool => tool.function.name), ['submit_scene_plan', 'note']);
+        // 工具表按提交、交接、自定义排序；工具块的说明消息在请求里，但代码不在。
+        const toolNames = ['submit_scene_plan', ...SCENE_PLANNER_HANDOFF_NAMES, 'note'];
+        if (toolMode === 'native') assert.deepEqual(requests[0].tools.map(tool => tool.function.name), toolNames);
         else assert.match(JSON.stringify(requests[0].messages), /- note: 记下分析/);
         assert.match(JSON.stringify(requests[0].messages), /先调用 note 再提交/);
         assert.doesNotMatch(JSON.stringify(requests[0]), /action: async/);
@@ -105,7 +107,7 @@ for (const toolMode of ['native', 'tagged-json']) {
         assert.equal(diagnostic.customToolCalls[0].name, 'note');
         assert.deepEqual(diagnostic.customToolCalls[0].arguments, { content: '先想想' });
         assert.match(diagnostic.customToolCalls[0].result, /"len":3/);
-        assert.equal(diagnostic.toolsCount, 2);
+        assert.equal(diagnostic.toolsCount, toolNames.length);
         assert.equal(diagnostic.correctionCount, 0);
     });
 }
@@ -202,7 +204,7 @@ test('without a host the tool block is refused before any request is sent', asyn
     assert.equal(requests.length, 0);
 });
 
-test('a disabled tool block is ignored: no host needed, single tool, nothing extra sent', async () => {
+test('a disabled tool block is ignored: no host needed and only built-in tools remain', async () => {
     const { tasks, error, requests } = await runPlanner({
         toolMode: 'native',
         layout: layoutWithTool({ enabled: false }),
@@ -211,7 +213,7 @@ test('a disabled tool block is ignored: no host needed, single tool, nothing ext
     });
     assert.equal(error, undefined, error?.message);
     assert.equal(tasks.length, 1);
-    assert.deepEqual(requests[0].tools.map(tool => tool.function.name), ['submit_scene_plan']);
+    assert.deepEqual(requests[0].tools.map(tool => tool.function.name), ['submit_scene_plan', ...SCENE_PLANNER_HANDOFF_NAMES]);
 });
 
 test('the prepared snapshot carries tool definitions but never code, and a host-less executor (background run) refuses it', async () => {
@@ -236,7 +238,7 @@ test('the prepared snapshot carries tool definitions but never code, and a host-
     await assert.rejects(executePreparedScenePlanner(tampered, { customToolHost: host }), { code: 'PREPARED_INPUT_INVALID' });
 });
 
-test('default requests are untouched: no customTools key in the snapshot and a single tool', async () => {
+test('default requests carry no customTools key in the snapshot', async () => {
     const prepared = await prepareScenePlannerInput({
         messageText: '阿璃推开门。',
         maxImages: 1,

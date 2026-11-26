@@ -16,7 +16,7 @@ function updateElement(current, next) {
     current.onclick = next.onclick;
     current.oninput = next.oninput;
     if (current.tagName === 'INPUT' && current.value !== next.value) current.value = next.value;
-    if (!next.hasAttribute('data-workspace-editor')) updateWorkspaceChildren(current, next);
+    if (!next.matches('[data-workspace-editor], [data-workspace-image-preview]')) updateWorkspaceChildren(current, next);
 }
 
 export function updateWorkspaceChildren(current, next) {

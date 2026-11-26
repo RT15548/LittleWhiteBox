@@ -1,5 +1,6 @@
 import type { PublicAgentSession, AgentChatResult } from '../../../agent-core/public-api.js';
 import { correctionTask } from '../../updater/correction.js';
+import { handoffReceipt } from '../../updater/handoff.js';
 import type { Diagnostic, Failure, Result, RunOptions, UpdateStage, Json } from '../types.js';
 import type { SettlementService } from '../runtime/service.js';
 import { state3Context as getContext, latestUserIndex, type createHostAdapter } from '../runtime/host.js';
@@ -163,11 +164,16 @@ export function createState3Updater({ service, adapter, available, changed, rewo
                     const response = await modelRequest(() => session!.chat({ ...task, signal }));
                     prepared.staged.assertCurrent(); signal.throwIfAborted();
                     const calls = response.toolCalls || [];
-                    if (!response.truncated && response.completion === 'complete' && calls.length && calls.every(call => customNames.has(call.name))) {
+                    const toolBatch = calls.length > 0 && calls.every(call => customNames.has(call.name) || handoffReceipt(call.name));
+                    const custom = calls.some(call => customNames.has(call.name));
+                    // Repeated handoff calls alone past the limit become a rejected submission.
+                    if (!response.truncated && response.completion === 'complete' && toolBatch && (custom || toolCalls + calls.length <= TOOL_CALL_LIMIT)) {
                         if (toolCalls + calls.length > TOOL_CALL_LIMIT) {setPhase('failed'); return detailed({ ok: false, diagnostics: [{ code: 'extension-limit' }] });}
                         task = { ...task, messages: [...task.messages, response.reply] };
                         for (const call of calls) {
                             toolCalls++;
+                            const receipt = handoffReceipt(call.name);
+                            if (receipt) { task.messages.push(session.toolResult(call, receipt)); continue; }
                             let output: Json;
                             try {
                                 const args = JSON.parse(call.arguments) as Json;

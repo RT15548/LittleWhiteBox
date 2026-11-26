@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyTextEdits } from '../tools/text-edit.js';
+import { applyPatchLineEdits, applyTextEdits } from '../tools/text-edit.js';
 
 test('Shared applyTextEdits replaces short and multiline text fragments', () => {
     const result = applyTextEdits('她低头看杯子。\n杯沿还有水痕。\n她笑了。', [
@@ -432,4 +432,84 @@ test('Shared applyTextEdits returns original content for empty edits', () => {
     assert.equal(result.content, '原文');
     assert.equal(result.results[0].error, 'invalid_edits');
     assert.match(result.results[0].suggestion, /non-empty edits array/);
+});
+
+test('Structured line edits keep original coordinates and preview final output order', () => {
+    const result = applyPatchLineEdits('one\ntwo\nthree\nfour\nfive\n', [
+        { insertAtLine: 6, newString: 'tail' },
+        { insertAtLine: 2, newString: '11: literal prefix\n\n13: another prefix' },
+        { startLine: 2, endLine: 3, newString: '22: literal replacement' },
+        { insertAtLine: 2, newString: 'second insert' },
+        { insertAtLine: 7, newString: 'append' },
+    ]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.content, 'one\n11: literal prefix\n\n13: another prefix\nsecond insert\n22: literal replacement\nfour\nfive\ntail\nappend\n');
+    assert.deepEqual(result.results, [
+        { ok: true, index: 0, insertAtLine: 6, previewStartLine: 9, previewEndLine: 9, newPreview: '9: tail' },
+        { ok: true, index: 1, insertAtLine: 2, previewStartLine: 2, previewEndLine: 4, newPreview: '2: 11: literal prefix\n3: \n4: 13: another prefix' },
+        { ok: true, index: 2, startLine: 2, endLine: 3, previewStartLine: 6, previewEndLine: 6, newPreview: '6: 22: literal replacement' },
+        { ok: true, index: 3, insertAtLine: 2, previewStartLine: 5, previewEndLine: 5, newPreview: '5: second insert' },
+        { ok: true, index: 4, insertAtLine: 7, previewStartLine: 10, previewEndLine: 10, newPreview: '10: append' },
+    ]);
+});
+
+test('Structured line edits preserve mixed line endings and let explicit EOF ranges change the final newline', () => {
+    const content = 'one\r\ntwo\nthree\r\nfour\rfive\r\n';
+    const result = applyPatchLineEdits(content, [
+        { startLine: 2, endLine: 2, newString: 'replaced\r\nupdated' },
+        { insertAtLine: 6, newString: 'append' },
+    ]);
+    assert.equal(result.ok, true);
+    assert.equal(result.content, 'one\r\nreplaced\r\nupdated\nthree\r\nfour\rfive\r\nappend\r\n');
+
+    const deleted = applyPatchLineEdits('one\r\n', [{ startLine: 2, endLine: 2, newString: '' }]);
+    assert.equal(deleted.content, 'one');
+    assert.deepEqual(deleted.results[0], {
+        ok: true, index: 0, startLine: 2, endLine: 2, previewStartLine: null, previewEndLine: null, newPreview: '',
+    });
+    assert.equal(applyPatchLineEdits('one\r\n', [{ startLine: 1, endLine: 1, newString: '' }]).content, '\r\n');
+    assert.equal(applyPatchLineEdits('one\r\n', [{ startLine: 2, endLine: 2, newString: 'two' }]).content, 'one\r\ntwo');
+    assert.equal(applyPatchLineEdits('one', [{ insertAtLine: 2, newString: 'two' }]).content, 'one\ntwo');
+    assert.equal(applyPatchLineEdits('one', [{ startLine: 1, endLine: 1, newString: 'two\n' }]).content, 'two\n');
+});
+
+test('Structured line edits use Read bounds and retain shared range conflict failures', () => {
+    const empty = applyPatchLineEdits('', [{ insertAtLine: 1, newString: '\nfirst' }]);
+    assert.equal(empty.ok, true);
+    assert.equal(empty.content, '\nfirst');
+    assert.equal(empty.results[0].newPreview, '1: \n2: first');
+    const noEmptyRange = applyPatchLineEdits('', [{ startLine: 1, endLine: 1, newString: 'first' }]);
+    assert.equal(noEmptyRange.ok, false);
+    const { ok, index, mode, startLine, endLine, error } = noEmptyRange.results[0];
+    assert.deepEqual({ ok, index, mode, startLine, endLine, error }, {
+        ok: false, index: 0, mode: 'line_range', startLine: 1, endLine: 1, error: 'line_range_out_of_bounds',
+    });
+    const conflicts = applyPatchLineEdits('a\nb\nc\nd\ne', [
+        { startLine: 1, endLine: 2, newString: '' },
+        { startLine: 2, endLine: 2, newString: 'overlap' },
+        { startLine: 3, endLine: 4, newString: 'range' },
+        { insertAtLine: 4, newString: 'inside range' },
+        { insertAtLine: 7, newString: 'outside file' },
+    ]);
+    assert.equal(conflicts.ok, false);
+    assert.deepEqual(conflicts.results.map(({ index, error }) => [index, error]), [
+        [0, 'overlapping_line_ranges'], [1, 'overlapping_line_ranges'],
+        [2, 'insert_inside_line_range'], [3, 'insert_inside_line_range'], [4, 'insert_line_out_of_bounds'],
+    ]);
+});
+
+test('Structured line edit previews are bounded without truncating output', () => {
+    const longLine = 'a'.repeat(2000);
+    const manyLines = Array.from({ length: 20 }, (_, index) => String(index)).join('\n');
+    const result = applyPatchLineEdits('original', [
+        { insertAtLine: 1, newString: longLine },
+        { startLine: 1, endLine: 1, newString: manyLines },
+    ]);
+    assert.equal(result.ok, true);
+    assert.equal(result.content, `${longLine}\n${manyLines}`);
+    assert.equal(result.results[0].newPreview.length, 240);
+    assert.equal(result.results[1].previewEndLine, 21);
+    assert.equal(result.results[1].newPreview.split('\n').length, 9);
+    assert.equal(applyPatchLineEdits('', [{ insertAtLine: 2, newString: longLine }]).results[0].newPreview.length, 240);
 });

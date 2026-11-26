@@ -55,7 +55,7 @@ function setup(replies, hook = () => {}) {
             const next = replies[sent.length - 1];
             if (next instanceof Error) throw next;
             return next;
-        }, dispose() { disposed++; } };
+        }, toolResult: (call, value) => ({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(value) }), dispose() { disposed++; } };
     } };
     controller = createController({ context: ctx, stateApi: api, assemble: async () => task, request: requestUpdate,
         settings: () => ({ source: 'main' }), assertAvailable() {}, changed() {} });
@@ -82,6 +82,17 @@ test('malformed and rule-rejected writes get one correction with original reply 
         // A fresh replacement attempt must revoke the earlier successful update.
         api.beginUpdate({ floor: 1, swipeId: 0 }).commit({ ops: [] });
     }
+});
+
+// Declared handoff tools must not become rejected submissions (lost updates / wasted correction).
+test('a repeated handoff call receives its receipt in the same request, then write settles', async () => {
+    const repeat = { completion: 'complete', toolCalls: [{ id: 'again', name: 'read_work_requirements', arguments: '{}' }],
+        reply: { role: 'assistant', content: '', tool_calls: [{ id: 'again', type: 'function', function: { name: 'read_work_requirements', arguments: '{}' } }] } };
+    const { sent, disposed } = setup([repeat, response(input(-5))]); await controller.update();
+    assert.equal(sent.length, 2); assert.equal(disposed(), 1); assert.equal(controller.status().phase, 'success');
+    assert.deepEqual(sent[1].messages.slice(0, task.messages.length), task.messages);
+    assert.equal(sent[1].messages.at(-1).tool_call_id, 'again');
+    assert.equal(readStoredValue(ctx(), '角色').金币, 95);
 });
 
 test('second rejection keeps the real rollback and does not make a third request', async () => {

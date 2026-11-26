@@ -9,6 +9,9 @@ import * as files from './files.js';
 import * as documents from './item-document.js';
 import { equalText } from './comparison.js';
 import { COPY } from './copy.js';
+import { SET_CARD_AVATAR_ACTION } from './assistant-contract.js';
+import { cardFileDirectory } from './display.js';
+import { ASSET_FIELD } from './asset-task.js';
 import { createCardLifecycle } from './lifecycle.js';
 import { workspaceRepository } from '../assistant/shared/workspace-repository.js';
 import { applyWorkspaceObservations, buildWorkspacePreconditions, findWorkspaceConflicts } from '../assistant/shared/workspace-preconditions.js';
@@ -21,14 +24,33 @@ async function edit(content) {
         preconditions: buildWorkspacePreconditions('Write', args, (await workspaceRepository.readWorkspace()).localSources),
         execute: async sources => ({ result: { ok: true }, nextSources: upsertLocalSourceFile(sources, path, content).nextSources }) });
 }
-function harness(readDesign, saveFile) {
+function harness(readDesign, saveFile, data = {}) {
     const source = readFileSync(new URL('./service.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '');
-    return runInNewContext(source + '\nrunCardFiles', { ...workspace, ...files, ...documents, equalText, COPY, Set,
+    return runInNewContext(source + '\nrunCardFiles', { ...workspace, ...files, ...documents, equalText, COPY, Set, SET_CARD_AVATAR_ACTION,
         saveFile, flattenLocalSourceFiles, normalizeLocalSourceFile,
         currentCard: () => ({ avatar: 'fixture.png', name: 'fixture' }),
-        readCharacter: async () => ({ data: {} }), linkedBooks: () => [], readDesign,
-        cardFileDirectory: value => value, cardLifecycle: createCardLifecycle() });
+        readCharacter: async () => ({ data }), linkedBooks: () => [], readDesign,
+        cardFileDirectory, cardLifecycle: createCardLifecycle() });
 }
+
+test('first open and reopening a damaged card identify its file and key without exporting the bad payload', async () => {
+    await db.delete(); await db.open();
+    try {
+        const damaged = { key: 'banner', mime: 'image/png', size: 1, base64: 'private-payload' };
+        const run = harness(async () => '', null, { description: 'valid', extensions: { 'xiaobaix-tasks': { tasks: [
+            { id: 'fixture', name: 'images', commands: '', x: { [ASSET_FIELD]: [damaged] } },
+        ] } } });
+        for (const reused of [false, true]) {
+            const result = await run({ action: 'open' });
+            assert.equal(result.reused, reused);
+            assert.equal(result.warnings[0].path, root + 'tasks/images.md');
+            assert.ok(result.warnings[0].message.includes('banner'));
+            const local = await workspace.readFiles();
+            assert.equal(local.find(file => file.path.endsWith('/description.md')).content, 'valid');
+            assert.ok(!JSON.stringify(local).includes(damaged.base64));
+        }
+    } finally { await db.delete(); }
+});
 
 // A committed tool save permits the next edit without Read; an unseen human draft stays protected.
 for (const timing of ['none', 'before', 'during', 'after']) test('same-run CardFiles receipt; editor change: ' + timing, async () => {
@@ -51,7 +73,7 @@ for (const timing of ['none', 'before', 'during', 'after']) test('same-run CardF
         if (timing === 'after') await edit('D');
         const actual = (await workspaceRepository.readWorkspace()).localSources;
         function conflicts(target) {
-            const args = { patchText: ['*** Begin Patch', '*** Update File: ' + target, '@@', '-B', '+C', '*** End Patch'].join('\n') };
+            const args = { files: [{ path: target, edits: [{ oldString: 'B', newString: 'C' }] }] };
             return findWorkspaceConflicts('apply_patch', args, buildWorkspacePreconditions('apply_patch', args, baseline), actual);
         }
         assert.deepEqual(conflicts(path), timing === 'none' ? [] : [path]);

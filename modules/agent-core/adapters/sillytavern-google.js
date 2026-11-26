@@ -1,3 +1,4 @@
+import { createIdentifier } from '../../../shared/common/identifier.js';
 import { readResponseCompletion } from '../runtime/response-completion.js';
 import { buildSamplingParameters } from '../sampling.js';
 import {
@@ -194,8 +195,8 @@ function extractFunctionCalls(content = {}) {
     return (content.parts || [])
         .map((part) => part?.functionCall || null)
         .filter((item) => item?.name)
-        .map((item, index) => ({
-            id: item.id || `st-google-tool-${index + 1}`,
+        .map((item) => ({
+            id: item.id,
             name: item.name,
             arguments: JSON.stringify(item.args || {}),
         }));
@@ -256,8 +257,12 @@ function createGoogleStreamAccumulator(task, effectiveReasoning, config = {}) {
             model = event.model || event.modelVersion || model;
             finishReason = event?.candidates?.[0]?.finishReason || finishReason;
             const content = getEventContent(event);
-            if (content.parts.length) {
-                parts.push(...(cloneJson(content.parts) || []));
+            // Assign once on the cloned native parts so tool results and replay share the same IDs.
+            for (const part of content.parts) {
+                if (part?.functionCall?.name && !part.functionCall.id) {
+                    part.functionCall.id = `st-google-tool-${createIdentifier()}`;
+                }
+                parts.push(part);
             }
             text = mergeStreamText(text, extractVisibleText(content));
             toolCalls = mergeToolCalls(toolCalls, extractFunctionCalls(content));

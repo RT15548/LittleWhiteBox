@@ -372,6 +372,8 @@ export class OpenAIResponsesAdapter {
                         name: tool.function.name,
                         description: tool.function.description,
                         parameters: tool.function.parameters,
+                        // Responses otherwise makes optional fields required when normalizing strict schemas.
+                        strict: tool.function.strict ?? false,
                     })),
                     tool_choice: task.toolChoice || 'auto',
                 }
@@ -428,7 +430,7 @@ export class OpenAIResponsesAdapter {
         });
     }
 
-    async chat(task) {
+    async chat(task, transport) {
         const effectiveReasoning = resolveTaskReasoning('openai-responses', this.config, task.reasoning);
         const requestAttempts = [];
         const buildRequestInspection = () => {
@@ -597,12 +599,19 @@ export class OpenAIResponsesAdapter {
             : createRequest;
         let response;
         let parsed;
+        const legacy = transport?.legacySystemInInput === true;
+        const claimFallback = () => {
+            if (!transport) return true;
+            if (!transport.claimFallback()) return false;
+            transport.legacySystemInInput = true;
+            return true;
+        };
 
         try {
-            response = await sendRequest(false, 'initial');
+            response = await sendRequest(legacy, 'initial');
             parsed = parseResponse(response);
         } catch (error) {
-            if (!allowCompatibilityFallback || !shouldRetryWithLegacySystem(error)) {
+            if (legacy || !allowCompatibilityFallback || !shouldRetryWithLegacySystem(error) || !claimFallback()) {
                 throw attachRequestInspection(error);
             }
             response = await sendRequest(true, 'legacy_system_error');
@@ -613,10 +622,10 @@ export class OpenAIResponsesAdapter {
             }
         }
 
-        if (allowCompatibilityFallback
+        if (!legacy && allowCompatibilityFallback
             && requestAttempts.length < 2
             && !parsed.text
-            && !parsed.toolCalls.length) {
+            && !parsed.toolCalls.length && claimFallback()) {
             response = await sendRequest(true, 'empty_response');
             try {
                 parsed = parseResponse(response);

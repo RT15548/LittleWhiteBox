@@ -19,8 +19,7 @@
           "people",
           "claims",
           "leads",
-          "verdict",
-          "note"
+          "verdict"
         ],
         "properties": {
           "clock": {
@@ -133,7 +132,7 @@
           },
           "verdict": {
             "type": "object",
-            "description": "程序给出的审理结果；结案后只允许正文纪要与人物态度更新。",
+            "description": "程序给出的审理结果；结案后仅可更新人物配合度。",
             "required": [
               "status",
               "label",
@@ -178,11 +177,6 @@
                 "type": "string"
               }
             }
-          },
-          "note": {
-            "type": "string",
-            "description": "一句话记录当前审理最要紧的事实，每轮替换。",
-            "maxLength": 120
           }
         },
         "additionalProperties": false
@@ -481,8 +475,7 @@
         "accused": null,
         "evidenceUsed": [],
         "reason": ""
-      },
-      "note": "雾还没散。早八收卷前，查清这批货的来龙去脉。"
+      }
     }
   },
   "access": [
@@ -527,20 +520,8 @@
         "verdict"
       ],
       "direct": false,
-      "description": "程序给出的审理结果；结案后只允许正文纪要与人物态度更新。",
+      "description": "程序给出的审理结果；结案后仅可更新人物配合度。",
       "update": "只提交玩家本轮明确要求且尚未结算的动作；询问规则、假设行动或复述既成结果不提交。正式指控须给出明确对象与证物清单；主动选择不指控结案时才提交 close_case。"
-    },
-    {
-      "path": [
-        "docket",
-        "note"
-      ],
-      "direct": true,
-      "stages": [
-        "after"
-      ],
-      "description": "最新一句审理纪要。",
-      "update": "正文形成新的审理进展时，用一句话替换纪要；只记录已发生的事实，不复写整段故事。"
     },
     {
       "path": [

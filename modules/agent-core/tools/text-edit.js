@@ -1,6 +1,7 @@
 const CONTEXT_RADIUS = 24;
 const MIN_FLEXIBLE_WHITESPACE_CHARS = 24;
 const EDIT_RESULT_PREVIEW_CHARS = 240;
+const EDIT_RESULT_PREVIEW_LINES = 8;
 
 const NORMALIZE_CHAR_MAP = new Map([
     ['“', '"'],
@@ -100,7 +101,7 @@ function contextForRange(text = '', range = {}) {
     return `${prefix}${text.slice(start, end).replace(/\s+/g, ' ')}${suffix}`;
 }
 
-function numberPreviewLines(lines = [], startLine = 1, limit = 8) {
+function numberPreviewLines(lines = [], startLine = 1, limit = EDIT_RESULT_PREVIEW_LINES) {
     const selected = lines.slice(0, limit);
     const suffix = lines.length > limit ? '\n...' : '';
     return `${selected.map((line, index) => `${startLine + index}: ${line}`).join('\n')}${suffix}`;
@@ -641,10 +642,79 @@ function applyLineInsertEdits(content = '', editList = []) {
     };
 }
 
-function applyLinePositionEdits(content = '', editList = [], modeList = []) {
+function splitPatchLines(text) {
+    if (text === '') return [];
+    const parts = text.split(/(\r?\n)/);
+    const lines = [];
+    for (let index = 0; index < parts.length; index += 2) {
+        lines.push({ text: parts[index], ending: parts[index + 1] || '' });
+    }
+    return lines;
+}
+
+function capPatchPreview(preview) {
+    return preview.length <= EDIT_RESULT_PREVIEW_CHARS
+        ? preview
+        : `${preview.slice(0, EDIT_RESULT_PREVIEW_CHARS - 3)}...`;
+}
+
+function applyStructuredLinePositions(originalLines, ordered, results) {
+    const lineCount = originalLines.length;
+    const terminalEnding = originalLines.at(-1)?.text === '' ? originalLines.at(-2)?.ending : '';
+    const defaultEnding = originalLines.find((line) => line.ending)?.ending || '\n';
+    const keepTerminalLine = terminalEnding && !ordered.some((item) => (
+        !results[item.index] && item.endLine === lineCount
+    ));
+    const nextLines = [];
+    let cursor = 0;
+
+    // Reverse the shared splice order to emit lines at their final positions, including tied inserts.
+    for (const item of ordered.reverse()) {
+        if (results[item.index]) continue;
+        const insert = item.mode === 'line_insert';
+        const anchor = (insert ? item.insertAtLine : item.startLine) - 1;
+        // Append before the terminal empty line unless an EOF range explicitly replaces it.
+        const start = insert && keepTerminalLine ? Math.min(anchor, lineCount - 1) : anchor;
+        const end = insert ? start : item.endLine;
+        for (; cursor < start; cursor += 1) nextLines.push(originalLines[cursor]);
+
+        const replacement = splitPatchLines(item.newString);
+        const previewStartLine = replacement.length ? nextLines.length + 1 : null;
+        const last = replacement.at(-1);
+        if (last) {
+            last.ending = (insert ? originalLines[start - 1]?.ending : originalLines[end - 1]?.ending)
+                || originalLines[start]?.ending || defaultEnding;
+        }
+        for (const line of replacement) nextLines.push(line);
+        cursor = Math.max(cursor, end);
+
+        results[item.index] = {
+            ok: true,
+            index: item.index,
+            ...(insert ? { insertAtLine: item.insertAtLine } : { startLine: item.startLine, endLine: item.endLine }),
+            previewStartLine,
+            previewEndLine: replacement.length ? nextLines.length : null,
+            newPreview: numberPreviewLines(
+                replacement.slice(0, EDIT_RESULT_PREVIEW_LINES + 1).map((line) => line.text.slice(0, EDIT_RESULT_PREVIEW_CHARS)),
+                previewStartLine,
+            ),
+        };
+    }
+
+    // Deleting all body lines without selecting the terminal line keeps its newline.
+    if (keepTerminalLine && !nextLines.length && cursor === lineCount - 1) {
+        nextLines.push({ text: '', ending: terminalEnding });
+    }
+    for (; cursor < lineCount; cursor += 1) nextLines.push(originalLines[cursor]);
+    return nextLines.map((line, index) => (
+        index === nextLines.length - 1 ? line.text : line.text + (line.ending || defaultEnding)
+    )).join('');
+}
+
+function applyLinePositionEdits(content = '', editList = [], modeList = [], patch = false) {
     const hasLineRange = modeList.some((mode) => mode === 'line_range');
-    const originalLines = content === '' && !hasLineRange ? [] : splitFileLines(content);
-    const insertableLineCount = getInsertableLineCount(content);
+    const originalLines = patch ? splitPatchLines(content) : content === '' && !hasLineRange ? [] : splitFileLines(content);
+    const insertableLineCount = content === '' ? 0 : originalLines.length;
     const results = new Array(editList.length);
     const normalized = editList.map((edit = {}, index) => {
         const mode = modeList[index];
@@ -657,7 +727,7 @@ function applyLinePositionEdits(content = '', editList = [], modeList = []) {
                 index,
                 insertAtLine,
                 newString,
-                insertionLines: splitReplacementLines(newString),
+                insertionLines: patch ? undefined : splitReplacementLines(newString),
             };
         }
         const startLine = toPositiveInteger(edit.startLine);
@@ -670,7 +740,7 @@ function applyLinePositionEdits(content = '', editList = [], modeList = []) {
             startLine,
             endLine,
             newString,
-            replacementLines: splitReplacementLines(newString),
+            replacementLines: patch ? undefined : splitReplacementLines(newString),
         };
     });
 
@@ -766,9 +836,7 @@ function applyLinePositionEdits(content = '', editList = [], modeList = []) {
         results[coveringRange.index] = failure;
     });
 
-    const nextLines = originalLines.slice();
-    normalized
-        .slice()
+    const ordered = normalized.slice()
         .sort((left, right) => {
             const leftAnchor = left.mode === 'line_insert' ? left.insertAtLine : left.startLine;
             const rightAnchor = right.mode === 'line_insert' ? right.insertAtLine : right.startLine;
@@ -776,7 +844,19 @@ function applyLinePositionEdits(content = '', editList = [], modeList = []) {
             if (left.mode !== right.mode) return left.mode === 'line_range' ? -1 : 1;
             if (left.mode === 'line_insert') return right.index - left.index;
             return right.endLine - left.endLine || right.index - left.index;
-        })
+        });
+    if (patch) {
+        const nextContent = applyStructuredLinePositions(originalLines, ordered, results);
+        return {
+            ok: results.every((result) => result.ok),
+            content: nextContent,
+            results: attachEditResultIdentities(results, editList, modeList)
+                .map((result) => ({ ...result, newPreview: capPatchPreview(result.newPreview) })),
+        };
+    }
+
+    const nextLines = originalLines.slice();
+    ordered
         .forEach((item) => {
             if (results[item.index]) return;
             if (item.mode === 'line_insert') {
@@ -813,6 +893,11 @@ function applyLinePositionEdits(content = '', editList = [], modeList = []) {
         content: nextLines.join('\n'),
         results: attachEditResultIdentities(results, editList, modeList),
     };
+}
+
+export function applyPatchLineEdits(content, edits) {
+    const modes = edits.map((edit) => hasInsertLine(edit) ? 'line_insert' : 'line_range');
+    return applyLinePositionEdits(content, edits, modes, true);
 }
 
 function normalizeEditsInput(edits) {

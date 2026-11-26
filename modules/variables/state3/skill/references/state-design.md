@@ -2,7 +2,7 @@
 
 This reference complements the definition format. Use the card's actual names and mechanics rather than adopting an example's categories.
 
-Every structure choice below answers one question first: why does this value need to be stored? A field earns its place when a later rule reads it, a choice depends on it, or the narrator must keep it true across turns — and it cannot be computed from other fields. Write that reason into the field's `access[].description` in terms the models can act on. When the reason is "the panel shows it", check whether the panel can derive it instead. The [解铃会 card](<examples/jieling.md#why-each-variable-exists>) lists the reason for each of its fields and the values it deliberately derives.
+Choose what belongs in state using [How to design gameplay state](<../SKILL.md#how-to-design-gameplay-state>) before choosing its structure. For each field, name the later rule, choice or portrayal that uses its current value, and check whether it can be computed from other fields. Write that purpose into the field's `access[].description` in terms the models can act on. When the reason is "the panel shows it", check whether the panel can derive it instead. The [解铃会 card](<examples/jieling.md#why-each-variable-exists>) lists the reason for each of its fields and the values it deliberately derives.
 
 ## Stable addresses, people and inventory
 
@@ -44,7 +44,7 @@ Choose the consequence of an invalid value before choosing a constraint:
 | Keep a base price, travel duration or other value fixed | A `derive` rule with a `literal` value, as in the camp's maximum stamina | Actions and direct edits cannot change it; the literal is defined only in the rule, not repeated in `initial` |
 | Limit how fast a relationship can change | Decide whether this is advice, a per-action limit or a per-batch rule, then express that choice | An absolute range alone does not limit one turn's change |
 
-Use `enum` for genuinely finite choices such as a fixed quest stage. Locations, nicknames and evolving situations often need free text: an unlisted value would reject the batch. Give such fields a writing convention in `access[].update` and let the panel display unfamiliar values, rather than silently substituting a known location. For hierarchical locations, a panel can locate recognized segments and display an unfamiliar trailing segment literally.
+Use `enum` for genuinely finite choices such as a fixed quest stage or participation tier. Open-ended names such as locations and nicknames need free text: an unlisted value would reject the batch. Give such fields a naming convention in `access[].update` and let the panel display unfamiliar values, rather than silently substituting a known location. For hierarchical locations, a panel can locate recognized segments and display an unfamiliar trailing segment literally.
 
 For gradual narrative values, explain the evidence and typical change size in `update`. If the gameplay needs an enforced limit, an action's parameter schema can bound one submitted amount, or a constraint/correction can compare a field with `before`. `before` means the start of this entire batch, not the value before each operation; multiple actions in one batch are not multiple turns. A correction must reach a stable result. `inc` adds no implicit step limit, and a direct assignment is not an increment. Test the chosen rule with both assignments and increments instead of assuming the same limit applies to both.
 

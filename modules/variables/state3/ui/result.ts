@@ -1,9 +1,10 @@
-import type { Result, Definition, Diagnostic, Source, Change } from '../types.js';
+import type { Result, Definition, Diagnostic, Source, Change, UpdateStage } from '../types.js';
 import type { ErrorObject } from 'ajv';
 import { COPY, errorText, playerErrorText, parameterIssueText, restorationLabel, restorationText } from './copy.js';
 import { overlaps } from '../engine/data.js';
 import { parameterIssues, fieldName } from '../definition/schema-fields.js';
 import { changeTree, type ChangeTree } from './change-tree.js';
+import { isOpeningReceipt } from '../runtime/history.js';
 
 export const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, className?: string): HTMLElementTagNameMap[K] => {
     const node = document.createElement(tag);
@@ -11,11 +12,16 @@ export const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: st
     if (className) {node.className = className;}
     return node;
 };
+/** Display stage only: opening initialization is not a model update stage. */
+export function resultStage(result?: Result, stage?: UpdateStage): 'opening' | UpdateStage | undefined {
+    return result?.ok && result.receipt && isOpeningReceipt(result.receipt) ? 'opening' : stage;
+}
 export function resultLabel(result: Result): string {
     if (!result.ok) {return COPY.failed;}
     if (!result.committed) {return COPY.previewLabel;}
     if (result.saved === false) {return COPY.phases.unsaved;}
-    const applied = result.actions.length ? COPY.actionsApplied(result.actions.length) : result.changes.length ? COPY.valuesOnly : COPY.noActions;
+    const applied = resultStage(result) === 'opening' ? COPY.openingInitialized
+        : result.actions.length ? COPY.actionsApplied(result.actions.length) : result.changes.length ? COPY.valuesOnly : COPY.noActions;
     const outcome = result.receipt?.beforeUpdate?.outcome;
     const label = outcome && outcome !== 'applied' ? COPY.beforeOutcomes[outcome] : applied;
     if (outcome === 'failed' || result.diagnostics.some(issue => issue.code === 'extension-after-failed') || result.saved === undefined) {return label;}

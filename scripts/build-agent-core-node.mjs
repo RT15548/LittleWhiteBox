@@ -2,7 +2,7 @@ import { build } from 'esbuild';
 import { outputRoot } from './build/output-root.mjs';
 import { stagedInputs } from './build/staged-inputs.mjs';
 import { optionalRuntimeDependencies } from './build/optional-dependencies.mjs';
-import { builtinModules } from 'node:module';
+import { builtinModules, createRequire } from 'node:module';
 import { signRuntime } from './build/runtime-signing.mjs';
 import { packageLicenseSupplement } from './build/license-supplements.mjs';
 import {
@@ -18,6 +18,7 @@ import {
     sep,
 } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { decoderAssetPaths } from '../modules/draw/server/providers/image-decoder-assets.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const runtimeEntryPoint = resolve(projectRoot, 'modules/draw/server/runtime-entry.mjs');
@@ -55,11 +56,11 @@ async function findPackageRoot(inputPath) {
     let directory = dirname(absoluteInput);
     while (directory.startsWith(nodeModulesPrefix)) {
         try {
-            await readFile(resolve(directory, 'package.json'));
-            return directory;
-        } catch {
-            directory = dirname(directory);
-        }
+            const metadata = JSON.parse(await readFile(resolve(directory, 'package.json'), 'utf8'));
+            // Some packages publish a nested package.json only to set module type.
+            if (metadata.name && metadata.version) return directory;
+        } catch (error) { if (error.code !== 'ENOENT') throw error; }
+        directory = dirname(directory);
     }
     throw new Error(`Cannot locate package.json for bundled input: ${inputPath}`);
 }
@@ -239,8 +240,28 @@ const workerPlugin = { name: 'drawing-tool-worker', setup(context) {
     context.onResolve({ filter: /^lwb:tool-worker$/ }, () => ({ path: 'worker', namespace: 'drawing-worker' }));
     context.onLoad({ filter: /.*/, namespace: 'drawing-worker' }, () => ({ contents: 'export default ' + JSON.stringify(workerSource) }));
 } };
+const decoderAssets = { name: 'drawing-image-decoders', setup(context) {
+    context.onLoad({ filter: /[\\/]image-decoder-assets\.mjs$/ }, async () => {
+        const require = createRequire(import.meta.url);
+        const assets = await Promise.all(Object.entries(decoderAssetPaths).map(async ([mime, specifier]) => {
+            const path = require.resolve(specifier);
+            return { mime, path, data: (await readFile(path)).toString('base64') };
+        }));
+        const contents = `const assets = ${JSON.stringify(Object.fromEntries(assets.map(({ mime, data }) => [mime, data])))};
+            export const loadDecoderAsset = mime => Buffer.from(assets[mime], 'base64');`;
+        return { contents, watchFiles: assets.map(asset => asset.path) };
+    });
+    // The packaged decoders are always initialized with the module bytes above;
+    // their browser-oriented fallback URL must not depend on the signed CJS path.
+    context.onLoad({ filter: /[\\/]@jsquash[\\/].+\.js$/ }, async ({ path }) => {
+        const source = await readFile(path, 'utf8');
+        if (!source.includes('import.meta.url')) return;
+        return { contents: `const codecMeta = { url: 'file:///drawing-image-codec/' };\n${source.replaceAll('import.meta.url', 'codecMeta.url')}`,
+            resolveDir: dirname(path) };
+    });
+} };
 const result = await buildNodeBundle({ entryPoint: runtimeEntryPoint, outfile: bundlePath,
-    banner: '/*! Generated signed drawing runtime. Do not edit. */', plugins: [workerPlugin] });
+    banner: '/*! Generated signed drawing runtime. Do not edit. */', plugins: [workerPlugin, decoderAssets] });
 assertNoRuntimePackages(result, 'Drawing runtime');
 assertNoRuntimePackages(worker, 'Tool worker');
 const packages = await collectBundledPackages({ inputs: { ...result.metafile.inputs, ...worker.metafile.inputs } });

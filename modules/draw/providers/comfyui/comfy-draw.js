@@ -55,6 +55,7 @@ import {
     resolveComfyDirectOutputImages,
     validateComfyWorkflowNodeMap,
 } from "./compiler.js";
+import { DRAW_DIMENSION_BOUNDS } from '../../shared/draw-size.js';
 import { validateDrawInput } from '../../shared/public-api.js';
 import { imageBlob } from '../../shared/image-collection.js';
 import { runPublicImageJob } from '../../shared/public-image-job.js';
@@ -151,6 +152,7 @@ import { submitPreparedChatImages, registerPreparedImageProvider } from "../../s
 import { prepareImageInput } from '../../shared/prepared-image-input.js';
 import { acquireFloorImageJob, getFloorImageJob, getFloorImageJobs, getFloorImagePhase, getFloorImageState, releaseFloorImageJob, observeFloorImageJob, failFloorImageJob, clearFloorImageJobs, resolveFloorImageJobTarget, rebaseFloorImageJobsAfterSwipeDeletion } from '../../shared/floor-image-job.js';
 import { createImageRequestAttempt, imageHttpFailure, withImageRequestOutcome, ImageRequestOutcome } from '../../shared/image-request-outcome.js';
+import executionError from './execution-error.cjs';
 import { createImageCardRedrawProvider } from "../../shared/image-card-redraw-provider.js";
 import { deleteImageFromCard, redrawImageCard, removeChatImageSlot, removeFloorFailedImageCards, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
 import { toggleImageCardControls } from '../../shared/image-card-controls.js';
@@ -760,8 +762,8 @@ function getEffectiveParams(settings = getSettings(), overrides = {}) {
         const match = overrideSize.match(/^(\d+)x(\d+)$/i);
         if (match) {
             sizeOverride = {
-                width: normalizeNumber(match[1], preset.width ?? 1024, 64, 2048),
-                height: normalizeNumber(match[2], preset.height ?? 1024, 64, 2048),
+                width: normalizeNumber(match[1], preset.width ?? 1024, ...DRAW_DIMENSION_BOUNDS),
+                height: normalizeNumber(match[2], preset.height ?? 1024, ...DRAW_DIMENSION_BOUNDS),
             };
         }
     }
@@ -1108,12 +1110,7 @@ async function fetchComfyDirectImageFromWorkflow(workflow, {
         if (!item) throw new Error('ComfyUI 未返回生成结果');
 
         if (item.status?.status_str === 'error') {
-            const errorMessages = item.status?.messages
-                ?.filter(it => it[0] === 'execution_error')
-                .map(it => it[1])
-                .map(it => `${it.node_type} [${it.node_id}] ${it.exception_type}: ${it.exception_message}`)
-                .join('\n') || '';
-            throw withImageRequestOutcome(new Error(`ComfyUI 生成失败${errorMessages ? `\n\n${errorMessages}` : ''}`), ImageRequestOutcome.REJECTED);
+            throw withImageRequestOutcome(executionError.comfyExecutionError(item.status), ImageRequestOutcome.REJECTED);
         }
 
         const imgInfo = resolveComfyDirectOutputImage(item, workflow, preferredSaveImageNodeId);
@@ -1392,6 +1389,8 @@ export const comfyPublicGeneration = {
         if (!['simple', 'custom'].includes(settings.workflowMode)) throw new MediaApiError('invalid_request', { field: 'workflowMode' });
         if (settings.workflowMode === 'custom' && !settings.customWorkflow?.json) throw new MediaApiError('not_configured', { field: 'customWorkflow' });
         if (settings.workflowMode === 'custom') {
+            if (request.overrideSize !== undefined && request.overrideSize !== 'default'
+                && (!settings.customWorkflow.nodeWidth || !settings.customWorkflow.nodeHeight)) throw new MediaApiError('unsupported_field', { field: 'overrideSize' });
             const mappings = { width: 'nodeWidth', height: 'nodeHeight', positivePrefix: 'nodePositive', negativePrefix: 'nodeNegative' };
             for (const field of Object.keys(request.params || {})) {
                 if (!mappings[field] || !settings.customWorkflow[mappings[field]]) throw new MediaApiError('unsupported_field', { field: `params.${field}` });
@@ -3835,11 +3834,13 @@ function renderPromptChainPreview(settings = getSettings()) {
         tagGuide: 'comfy-prompt-guide',
         sceneRules: 'comfy-prompt-format',
     };
-    const guideInput = getSettingsElement(editableMap.tagGuide);
-    const savedOverrides = parseFieldDescriptions(getActivePromptPreset(settings)?.fieldDescriptions);
+    const preset = getActivePromptPreset(settings);
+    const savedOverrides = parseFieldDescriptions(preset?.fieldDescriptions);
     const descriptions = { ...savedOverrides, ...Object.fromEntries(promptFieldDraft) };
     const chain = getPromptChainPreview({
-        tagGuideContent: guideInput ? guideInput.value : (getActivePromptPreset(settings)?.tagGuideContent || ''),
+        topSystem: getSettingsElement(editableMap.topSystem)?.value ?? preset?.topSystem,
+        tagGuideContent: getSettingsElement(editableMap.tagGuide)?.value ?? preset?.tagGuideContent,
+        sceneRules: getSettingsElement(editableMap.sceneRules)?.value ?? preset?.sceneRules,
     }, descriptions);
     renderScenePlannerChain(container, chain, {
         getEditable: (key) => getSettingsElement(editableMap[key]),

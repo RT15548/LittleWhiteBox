@@ -136,44 +136,41 @@ Thus a small `order` puts the foundation earlier in its region but does not prot
 
 ## Worked example: a harbor setting
 
-These settings are for native worldbook entry files. Here the fields are `key`, `order`, `disable`, `scanDepth` and numeric `position` directly on the settings object. Exported character books use `keys`, `insertion_order`, inverted `enabled` and an `extensions` object for many advanced fields; importing a book converts between these formats, but editing CardFiles settings is not that import step. Use free numeric entry IDs in the intended linked book; the paired Markdown file holds the content. The file layout and save operation are described by the main skill.
+These examples use CardFiles worldbook documents. Fields such as `key`, `order`, `disable`, `scanDepth` and numeric `position` go in the header's `settings` object. Exported character books use `keys`, `insertion_order`, inverted `enabled` and an `extensions` object for many advanced fields; importing a book converts between these formats, but editing CardFiles settings is not that import step. Choose unused numeric entry IDs in the intended linked book. The first example is a complete .md file: the JSON header sits between two lines containing `---`, followed by the entry content. The later examples show header and content separately; use the same file format. The main skill describes file paths and saving.
 
-Foundation settings:
+Foundation document (complete file contents):
 
-```json
-{"comment":"港城基础","constant":true,"vectorized":false,"position":0,"order":10,"disable":false,"useProbability":false,"preventRecursion":true}
-```
-
-Foundation content:
-
-```text
-# 港城基础
+```markdown
+---
+{"id":0,"name":"港城基础","settings":{"constant":true,"vectorized":false,"position":0,"order":10,"disable":false,"useProbability":false,"preventRecursion":true}}
+---
+港城基础
 雾港依靠潮汐安排航行。潮位表由港务署发布；出海手续由码头登记处办理。
 ```
 
-Organization settings:
+Organization header:
 
 ```json
-{"comment":"港务署","constant":true,"vectorized":false,"position":0,"order":20,"disable":false,"useProbability":false,"preventRecursion":true}
+{"id":1,"name":"港务署","settings":{"constant":true,"vectorized":false,"position":0,"order":20,"disable":false,"useProbability":false,"preventRecursion":true}}
 ```
 
 Organization content:
 
 ```text
-## 港务署
+港务署
 港务署负责潮位公告，不办理出海登记。人物提到航行制度时，以这两个机构的分工为准。
 ```
 
-Optional location settings:
+Optional location header:
 
 ```json
-{"comment":"东码头","key":["东码头","旧渡口"],"constant":false,"vectorized":false,"position":0,"order":30,"disable":false,"useProbability":false,"scanDepth":2,"matchWholeWords":false,"excludeRecursion":true,"preventRecursion":true}
+{"id":2,"name":"东码头","settings":{"key":["东码头","旧渡口"],"constant":false,"vectorized":false,"position":0,"order":30,"disable":false,"useProbability":false,"scanDepth":2,"matchWholeWords":false,"excludeRecursion":true,"preventRecursion":true}}
 ```
 
 Location content:
 
 ```text
-## 东码头（旧渡口）
+东码头（旧渡口）
 码头登记处在这里办公。登记队伍沿仓库外墙排开，货船在退潮前离港。
 ```
 

@@ -19,8 +19,8 @@ const preset = name => ({
     vertex: { authMode: 'relay', projectId: 'saved-project', location: 'us-central1', serviceAccountJson: 'saved-json', streamFunctionCallArguments: false },
 });
 
-function fixture(t, overrides = {}, savedOk = true) {
-    const { document, window } = parseHTML(`<html><body>${buildAgentSettingsPanelMarkup()}</body></html>`);
+function fixture(t, overrides = {}, savedOk = true, markupOptions = {}) {
+    const { document, window } = parseHTML(`<html><body>${buildAgentSettingsPanelMarkup(markupOptions)}</body></html>`);
     const prototype = window.HTMLSelectElement.prototype;
     const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
     Object.defineProperty(prototype, 'value', { configurable: true,
@@ -51,7 +51,53 @@ function fixture(t, overrides = {}, savedOk = true) {
         },
         save(scope) { field(scope, 'save').dispatchEvent(new window.Event('click')); },
         reload() { state.config = stored; state.configDraft = null; panel.syncConfigToForm(document.body); },
+        toggle(scope, name, checked) {
+            const input = field(scope, name); input.checked = checked;
+            input.dispatchEvent(new window.Event('change'));
+        },
+        field,
     };
+}
+
+// Image input belongs to each preset: the Assistant edits it per role, and surfaces
+// without the control must keep whatever the preset already stores.
+for (const scope of ['main', 'delegate']) {
+    test(`${scope}: a running recipient keeps its last permission when the form switches routes`, t => {
+        const h = fixture(t, {}, true, { showImageInput: true });
+        const a = h.panel.bindImageInput({ role: scope });
+        h.toggle(scope, 'model-image-input', false);
+        if (scope === 'delegate') h.edit(scope, 'preset-select', 'B');
+        else h.edit(scope, 'base-url', 'https://b.invalid/v1');
+        h.toggle(scope, 'model-image-input', true);
+        const b = h.panel.bindImageInput({ role: scope });
+        assert.equal(a.enabled(), false);
+        assert.equal(b.enabled(), true);
+        b.release(); a.release();
+    });
+    test(`${scope}: image input defaults on and persists per role`, t => {
+        const h = fixture(t, {}, true, { showImageInput: true });
+        const other = scope === 'main' ? 'delegate' : 'main';
+        assert.equal(h.field(scope, 'model-image-input').checked, true);
+        assert.equal(h.panel.isImageInputEnabled({ role: scope }), true);
+        h.toggle(scope, 'model-image-input', false);
+        assert.equal(h.panel.isImageInputEnabled({ role: scope }), false);
+        assert.equal(h.panel.isImageInputEnabled({ role: other }), true);
+        h.save(scope);
+        const saved = config => scope === 'main' ? config.presets.A : config.delegateConfig;
+        assert.equal(saved(h.stored()).imageInput, false);
+        assert.equal((scope === 'main' ? h.stored().delegateConfig : h.stored().presets.A).imageInput, true);
+        h.reload();
+        assert.equal(h.field(scope, 'model-image-input').checked, false);
+        assert.equal(h.panel.isImageInputEnabled({ role: scope }), false);
+    });
+    test(`${scope}: surfaces without the image input control keep the stored value`, t => {
+        const saved = config => scope === 'main' ? config.presets.A : config.delegateConfig;
+        const plain = fixture(t, { imageInput: false });
+        assert.equal(plain.field(scope, 'model-image-input'), null);
+        plain.edit(scope, 'model', 'edited-alias');
+        plain.save(scope);
+        assert.equal(saved(plain.stored()).imageInput, false);
+    });
 }
 
 for (const scope of ['main', 'delegate']) {

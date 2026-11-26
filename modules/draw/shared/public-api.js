@@ -1,10 +1,8 @@
 import { copyRequest, MediaApiError, mediaFailure, requireFields, selectPreset } from '../../../shared/media-api.js';
 
-export const DRAW_REQUEST_FIELDS = Object.freeze([
-    'provider', 'apiPresetId', 'paramsPresetId', 'workflowPresetId', 'prompt', 'negativePrompt',
-    'positivePrefix', 'characterPrompts', 'params', 'overrideSize', 'seed', 'workflowMode', 'customWorkflow',
-    'signal', 'onProgress',
-]);
+import { isBoundedDrawSize } from './draw-size.js';
+import { DRAW_REQUEST_FIELDS } from './request-contract.js';
+export { DRAW_REQUEST_FIELDS } from './request-contract.js';
 
 /** Resolve one request against an isolated provider snapshot, never the saved object. */
 export function resolveDrawSettings(saved, request, { presetsKey, selectedKey }) {
@@ -50,10 +48,12 @@ export function validateDrawParams(params, defaults) {
     }
 }
 
-export function validateDrawInput(request, defaults, { workflow = false, seed = false } = {}) {
+export function validateDrawInput(request, defaults, { workflow = false, seed = false, isFixedSizeSupported = isBoundedDrawSize } = {}) {
+    if (request.referenceImages !== undefined) throw new MediaApiError('unsupported_field', { field: 'referenceImages' });
     for (const field of ['prompt', 'negativePrompt', 'positivePrefix', 'overrideSize']) {
         if (request[field] !== undefined && typeof request[field] !== 'string') throw new MediaApiError('invalid_request', { field });
     }
+    if (request.overrideSize !== undefined && request.overrideSize !== 'default' && !isFixedSizeSupported(request.overrideSize)) throw new MediaApiError('invalid_request', { field: 'overrideSize' });
     if (typeof request.prompt !== 'string') throw new MediaApiError('invalid_request', { field: 'prompt' });
     if (!workflow) {
         for (const field of ['workflowPresetId', 'workflowMode', 'customWorkflow']) {
@@ -83,6 +83,36 @@ export function validateDrawInput(request, defaults, { workflow = false, seed = 
             }
         }
     }
+}
+
+export async function generateCollectedDrawResult({ adapter, request, settings, saveImages, signal, onProgress }) {
+    let images, galleryMetadata, failure;
+    try {
+        images = await adapter.generate(request, settings, { signal, onProgress,
+            onPrepared: metadata => { galleryMetadata = structuredClone(metadata); } });
+    } catch (error) {
+        failure = error;
+        images = error.partialResult?.images;
+    }
+    if (!Array.isArray(images) || !images.length) {
+        if (failure) throw failure;
+        signal?.throwIfAborted();
+        throw new MediaApiError('invalid_result');
+    }
+    // Paid images and their local gallery outcome travel together, even if
+    // generation was partial or the caller cancels while saving.
+    const result = { images };
+    try { result.gallery = await saveImages(images, galleryMetadata); }
+    catch (cause) {
+        if (!failure) throw new MediaApiError('collection_failed', { cause, partialResult: result });
+        console.error({ source: import.meta.url, operation: 'savePublicGallery' }, cause);
+    }
+    if (failure) {
+        failure.partialResult = { ...failure.partialResult, ...result };
+        throw failure;
+    }
+    if (signal?.aborted) throw new MediaApiError('aborted', { partialResult: result });
+    return result;
 }
 
 export function createDrawPublicApi({ isEnabled, getProvider, providers, captureGallery }) {
@@ -126,22 +156,7 @@ export function createDrawPublicApi({ isEnabled, getProvider, providers, capture
                 const saved = snapshot instanceof Promise ? await snapshot : snapshot;
                 controller.signal.throwIfAborted();
                 const settings = resolveDrawSettings(saved, request, adapter);
-                let images, galleryMetadata;
-                try {
-                    images = await adapter.generate(request, settings, { signal: controller.signal, onProgress,
-                        onPrepared: metadata => { galleryMetadata = structuredClone(metadata); } });
-                } catch (error) {
-                    if (error.partialResult?.images?.length) await saveImages(error.partialResult.images, galleryMetadata);
-                    throw error;
-                }
-                if (!Array.isArray(images) || !images.length) {
-                    controller.signal.throwIfAborted();
-                    throw new MediaApiError('invalid_result');
-                }
-                // Received images are already paid for; cancellation cannot discard them.
-                await saveImages(images, galleryMetadata);
-                if (controller.signal.aborted) throw new MediaApiError('aborted', { partialResult: { images } });
-                return { images };
+                return await generateCollectedDrawResult({ adapter, request, settings, saveImages, signal: controller.signal, onProgress });
             } catch (error) { throw mediaFailure(error, controller.signal); }
             finally {
                 requests.delete(controller);

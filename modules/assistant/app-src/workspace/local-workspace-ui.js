@@ -21,6 +21,7 @@ import { itemEditorProjection } from '../../../card-workspace/editor.js';
 import { ITEM_KINDS } from '../../../card-workspace/item-document.js';
 import { COPY as CARD_COPY } from '../../../card-workspace/copy.js';
 import { updateWorkspaceChildren } from './workspace-dom.js';
+import { clearWorkspaceImagePreview, showWorkspaceImagePreview } from './workspace-image-preview.js';
 import { closeDetachedWorkspaceMenu, isWorkspaceMenuOpen, toggleWorkspaceMenu } from './workspace-menu.js';
 
 function createActionButton({ action, icon, label, onClick, disabled = false, pressed, className = '' }) {
@@ -434,6 +435,7 @@ export function renderWorkspace(containers, options = {}) {
         onCreateFile = () => {},
         onCreateDirectory = () => {},
         onDownloadFile = () => {},
+        onDownloadDirectory = () => {},
         onRenamePath = () => {},
         onDeletePath = () => {},
     } = options;
@@ -511,6 +513,7 @@ export function renderWorkspace(containers, options = {}) {
         ];
         if (node.type === 'file') return [{ label: C.download, onSelect: () => onDownloadFile(node.path) }, ...fileOrDirectory];
         return [
+            { label: C.downloadDirectory, onSelect: () => onDownloadDirectory(node.path) },
             { label: C.newFileHere, disabled, onSelect: () => onCreateFile(node.path) },
             { label: C.newDirectoryHere, disabled, onSelect: () => onCreateDirectory(node.path) },
             ...fileOrDirectory,
@@ -565,6 +568,7 @@ function renderWorkspaceViewer(container, options) {
         primaryFileActions = () => [],
     } = options;
 
+    if (!showViewer || selectedMatch?.file.kind !== 'image') clearWorkspaceImagePreview(container);
     if (!showViewer) {
         destroyWorkspaceEditorCache(container);
         container.replaceChildren();
@@ -599,6 +603,7 @@ function renderWorkspaceViewer(container, options) {
 
     const file = selectedMatch.file;
     const path = file.path;
+    const isImage = file.kind === 'image';
     const changed = isLocalSourceFileModified(file);
     const showDiff = workspaceState.viewerMode === 'diff' && changed;
 
@@ -634,7 +639,7 @@ function renderWorkspaceViewer(container, options) {
         items: [
             ...(isItem ? [{ label: CARD_COPY.source, onSelect: () => onSetViewerMode('source') }] : []),
             { label: C.download, onSelect: () => onDownloadFile(path) },
-            { label: C.restore, disabled: disabled || !changed, onSelect: () => onRestoreFile(path) },
+            ...(!isImage ? [{ label: C.restore, disabled: disabled || !changed, onSelect: () => onRestoreFile(path) }] : []),
             ...(manageFiles ? [
                 { label: C.rename, disabled, onSelect: () => onRenamePath(path) },
                 { label: C.delete, danger: true, disabled, onSelect: () => onDeletePath(path) },
@@ -663,6 +668,18 @@ function renderWorkspaceViewer(container, options) {
         viewerHeader.appendChild(viewerActions);
     }
     viewer.appendChild(viewerHeader);
+
+    if (isImage) {
+        destroyWorkspaceEditorCache(container);
+        const preview = document.createElement('div');
+        preview.className = 'xb-assistant-workspace-image-preview';
+        preview.setAttribute('data-workspace-image-preview', '');
+        viewer.appendChild(preview);
+        nextViewer.appendChild(viewer);
+        updateWorkspaceChildren(container, nextViewer);
+        showWorkspaceImagePreview(container, container.querySelector('[data-workspace-image-preview]'), file, description?.title || file.name);
+        return;
+    }
 
     renderSaveNotice(viewer, { editorDraft, savedFileExists, onResolveConflict });
     if (projectionError) {

@@ -25,6 +25,8 @@ import { runFunctionInVm } from '../engine/functions-vm.js';
 import type { Bundle, History } from '../types.js';
 import { activeTools, TOOL_CALL_LIMIT } from '../extensions/definition.js';
 import { createRuleRefresh } from '../definition/refresh.js';
+import type { FloorResult } from '../ui/result-dialog.js';
+import { resultStage } from '../ui/result.js';
 
 const source = (file: string) => ts.transpileModule(readFileSync(new URL('../' + file, import.meta.url), 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
@@ -65,6 +67,7 @@ function runtimeHarness(bundle: Bundle | null = equipmentExample(), initialMode 
         document: { getElementById: () => selector },
     });
     let finish!: (value: unknown) => void, fail!: (error: Error) => void, requested!: () => void, disposed = false, lateControls = 0, lateMacros = 0, controls = false, requests = 0;
+    let rendered: { index: number; results: FloorResult[] } | undefined;
     const started = new Promise<void>(resolve => { requested = resolve; });
     const response = new Promise((resolve, reject) => { finish = resolve; fail = reject; });
     const agentWindow = { xiaobaixAgent: { openSession: async () => ({ chat: async () => { requests++; requested(); return response; }, dispose() {} }) } };
@@ -72,7 +75,7 @@ function runtimeHarness(bundle: Bundle | null = equipmentExample(), initialMode 
         getContext: () => h.ctx, exposeVariableReads: () => () => {}, captureContext: async () => ({}), passageText: (text: string) => text,
         compileDefinition, buildUpdateTask: () => ({}), SUBMIT_TOOL: 'write', ...settings, reject, diagnostic, activeTools, TOOL_CALL_LIMIT,
         digest, modelSource, beforeReceipt, beforeOutcome, beforeFloorOutcome, mergeAbortSignals, latestUserIndex: h.exports.latestUserIndex,
-        AbortController, structuredClone, window: agentWindow, correctionTask() { throw new Error('unexpected correction'); },
+        AbortController, structuredClone, window: agentWindow, correctionTask() { throw new Error('unexpected correction'); }, handoffReceipt: () => undefined,
     });
     const event_types = Object.fromEntries(['CHAT_CHANGED', 'MESSAGE_DELETED', 'MESSAGE_SWIPED', 'MESSAGE_EDITED', 'SETTINGS_UPDATED',
         'CHARACTER_MESSAGE_RENDERED', 'GENERATION_STARTED', 'GENERATION_AFTER_COMMANDS', 'GENERATION_STOPPED', 'MESSAGE_SENT', 'MESSAGE_RECEIVED', 'GENERATION_ENDED', 'CHAT_CREATED'].map(key => [key, key]));
@@ -102,7 +105,7 @@ function runtimeHarness(bundle: Bundle | null = equipmentExample(), initialMode 
             status: updater.status, cancel: updater.cancel, changed: updater.cancel, dispose: updater.cancel,
             async resume(index: number) { resumed.push(index); },
         })),
-        createState3Page: () => ({ mountControl() { controls = true; if (disposed) {lateControls++;} }, targetChanged() {}, dispose() { disposed = true; } }),
+        createState3Page: () => ({ mountControl(index: number, results: FloorResult[]) { rendered = { index, results }; controls = true; if (disposed) {lateControls++;} }, targetChanged() {}, dispose() { disposed = true; } }),
         notifyError(error: Error) { throw error; }, openDraft() {}, saveDraft() {}, checkDraft() {}, saveCardDraft() {},
         AbortController, structuredClone, mergeAbortSignals, CustomEvent: class { constructor(public type: string, public options: { detail: { state: unknown } }) {} },
         MutationObserver: class { observe() {} disconnect() {} },
@@ -112,7 +115,7 @@ function runtimeHarness(bundle: Bundle | null = equipmentExample(), initialMode 
     const runtime = runInNewContext(source('index.ts') + '\ninitState3(); ({cleanupState3})', env);
     return { ...h, api: env.window.LWB_StateV3, handlers, preferences, selector, started, finish, fail, emitted, resumed, macroVersions,
         setRemote(card: typeof remoteCard) {remoteCard = structuredClone(card);},
-        cleanup: () => runtime.cleanupState3(), late: () => ({ controls: lateControls, macros: lateMacros }), controls: () => controls, requests: () => requests,
+        cleanup: () => runtime.cleanupState3(), late: () => ({ controls: lateControls, macros: lateMacros }), controls: () => controls, rendered: () => rendered, requests: () => requests,
         async prepare(type = 'normal') {
             let aborted = false;
             await interceptor?.([], 0, () => {aborted = true;}, type, { input: { deferred: false, rebuild: false } });
@@ -811,6 +814,86 @@ test('an empty opening delta still owns its selected greeting and cannot be undo
     selectGreeting(h, 0); change = adapter.selectionChange('swipe', 0);
     await service.restoreSelection(change.previous, change.next);
     assert.deepEqual(accepted(await service.inspect()).state, { count: 0 });
+});
+
+test('empty alternate greetings initialize and restore without model updates even with auto enabled', async t => {
+    const bundle = greetingBundle();
+    bundle.definition = { ...bundle.definition, initial: { count: 0 }, openings: [{}, {}, { count: 2 }], schema: {},
+        access: [{ path: ['count'], direct: true, description: 'count' }], rules: [], actions: [], constraints: [], views: {} };
+    const h = runtimeHarness(bundle); t.after(() => h.cleanup()); await h.drain();
+    h.preferences.LittleWhiteBox.state3Updater.auto = true;
+    const enabled = accepted(await h.api.enable());
+    assert.ok(enabled.receipt && isOpeningReceipt(enabled.receipt));
+    assert.equal(enabled.receipt.id, accepted(await h.api.inspect()).receipt!.id);
+    for (const [swipeId, count] of [[1, 0], [2, 2], [0, 0], [1, 0]] as const) {
+        selectGreeting(h, swipeId);
+        await h.handlers.get('MESSAGE_SWIPED')!(0);
+        await h.handlers.get('CHARACTER_MESSAGE_RENDERED')!(0); await h.drain();
+        const inspected = accepted(await h.api.inspect());
+        assert.deepEqual(inspected.state, { count });
+        assert.ok(inspected.receipt && isOpeningReceipt(inspected.receipt));
+        assert.equal(h.requests(), 0);
+    }
+    h.ctx.chat = JSON.parse(JSON.stringify(h.ctx.chat));
+    h.ctx.chatMetadata = JSON.parse(JSON.stringify(h.ctx.chatMetadata));
+    await h.handlers.get('CHAT_CHANGED')!(); await h.handlers.get('CHARACTER_MESSAGE_RENDERED')!(0); await h.drain();
+    const snapshot = h.exports.createHostAdapter().capture();
+    const projected = recordResult(snapshot.state, snapshot.records, 0)!;
+    assert.ok(projected.receipt && isOpeningReceipt(projected.receipt));
+    assert.deepEqual(projected.changes, []); assert.deepEqual(projected.actions, []);
+    assert.equal(h.requests(), 0);
+});
+
+test('staged gameplay supersedes opening feedback and never labels subsequent replies as initialization', async t => {
+    const h = runtimeHarness(greetingBundle()); t.after(() => h.cleanup()); await h.drain();
+    const initialized = accepted(await h.api.enable());
+    const staged = await h.api.stage();
+    accepted(await staged.run([]));
+    assert.equal(h.api.lastResult(), initialized, 'a preview must not replace live opening feedback');
+    const committed = accepted(await staged.run([], { preview: false, source: modelSource('after') }));
+    await h.handlers.get('SETTINGS_UPDATED')!();
+    const currentStage = (index: number) => resultStage(h.rendered()!.results.find(item => item.index === index)?.result, 'after');
+    assert.equal(currentStage(0), 'after');
+    assert.equal(accepted(h.rendered()!.results.find(item => item.index === 0)!.result).receipt!.id, committed.receipt!.id);
+    assert.equal(h.api.lastResult(), undefined, 'superseded feedback must not expose stale save or author actions');
+    h.ctx.chat = JSON.parse(JSON.stringify(h.ctx.chat)); h.ctx.chatMetadata = JSON.parse(JSON.stringify(h.ctx.chatMetadata));
+    await h.handlers.get('CHAT_CHANGED')!(); await h.drain();
+    assert.equal(currentStage(0), 'after');
+    for (const index of [2, 4]) {
+        h.ctx.chat.push({ mes: 'player', is_user: true, extra: {} }, { mes: 'reply', extra: {} });
+        await h.handlers.get('CHARACTER_MESSAGE_RENDERED')!(index); await h.drain();
+        assert.equal(h.rendered()!.index, index);
+        assert.equal(currentStage(index), 'after');
+        accepted(await h.api.apply([], { index, source: modelSource('after') }));
+        assert.equal(currentStage(index), 'after');
+        assert.equal(h.rendered()!.results.some(item => item.index === index && item.result.ok && item.result.receipt && isOpeningReceipt(item.result.receipt)), false);
+    }
+});
+
+test('a pending swipe restore keeps its receipt owner when native floor movement changes the index', async t => {
+    const h = runtimeHarness(greetingBundle()); t.after(() => h.cleanup()); await h.drain();
+    accepted(await h.api.enable());
+    const reply: ChatMessage = { mes: 'reply', swipe_id: 0, swipes: ['reply', 'alternate'], swipe_info: [{ extra: {} }, { extra: {} }], extra: {} };
+    h.ctx.chat.push(reply);
+    accepted(await h.api.apply([], { source: modelSource('after') }));
+    reply.swipe_id = 1; reply.mes = 'alternate'; reply.extra = {};
+    await h.handlers.get('MESSAGE_SWIPED')!(1); await h.drain();
+    accepted(await h.api.apply([], { source: modelSource('after') }));
+    let started!: () => void, release!: () => void;
+    const saving = new Promise<void>(resolve => { started = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    h.ctx.saveChat = async () => { started(); await gate; };
+    reply.swipe_id = 0; reply.mes = 'reply'; reply.extra = clone(reply.swipe_info![0].extra!);
+    await h.handlers.get('MESSAGE_SWIPED')!(1); await saving;
+    h.ctx.chat.splice(0, 2, reply, h.message);
+    await h.handlers.get('CHARACTER_MESSAGE_RENDERED')!(0);
+    release(); await h.drain();
+    h.ctx.chat.splice(0, 2, h.message, reply);
+    await h.handlers.get('CHARACTER_MESSAGE_RENDERED')!(1); await h.drain();
+    const shown = h.rendered()!.results.find(item => item.index === 1)!;
+    assert.equal(resultStage(shown.result, shown.stage), 'after');
+    assert.equal(accepted(shown.result).receipt!.source, modelSource('after'));
+    assert.equal(accepted(await h.api.inspect()).receipt!.source, modelSource('after'));
 });
 
 test('rapid greeting swipes cancel stale pure initialization and preserve reopened progress', async t => {

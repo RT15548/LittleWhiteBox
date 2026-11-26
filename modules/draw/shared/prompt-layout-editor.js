@@ -50,10 +50,7 @@ import { createSortableList } from './sortable-list.js';
 import { createCharacterActionIcon } from './character-action-icons.js';
 import { readCollapsed, writeCollapsed } from './preset-list-view.js';
 import { DEFAULT_TOOL_CODE, extractToolName } from './custom-tools.js';
-import { SCENE_PLANNER_ACTION, buildScenePlannerExchange, renderScenePlannerMessage } from './scene-planner-handoff.js';
-
-// 请求里程序预先构建的固定消息：只读、不可移动，点“预览”看原文。
-const PREBUILT = Object.fromEntries(['materials', 'guide', 'approval'].map(kind => [kind, buildScenePlannerExchange(kind)]));
+import { SCENE_PLANNER_ACTION, buildScenePlannerExchange, createScenePlannerHandoffTools, renderScenePlannerMessage } from './scene-planner-handoff.js';
 
 // 页面是普通脚本、拿不到 scene-planner-layout.js，经本模块转手（指纹 / 默认判断 / 存储形态都以契约模块为准）。
 export { createDefaultLayout, isDefaultLayout, layoutFingerprint, layoutForStorage, normalizeLayout };
@@ -62,9 +59,10 @@ const PREVIEW_LENGTH = 40;
 const EMPTY_TITLE = '（空消息）';
 const ROW_SELECTOR = '.lwb-ple-row';
 const HANDLE_SELECTOR = '[data-ple-drag]';
-// tool 在请求里是“工具返回”（对上一条工具调用的回复），不是工具定义；徽标写全，免得和“可用工具”、“附带工具”混淆。
-const ROLE_BADGE = Object.freeze({ system: '系统', user: '用户', assistant: '模型', tool: '工具返回' });
-const TOOL_ROLE_HINT = '工具返回：对上一条工具调用的回复（不是工具定义）';
+const ROLE_BADGE = Object.freeze({ system: '系统', user: '用户', assistant: '模型', tool: '工具回执', tools: '工具说明' });
+const ROLE_HINT = Object.freeze({ tool: '对工具调用的简短回执', tools: '通过工具说明提供给模型，不是工具调用的回执' });
+const REQUIREMENTS_LABEL = '工作要求';
+const [, , requirementsTool, approvalTool] = createScenePlannerHandoffTools().map(tool => tool.function);
 // 点这些控件时即使按着 Ctrl / Shift 也不当作“选择行”。
 const MODIFIER_IGNORE_SELECTOR = 'textarea, select, input[type="text"], [data-ple-field="toggle"], [data-ple-field="tool-toggle"], [data-ple-field="select"], [data-ple-field="edit"], [data-ple-field="delete"]';
 
@@ -329,10 +327,19 @@ export function createPromptLayoutEditor({
         ]);
     }
 
+    function buildExchangeRows(kind, callLabel, receiptLabel = callLabel) {
+        const [call, result] = buildScenePlannerExchange(kind);
+        return [
+            buildFixedRow({ id: `fixed-${kind}-call`, role: call.role, label: `${PREBUILT_MESSAGE_LABELS.call}：${callLabel}`, text: call.template }),
+            buildFixedRow({ id: `fixed-${kind}-result`, role: result.role, label: `${PREBUILT_MESSAGE_LABELS.result}：${receiptLabel}`,
+                text: renderScenePlannerMessage(result, result.template).content, summary: result.template }),
+        ];
+    }
+
     // ── 行 ──
 
     function roleBadge(role) {
-        return create(document, 'span', { className: `lwb-ple-role ${role}`, text: ROLE_BADGE[role], attrs: { 'data-ple-role': '', title: role === 'tool' ? TOOL_ROLE_HINT : undefined } });
+        return create(document, 'span', { className: `lwb-ple-role ${role}`, text: ROLE_BADGE[role], attrs: { 'data-ple-role': role, title: ROLE_HINT[role] } });
     }
 
     function customTitle(block) {
@@ -380,7 +387,7 @@ export function createPromptLayoutEditor({
         return create(document, 'label', { className: 'lwb-ple-select-box' }, [box]);
     }
 
-    function buildBuiltinRow(block) {
+    function buildBuiltinRow(block, role) {
         const meta = describeBlock(block);
         const info = builtinInfo(block.id);
         const label = info.label || meta.label;
@@ -391,7 +398,7 @@ export function createPromptLayoutEditor({
             attrs: { role: 'listitem', 'data-block-id': block.id, 'data-builtin': 'true' },
         });
         const line = create(document, 'div', { className: 'lwb-ple-line' }, [
-            roleBadge(meta.role),
+            roleBadge(role ?? meta.role),
             create(document, editor ? 'button' : 'span', {
                 className: editor ? 'lwb-ple-main lwb-ple-label' : 'lwb-ple-label', text: label,
                 attrs: editor ? { type: 'button', 'data-ple-field': 'main', 'aria-expanded': String(open) } : {},
@@ -547,6 +554,7 @@ export function createPromptLayoutEditor({
         const badge = row.querySelector('[data-ple-role]');
         if (badge) {
             badge.setAttribute('class', `lwb-ple-role ${block.role}`);
+            badge.setAttribute('data-ple-role', block.role);
             badge.textContent = ROLE_BADGE[block.role];
         }
         row.classList.toggle('off', !block.enabled);
@@ -598,16 +606,18 @@ export function createPromptLayoutEditor({
             for (const [index, stage] of stages.entries()) {
                 const rows = [];
                 if (stage.id === 'materials') rows.push(buildFixedRow({ id: 'fixed-action', role: 'user', label: '执行步骤', text: SCENE_PLANNER_ACTION }));
-                if (stage.id !== 'setup') rows.push(buildFixedRow({ id: `fixed-${stage.id}-call`, role: 'assistant', label: `${PREBUILT_MESSAGE_LABELS.call}：${stage.label}`, text: PREBUILT[stage.id][0].template }));
-                rows.push(...stage.blockIds.map(id => buildBuiltinRow({ id })));
+                const exchange = stage.id !== 'setup';
+                if (exchange) rows.push(...buildExchangeRows(stage.id, stage.label));
+                rows.push(...stage.blockIds.map(id => buildBuiltinRow({ id }, exchange ? 'tools' : undefined)));
                 list.appendChild(buildGroup(stage.label, rows, { 'data-ple-sort-id': stage.blockIds.at(-1), 'data-ple-stage': stage.id }, index));
                 for (const block of stage.customBlocks) list.appendChild(buildCustomRow(block));
             }
-            const [approvalCall, approvalResult] = PREBUILT.approval;
             list.appendChild(buildGroup('提交确认', [
-                buildFixedRow({ id: 'fixed-approval-call', role: 'assistant', label: `${PREBUILT_MESSAGE_LABELS.call}：申请提交`, text: approvalCall.template }),
-                // 预览显示真正发出去的内容（工具返回消息的 content 是带 approved 的 JSON 包装）；行里的灰字只放包装里面那句话，别把整串 JSON 挤在一行。
-                buildFixedRow({ id: 'fixed-approval-result', role: 'tool', label: `${PREBUILT_MESSAGE_LABELS.result}：确认提交`, text: renderScenePlannerMessage(approvalResult, approvalResult.template).content, summary: approvalResult.template }),
+                ...buildExchangeRows('requirements', REQUIREMENTS_LABEL),
+                buildFixedRow({ id: 'fixed-requirements-description', role: 'tools', label: REQUIREMENTS_LABEL,
+                    text: requirementsTool.parameters.properties.requirements.description, summary: requirementsTool.description }),
+                ...buildExchangeRows('approval', '申请提交', '确认提交'),
+                buildFixedRow({ id: 'fixed-approval-description', role: 'tools', label: '审批工具说明', text: approvalTool.description }),
             ], { 'data-ple-sort-id': APPROVAL_MARKER_ID, 'data-ple-stage': 'approval' }, stages.length));
             for (const block of stages.at(-1).trailingBlocks) list.appendChild(buildCustomRow(block));
         }

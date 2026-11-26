@@ -4,6 +4,7 @@ import {
     findLocalDirectoryByPath,
     findLocalFileByPath,
     flattenLocalSourceFiles,
+    insertWorkspaceImageFile,
     normalizeLocalSourceFile,
     normalizeLocalSourcePath,
     normalizeLocalSources,
@@ -42,7 +43,7 @@ export function workspaceMutationScopes(name, args = {}) {
         case 'Delete': add(args.path, 'tree'); break;
         case 'Move': add(args.fromPath, 'tree'); add(args.toPath, 'tree'); break;
         case 'apply_patch':
-            parseApplyPatch(String(args.patchText ?? args.input ?? '')).operations.forEach(operation => {
+            parseApplyPatch(args).operations.forEach(operation => {
                 add(operation.path);
                 if (operation.moveTo) add(operation.moveTo);
             });
@@ -100,8 +101,9 @@ export function findWorkspaceConflicts(name, args, preconditions, currentSources
 export function reconcileEditorWriteRetry(path, content, preconditions, currentSources) {
     const target = canonicalPath(path);
     const before = applyWorkspaceObservations([], preconditions);
-    const after = upsertLocalSourceFile(before, target, content).nextSources;
     const current = captureWorkspacePath(currentSources, target);
+    if (current.file?.kind === 'image' || findLocalFileByPath(before, target)?.file.kind === 'image') return preconditions;
+    const after = upsertLocalSourceFile(before, target, content).nextSources;
     if (JSON.stringify(current) !== JSON.stringify(captureWorkspacePath(after, target))) return preconditions;
     return preconditions.map(item => item.path === target && item.scope === 'entry'
         ? { ...item, expected: current } : item);
@@ -141,7 +143,7 @@ export function applyWorkspaceObservations(sources, observations = []) {
         }
         applySave = undefined;
         const existing = captureWorkspacePath(next, path);
-        if (scope === 'tree' || expected.kind !== 'directory') {
+        if (scope === 'tree' || expected.kind !== 'directory' || existing.kind === 'file') {
             if (existing.kind !== 'absent') next = removeLocalSourcePath(next, path).nextSources;
         }
         if (expected.kind === 'directory') {
@@ -152,7 +154,11 @@ export function applyWorkspaceObservations(sources, observations = []) {
         }
         const files = expected.kind === 'file' ? [expected.file] : expected.files || [];
         for (const file of files) {
-            next = upsertLocalSourceFile(next, file.path, file.content, { originalContent: file.originalContent }).nextSources;
+            if (file.kind === 'image') {
+                next = insertWorkspaceImageFile(next, file.path, file).nextSources;
+            } else {
+                next = upsertLocalSourceFile(next, file.path, file.content, { originalContent: file.originalContent }).nextSources;
+            }
             next = next.map(source => ({ ...source, files: source.files.map(item => item.path === file.path ? file : item) }));
         }
     }

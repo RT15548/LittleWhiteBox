@@ -24,6 +24,9 @@ import {
     storePreview,
 } from './gallery-cache.js';
 import { executeImageJobReattachEntry } from './image-job-recovery-executor.js';
+import { ImageRequestOutcome } from './image-request-outcome.js';
+import { isOpenAiImageDisplayError } from '../providers/multimodal/openai-image-errors.js';
+import comfyFailure from '../providers/comfyui/execution-error.cjs';
 import { autoSaveDeliveredImage, imageFilePrefix } from './image-autosave.js';
 import { planImageJobReattach, ReattachAction } from './image-job-reattach.js';
 import { readPageFarewells } from './page-farewell.js';
@@ -49,10 +52,8 @@ import { observeAsyncCallback, observeBackgroundTask } from '../../../shared/com
 const RETRY_DELAY_MS = 15_000;
 const backendClient = createImageBackendJobsClient({ getHeaders: getRequestHeaders, getOwner: getCurrentUserHandle });
 const drawRunClient = createDrawRunClient({ getHeaders: getRequestHeaders, getOwner: getCurrentUserHandle });
-const resultDecoders = new Map([
-    ['sd-webui', ({ response }) => readImageBackendResultBase64(response)],
-    ['comfyui', ({ response }) => readImageBackendResultBase64(response)],
-]);
+const resultDecoders = new Map(['sd-webui', 'comfyui', 'gemini', 'openai']
+    .map(provider => [provider, ({ response }) => readImageBackendResultBase64(response)]));
 const adoptionEffects = new Map();
 
 let runtimeEvents = null;
@@ -147,6 +148,7 @@ function previewOptions(record, item, target) {
         postPrompt: item.previewMetadata?.postPrompt ?? null,
         vibeNames: item.previewMetadata?.vibeNames || '',
         orientation: item.previewMetadata?.orientation ?? null,
+        providerMetadata: record.provider === 'openai' ? item.previewMetadata?.providerMetadata : undefined,
         // Recovery retains the same compiled snapshot as live delivery.
         continuityChars: Array.isArray(item.previewMetadata?.continuityChars) ? item.previewMetadata.continuityChars : null,
     };
@@ -233,7 +235,11 @@ function createDeliveryAdapter() {
         async failItem(record, item, error, guard, commitDelivery) {
             // gallery-only 没有正文槽位，也不伪造一张失败卡；后端失败项本身就是终态。
             if (record.delivery?.mode === 'gallery') return;
-            const errorType = error?.label ? error : classifyError(error);
+            const openAiDisplayError = record.provider === 'openai' && isOpenAiImageDisplayError(error);
+            const comfyExecutionFailed = record.provider === 'comfyui' && error?.code === comfyFailure.COMFY_EXECUTION_FAILED;
+            const classificationInput = (comfyExecutionFailed || error?.code === 'upstream_error') && !openAiDisplayError
+                ? { status: error?.status, code: error?.code } : error;
+            const errorType = error?.label ? error : classifyError(classificationInput);
             const failedImgId = item.imgId;
             const committed = await deliverPreparedImage({
                 commitDelivery,
@@ -243,11 +249,15 @@ function createDeliveryAdapter() {
                 guard,
                 persist: async target => {
                     await preserveSavedImage(record, item, target);
-                    await storeFailedPlaceholder({
+                    const unknown = error?.imageRequestOutcome === ImageRequestOutcome.UNKNOWN;
+                    const storeFailure = unknown ? storePreview : storeFailedPlaceholder;
+                    await storeFailure({
                         ...previewOptions(record, item, target),
                         imgId: failedImgId,
+                        status: unknown ? PreviewStatus.UNKNOWN : PreviewStatus.FAILED,
                         errorType: errorType.label,
-                        errorMessage: errorType.desc,
+                        errorMessage: openAiDisplayError ? error.message
+                            : comfyExecutionFailed ? comfyFailure.COMFY_EXECUTION_FAILURE_COPY : errorType.desc,
                     });
                 },
                 remove: () => deletePreview(failedImgId),

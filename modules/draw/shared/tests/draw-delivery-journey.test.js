@@ -26,7 +26,7 @@ const stubs = {
         export const createModuleEvents=()=>({on(){},cleanup(){}});`,
     'draw-common.js': `export const isMessageBeingEdited=()=>false;
         export const isAnyMessageBeingEdited=()=>false;
-        export const syncRenderedMessageFromState=async()=>{};
+        export const syncRenderedMessageFromState=async(id,{expectedMessage})=>{globalThis.__drawDeliveryJourney.rebuilt.push([id,expectedMessage]);};
         export const renderPreviewsForMessage=async()=>{};
         export const materializeDrawSavedPreview=async()=>null;
         export const ErrorType={JOB_EXPIRED:{code:'expired',label:'expired',desc:'expired'}};
@@ -62,6 +62,7 @@ async function setup(t, suffix, lostResponse = false) {
     const source = 'The sea is calm.\n\nA boat approaches.';
     const message = { mes: source, name: 'Alice', send_date: `date-${suffix}`, swipe_id: 0 };
     host.owner = 'alice'; host.saves = 0; host.previews.clear(); host.selections.clear();
+    host.rebuilt = [];
     host.ctx = { chatId: suffix, groupId: 'group', chat: [message], getRequestHeaders: () => ({}),
         saveChat: () => new Promise(() => {}) };
     const before = structuredClone(host.ctx.chat);
@@ -151,9 +152,11 @@ test('journal recovery honors account, original text, moved floors and explicit 
     await api.discardPendingImageSlot(h.items[0].slotId);
     record = await api.getPendingImageJob(h.jobId);
     host.ctx.chat[1] = { ...structuredClone(h.before[0]), mes: h.source + '\nMore continuation' };
-    api.restoreDrawRunTargets(host.ctx, [record]);
+    host.rebuilt.length = 0;
+    await api.runDrawRunRecoveryPass({ ctx: host.ctx, records: [record], client: h.client, scheduleRecovery() {} });
     assert.ok(!host.ctx.chat[1].mes.includes(h.items[0].slotId), 'deleted image cannot be resurrected');
     assert.ok(host.ctx.chat[1].mes.includes(h.items[1].slotId), 'remaining paid image is recoverable');
     assert.equal(host.ctx.chat[0].mes, 'unrelated');
+    assert.deepEqual(host.rebuilt, [[1, host.ctx.chat[1]]]);
     assert.equal(h.counts().posts, 1);
 });

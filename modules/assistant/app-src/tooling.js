@@ -3,7 +3,9 @@ import { COORDINATION_TOOLS, SKILL_MANAGEMENT_TOOLS } from '../skills/contract.j
 import { formatWebSearchResults, WEB_SEARCH_TOOL_NAME, WEB_FETCH_TOOL_NAME, getWebSearchToolDefinition, getWebFetchToolDefinition, isWebConfigured } from '../../agent-core/web/tools.js';
 import { ACTIVITY_COPY } from './ui/activity-copy.js';
 import { getToolResultReadDefinition, TOOL_RESULT_READ, withPagedToolResult } from '../../agent-core/runtime/tool-result-contract.js';
-import { CARD_TOOL } from '../../card-workspace/assistant-contract.js';
+import { CARD_TOOL, CARD_ASSETS_TOOL, SET_CARD_AVATAR_ACTION } from '../../card-workspace/assistant-contract.js';
+import { drawTools, DRAW_IMAGE, DRAW_PRESETS, SAVE_DRAW_IMAGES, DRAW_COPY } from '../../draw/assistant/contract.js';
+import { READ_IMAGE, READ_IMAGE_TOOL, IMAGE_COPY, imageResultFiles } from '../shared/image-tools.js';
 import { COPY as CARD_COPY } from '../../card-workspace/copy.js';
 import { LOOKUP_SCOPES, LOOKUP_SCOPE_PROJECT, LOOKUP_SCOPE_LOCAL } from '../shared/lookup-scope.js';
 import { INSPECT_PAGE_TOOL } from '../../live-page-inspection/tool-contract.ts';
@@ -25,6 +27,8 @@ export const TOOL_NAMES = {
     READ_LOGS: READ_LOGS_TOOL.function.name,
     INSPECT_PAGE: INSPECT_PAGE_TOOL.function.name,
     CARD_FILES: CARD_TOOL.function.name,
+    CARD_ASSETS: CARD_ASSETS_TOOL.function.name,
+    DRAW_IMAGE, DRAW_PRESETS, SAVE_DRAW_IMAGES, READ_IMAGE,
     LS: 'LS',
     GLOB: 'Glob',
     GREP: 'Grep',
@@ -58,10 +62,18 @@ export const TOOL_NAMES = {
 // ============================================================
 // 工具定义
 // ============================================================
-export const TOOL_DEFINITIONS = [
+// Image tools depend on whether the run's model preset accepts image input.
+const IMAGE_TOOLS_SLOT = Symbol('imageTools');
+function imageToolDefinitions(imageInput) {
+    return [...(imageInput ? [READ_IMAGE_TOOL] : []), ...drawTools({ imageInput })];
+}
+
+const BASE_TOOL_DEFINITIONS = [
     withPagedToolResult(READ_LOGS_TOOL),
     INSPECT_PAGE_TOOL,
     CARD_TOOL,
+    CARD_ASSETS_TOOL,
+    IMAGE_TOOLS_SLOT,
     {
         type: 'function',
         function: {
@@ -165,6 +177,7 @@ export const TOOL_DEFINITIONS = [
             name: TOOL_NAMES.WRITE,
             description: [
                 'Write a `local/` text file. Use for new files or whole-file rewrites.',
+                'On success, returns the saved path, whether it was created or overwritten, and its byte and line counts. Zero lines means the saved file is empty.',
                 'Can directly create a new `local/...` file path, including `local/file.txt` or `local/<root>/file.txt`.',
             ].join('\n'),
             parameters: {
@@ -183,18 +196,42 @@ export const TOOL_DEFINITIONS = [
         function: {
             name: TOOL_NAMES.APPLY_PATCH,
             description: [
-                'Apply a structured patch to `local/` text files.',
-                'Use this for targeted edits, multi-file changes, adds, deletes, and renames inside the workspace.',
-                'Patch format uses structured headers such as `*** Begin Patch`, `*** Update File: local/example.js`, `@@`, and `*** End Patch`.',
-                'Hunk headers support plain `@@`, anchored `@@ existing line`, and standard unified diff ranges like `@@ -1,3 +1,3 @@`.',
-                'For `@@ -1,3 +1,3 @@ existing line`, the range is a positioning hint and `existing line` is the header anchor.',
+                'Apply a batch of changes to workspace text files. A batch can edit, create, delete and move multiple files. If any operation fails, none of the changes are saved.',
+                'Use line numbers from Read. If a previous edit makes the target line number uncertain, use Read on the target area before editing it by line number.',
+                'Group all edits to a file in one entry. Line edits in that entry refer to the same pre-edit content; the tool handles shifts. Use either line positions or oldString for that file.',
+                'Returns ok and phase (applied, unchanged or failed). Successful results list changes, with numbered previews for line edits; failed results report the issue or conflicting paths.',
             ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {
-                    patchText: { type: 'string', description: 'Full apply_patch body, including `*** Begin Patch` and `*** End Patch`.' },
+                    files: {
+                        type: 'array', minItems: 1,
+                        items: {
+                            type: 'object', required: ['path'], additionalProperties: false,
+                            description: 'Use content to create, delete: true to remove, or edits and/or moveTo for an existing file.',
+                            properties: {
+                                path: { type: 'string', description: 'Workspace file path starting with local/.' },
+                                content: { type: 'string', description: 'Full content for a new file. The path must not exist.' },
+                                delete: { type: 'boolean', description: 'Set true to delete this file.' },
+                                moveTo: { type: 'string', description: 'An unused local/ path to move this file to. Can be combined with edits.' },
+                                edits: {
+                                    type: 'array', minItems: 1,
+                                    items: {
+                                        type: 'object', required: ['newString'], additionalProperties: false,
+                                        properties: {
+                                            startLine: { type: 'integer', minimum: 1, description: 'First line to replace, inclusive.' },
+                                            endLine: { type: 'integer', minimum: 1, description: 'Last line to replace, inclusive.' },
+                                            insertAtLine: { type: 'integer', minimum: 1, description: 'Insert before this line. Use totalLines + 1 to append.' },
+                                            oldString: { type: 'string', minLength: 1, description: 'A unique fragment of the current text.' },
+                                            newString: { type: 'string', description: 'Replacement or inserted text. Use an empty string to remove the selected lines or fragment.' },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
                 },
-                required: ['patchText'],
+                required: ['files'],
                 additionalProperties: false,
             },
         },
@@ -205,6 +242,7 @@ export const TOOL_DEFINITIONS = [
             name: TOOL_NAMES.DELETE,
             description: [
                 'Delete a `local/` file or directory.',
+                'On success, returns the removed path, whether it was a file or directory, and how many files were removed. Removing an empty directory reports zero files.',
                 'Supports deleting a single file or a directory with all files under it.',
             ].join('\n'),
             parameters: {
@@ -223,6 +261,8 @@ export const TOOL_DEFINITIONS = [
             name: TOOL_NAMES.MOVE,
             description: [
                 'Move or rename a `local/` file or directory.',
+                'On success, reports the source and destination paths, whether the destination was overwritten, and how many files moved.',
+                'A move to the same location succeeds without changing anything (`noOp: true`). Moving an empty directory also reports zero files, but does change its location.',
                 'Supports renaming files, moving files, and moving whole directories; existing destinations require explicit overwrite permission.',
             ].join('\n'),
             parameters: {
@@ -243,6 +283,8 @@ export const TOOL_DEFINITIONS = [
             name: TOOL_NAMES.RUN_SLASH_COMMAND,
             description: [
                 'Execute a SillyTavern slash command (STscript).',
+                'Returns the command output in `pipe` and reports whether execution succeeded, failed, was aborted, or was skipped without running. An empty `pipe` alone does not indicate failure.',
+                'If the output does not confirm a requested change, read the affected state before retrying.',
                 'Use this for reading or operating on objects and state in the user\'s live SillyTavern instance, such as character cards, lorebooks, chat, presets, extensions, or current model settings.',
                 'This operates on the current live instance, not a snapshot.',
             ].join('\n'),
@@ -291,7 +333,10 @@ export const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: TOOL_NAMES.READ_IDENTITY,
-            description: 'Read the fixed identity file at user/files/LittleWhiteBox_Assistant_Identity.md. If the file does not exist yet, the result will report that state.',
+            description: [
+                'Read the fixed identity file at user/files/LittleWhiteBox_Assistant_Identity.md.',
+                'Returns the filename, whether it exists, and its contents. If it does not exist, the returned text is empty; an existing file may also be empty.',
+            ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {},
@@ -303,7 +348,10 @@ export const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: TOOL_NAMES.WRITE_IDENTITY,
-            description: 'Write identity content to user/files/LittleWhiteBox_Assistant_Identity.md. After a successful write, the currently opened assistant session immediately continues with the new identity.',
+            description: [
+                'Replace the identity document at user/files/LittleWhiteBox_Assistant_Identity.md.',
+                'On success, returns the saved filename and path and confirms that the current assistant session has refreshed its identity.',
+            ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {
@@ -318,7 +366,10 @@ export const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: TOOL_NAMES.READ_WORKLOG,
-            description: 'Read the fixed worklog file at user/files/LittleWhiteBox_Assistant_Worklog.md. If the file does not exist yet, the result will report that state.',
+            description: [
+                'Read the configured worklog file under user/files. The default is LittleWhiteBox_Assistant_Worklog.md.',
+                'Returns the filename, whether it exists, and its contents. If it does not exist, the returned text is empty; an existing file may also be empty.',
+            ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {},
@@ -330,7 +381,10 @@ export const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: TOOL_NAMES.WRITE_WORKLOG,
-            description: 'Write investigation notes or worklog content into a worklog file under user/files. By default this writes to user/files/LittleWhiteBox_Assistant_Worklog.md; if name is omitted, the default worklog is used.',
+            description: [
+                'Replace a worklog document under user/files. Omit name to write to the configured worklog (LittleWhiteBox_Assistant_Worklog.md by default).',
+                'On success, returns the filename and path that were saved.',
+            ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {
@@ -348,6 +402,7 @@ export const TOOL_DEFINITIONS = [
             name: TOOL_NAMES.PLAN_CREATE,
             description: [
                 'Create one session-scoped checklist item in the current assistant session.',
+                'Returns the new item and its unfinished blockers. It starts pending if there are no blockers, or blocked otherwise. Use its id in PlanGet or PlanUpdate.',
                 'Use for multi-step work, long investigations, blockers, or resumable follow-up.',
                 'This records work state only; it does not execute tools, delegate work, or write long-term memory.',
             ].join('\n'),
@@ -376,9 +431,9 @@ export const TOOL_DEFINITIONS = [
             name: TOOL_NAMES.PLAN_UPDATE,
             description: [
                 'Update one session-scoped checklist item after actual progress, a status change, blocker, or decision.',
+                'Returns the saved item and its remaining blockers. An item cannot be saved as in_progress while blockers remain; the result lists the blockers and no update is saved.',
                 'Use status for progress state, note for a short progress note, and result/error for final outcome or failure cause.',
                 'Only mark completed when the described work is actually done.',
-                'If blockedBy points to unfinished items, the item cannot move to in_progress.',
             ].join('\n'),
             parameters: {
                 type: 'object',
@@ -413,6 +468,7 @@ export const TOOL_DEFINITIONS = [
             name: TOOL_NAMES.PLAN_LIST,
             description: [
                 'List session-scoped checklist items for the current assistant session.',
+                'Returns matching items, most recently updated first, and the total match count before the limit. An empty list means no items matched; if truncated, narrow the filters.',
                 'Use before resuming work, avoiding duplicate plans, choosing the next tracked step, or checking blockers.',
                 'Leave filters empty for the current checklist; add status, priority, or owner only when narrowing.',
             ].join('\n'),
@@ -438,6 +494,7 @@ export const TOOL_DEFINITIONS = [
             name: TOOL_NAMES.PLAN_GET,
             description: [
                 'Read the full record for one session-scoped checklist item.',
+                'Returns the item and its currently unfinished blockers. An unknown id returns a not-found error; use PlanList to find ids in this session.',
                 'Use when the short current-plan snapshot is not enough and the next action depends on detail, blockers, notes, result, or error.',
             ].join('\n'),
             parameters: {
@@ -456,9 +513,12 @@ export const TOOL_DEFINITIONS = [
             name: TOOL_NAMES.DELEGATE_RUN,
             description: [
                 'Run one clear, independent subtask in a separate assistant turn and wait for its result.',
+                'Returns the subtask status, its conclusion and summary, and recent tool outcomes. A failed run reports why and may have no conclusion even if it already ran tools.',
+                'Completed means the delegate returned a conclusion; check its findings and tool outcomes before treating the requested work as done.',
                 'Use after you can state the subtask scope and how its result should be merged back into the main answer.',
                 'The delegate only knows task/context/deliverable plus its system prompt; include needed paths, facts, constraints, current context, and plan details explicitly.',
                 'The delegate can use normal execution tools, but it does not manage plans and cannot delegate again.',
+                'Drawing results accompany its conclusion: images are saved workspace files; drawingFailures contain unresolved outcomes. A receiptId can be passed to SaveDrawImages to save an existing batch without generating again.',
             ].join('\n'),
             parameters: {
                 type: 'object',
@@ -476,7 +536,11 @@ export const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: TOOL_NAMES.READ_SKILLS_CATALOG,
-            description: 'Read the skill catalog index at user/files/LittleWhiteBox_Assistant_Skills.json and return registered skill metadata plus the injection-ready catalog summary.',
+            description: [
+                'Read the skill catalog at user/files/LittleWhiteBox_Assistant_Skills.json. If the file is missing, an empty catalog for user-created skills is created.',
+                'Returns entries for user-created and built-in skills, the total and enabled counts, and a short catalog summary. Use ReadSkill with an entry id to read its instructions.',
+                'An unreadable or invalid catalog is reported as an error, not an empty list.',
+            ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {},
@@ -503,7 +567,10 @@ export const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: TOOL_NAMES.UPDATE_SKILL,
-            description: 'Update the body or metadata of an existing skill and sync the changes back to the skill file and Skills.json. Prefer id; filename is also allowed. Partial updates are supported and omitted fields keep their current values.',
+            description: [
+                'Update the body or metadata of an existing skill and sync the changes back to the skill file and Skills.json. Prefer id; filename is also allowed. Partial updates are supported and omitted fields keep their current values.',
+                'On success, returns the saved skill id, title, filename, and whether it is enabled. A disabled skill was still saved.',
+            ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {
@@ -535,8 +602,9 @@ export const TOOL_DEFINITIONS = [
             name: TOOL_NAMES.GENERATE_SKILL,
             description: [
                 'Turn a just-finished large workflow, repeated trial-and-error process, or other reusable procedure into a skill.',
-                'You must call `action: "propose"` first to ask for user approval; only after receiving approvalToken may you call `action: "save"` to actually write the skill file and Skills.json.',
-                'When using `action: "save"`, explicitly provide all required save fields.',
+                'You must call `action: "propose"` first to ask for user approval. An approved proposal returns the skill id, filename, a one-time approvalToken and writing instructions; the skill is not yet saved. If approval is declined, stop without calling `action: "save"`.',
+                'Use the returned id and approvalToken with `action: "save"` and explicitly provide all required save fields. A successful save writes the skill file and catalog entry and returns the saved skill details, including whether it is enabled.',
+                'If a save reports missing trigger fields, the skill was saved; use UpdateSkill to supply the fields named in the result.',
             ].join('\n'),
             parameters: {
                 type: 'object',
@@ -575,7 +643,10 @@ export const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: TOOL_NAMES.DELETE_SKILL,
-            description: 'Delete an existing skill and remove both the skill body file and the catalog entry from Skills.json. Prefer id; filename is also allowed.',
+            description: [
+                'Delete an existing skill by id or filename; prefer id.',
+                'On success, returns the removed skill id, title, and filename. The catalog entry was removed even if `fileDeleted` is false, which means the skill file was already missing.',
+            ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {
@@ -588,14 +659,21 @@ export const TOOL_DEFINITIONS = [
     },
 ];
 
+/** @param {{ imageInput?: boolean }} [options] */
+export function buildToolDefinitions({ imageInput = true } = {}) {
+    return BASE_TOOL_DEFINITIONS.flatMap(definition => definition === IMAGE_TOOLS_SLOT ? imageToolDefinitions(imageInput) : [definition]);
+}
+
+export const TOOL_DEFINITIONS = buildToolDefinitions();
+
 export function isWebTool(name) {
     return name === TOOL_NAMES.WEB_SEARCH || name === TOOL_NAMES.WEB_FETCH;
 }
 
-/** @param {{ providerConfig?: object, jsApiEnabled?: boolean, skillIds?: string[], role?: string }} options */
-export function getAssistantToolDefinitions({ providerConfig = {}, jsApiEnabled = false, skillIds = [], role = 'main' } = {}) {
+/** @param {{ providerConfig?: object, jsApiEnabled?: boolean, imageInput?: boolean, skillIds?: string[], role?: string }} options */
+export function getAssistantToolDefinitions({ providerConfig = {}, jsApiEnabled = false, imageInput = true, skillIds = [], role = 'main' } = {}) {
     const webEnabled = isWebConfigured(providerConfig);
-    return filterSkillTools(TOOL_DEFINITIONS, skillIds, { role }).filter(({ function: { name } }) =>
+    return filterSkillTools(buildToolDefinitions({ imageInput }), skillIds, { role }).filter(({ function: { name } }) =>
         (jsApiEnabled || name !== TOOL_NAMES.RUN_JAVASCRIPT_API) && (webEnabled || !isWebTool(name)));
 }
 
@@ -631,11 +709,17 @@ function truncateInlineText(value = '', limit = 220) {
 
 export function describeToolCall(name, args = {}) {
     switch (name) {
+        case TOOL_NAMES.DRAW_IMAGE: return DRAW_COPY.generate;
+        case TOOL_NAMES.DRAW_PRESETS: return DRAW_COPY.presets;
+        case TOOL_NAMES.SAVE_DRAW_IMAGES: return args.receiptId ? DRAW_COPY.save : DRAW_COPY.pending;
+        case TOOL_NAMES.READ_IMAGE: return IMAGE_COPY.read;
+        case TOOL_NAMES.CARD_ASSETS: return CARD_COPY.assetActions[args.action] || CARD_COPY.assets;
         case TOOL_NAMES.READ_LOGS:
             return LOG_TOOL_COPY.label;
         case TOOL_NAMES.INSPECT_PAGE:
             return INSPECTION_COPY.label;
         case TOOL_NAMES.CARD_FILES:
+            if (args.action === SET_CARD_AVATAR_ACTION) return CARD_COPY.setAvatar;
             return args.action === 'save' ? CARD_COPY.save : CARD_COPY.open;
         case TOOL_NAMES.LS:
             return `查看目录 ${args.path || ''}${args.offset ? `:${args.offset}` : ''}`.trim();
@@ -879,6 +963,30 @@ export function formatToolResultDisplay(message) {
         };
     }
 
+    if (message.toolName === TOOL_NAMES.CARD_FILES && parsed.ok === true && parsed.sourcePath) {
+        return { summary: CARD_COPY.avatarSaved(parsed.name), details: parsed.sourcePath };
+    }
+
+    if (message.toolName === TOOL_NAMES.CARD_ASSETS) {
+        if (Array.isArray(parsed.tasks) && Array.isArray(parsed.errors)) return {
+            summary: CARD_COPY.assetListSummary(parsed.tasks.length, parsed.errors.length),
+            details: [
+                ...parsed.tasks.map(task => `${task.name || task.taskPath} · ${task.taskPath}\n${task.assets.map(asset => asset.key).join('、')}`),
+                ...parsed.errors.map(item => `${item.taskPath}\n${item.error}`),
+            ].join('\n\n'),
+        };
+        if (parsed.ok === true && parsed.draft && parsed.requiresWriteback) return {
+            summary: parsed.unchanged ? CARD_COPY.assetDraftUnchanged : CARD_COPY.assetDraftNote,
+            details: [parsed.asset?.key, parsed.taskPath].filter(Boolean).join('\n'),
+        };
+    }
+
+    const delegateToolResult = formatDelegateToolResult(message, parsed);
+    if (delegateToolResult) return delegateToolResult;
+
+    const images = imageResultFiles(parsed);
+    if (images.length) return { summary: [[TOOL_NAMES.DRAW_IMAGE, TOOL_NAMES.SAVE_DRAW_IMAGES].includes(message.toolName) ? DRAW_COPY.saved(images.length) : IMAGE_COPY.result(images.length), parsed.ok === false ? parsed.message || parsed.error : ''].filter(Boolean).join(' · '), details: images.map(file => `[${file.name}](<${file.path}>)`).join('\n') };
+
     if (message.toolName === TOOL_NAMES.INSPECT_PAGE) {
         return {
             summary: parsed.ok === false ? parsed.message : [INSPECTION_COPY.result, parsed.next ? INSPECTION_COPY.continued : ''].filter(Boolean).join(' · '),
@@ -886,23 +994,19 @@ export function formatToolResultDisplay(message) {
         };
     }
 
-    const delegateToolResult = formatDelegateToolResult(message, parsed);
-    if (delegateToolResult) return delegateToolResult;
-
     const planToolResult = formatPlanToolResult(message, parsed);
     if (planToolResult) return planToolResult;
 
     if (message.toolName === TOOL_NAMES.APPLY_PATCH && parsed.ok === false) {
-        const recovery = parsed.recovery && typeof parsed.recovery === 'object' ? parsed.recovery : {};
-        const rules = Array.isArray(recovery.rules) ? recovery.rules : [];
+        const issue = parsed.issue;
+        const location = [issue?.path, Number.isInteger(issue?.editIndex) ? `第 ${issue.editIndex + 1} 处修改` : ''].filter(Boolean).join(' · ');
         return {
-            summary: [
-                parsed.summary || 'Patch 失败，未修改任何文件。',
-                parsed.nextStep ? `下一步：${parsed.nextStep}` : '',
-            ].filter(Boolean).join('\n'),
+            summary: parsed.summary || '补丁未提交，没有修改任何文件。',
             details: [
-                parsed.error ? `错误：${parsed.error}` : '',
-                ...rules.map((rule) => `- ${rule}`),
+                location,
+                issue?.message || parsed.message || parsed.error,
+                issue?.suggestion,
+                ...(Array.isArray(parsed.conflictPaths) ? parsed.conflictPaths : []),
             ].filter(Boolean).join('\n'),
         };
     }
@@ -1163,19 +1267,18 @@ export function formatToolResultDisplay(message) {
     if (message.toolName === TOOL_NAMES.APPLY_PATCH) {
         const changes = Array.isArray(parsed.changes) ? parsed.changes : [];
         const lines = [
-            `补丁已应用：共处理 ${parsed.filesChanged || changes.length || 0} 项变更`,
-            Number.isFinite(parsed.hunksApplied) ? `hunk 数：${parsed.hunksApplied}` : '',
+            parsed.phase === 'unchanged' ? '补丁未产生文件变更。' : `补丁已应用，涉及 ${parsed.filesChanged || changes.length || 0} 个路径`,
+            parsed.editsApplied > 0 ? `内容修改：${parsed.editsApplied} 处` : '',
             Number.isFinite(parsed.addedCount) && parsed.addedCount > 0 ? `新增：${parsed.addedCount}` : '',
             Number.isFinite(parsed.updatedCount) && parsed.updatedCount > 0 ? `更新：${parsed.updatedCount}` : '',
             Number.isFinite(parsed.deletedCount) && parsed.deletedCount > 0 ? `删除：${parsed.deletedCount}` : '',
             Number.isFinite(parsed.movedCount) && parsed.movedCount > 0 ? `移动：${parsed.movedCount}` : '',
         ].filter(Boolean);
+        const labels = { add: '新增', update: '更新', delete: '删除' };
         const detailLines = changes.map((change) => {
-            if (change.action === 'move') {
-                return `- move ${change.fromPath || ''} -> ${change.toPath || change.path || ''}`;
-            }
-            const suffix = Number.isFinite(change.hunksApplied) ? ` (${change.hunksApplied} hunks)` : '';
-            return `- ${change.action} ${change.path || ''}${suffix}`;
+            if (change.action === 'move') return `- 移动 ${change.fromPath} → ${change.toPath}`;
+            const editCount = change.edits?.length;
+            return `- ${labels[change.action] || change.action} ${change.path || ''}${editCount ? `（${editCount} 处）` : ''}`;
         });
         return {
             summary: lines.join('\n'),

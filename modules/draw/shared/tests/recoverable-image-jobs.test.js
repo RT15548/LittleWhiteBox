@@ -9,6 +9,7 @@ import {
 } from '../recoverable-image-jobs.js';
 import { PendingImageJobLostError, PendingJobState } from '../pending-image-jobs.js';
 import { holdDrawCancellation } from '../draw-work-cancellation.js';
+import { createImageBackendJobsClient } from '../backend-image-jobs.js';
 
 // 假交付日志：只保留状态机与所有权，不碰 IndexedDB。
 // 被测对象是「什么必须发生在什么之前」，存储实现不在证明范围内。
@@ -106,6 +107,40 @@ function basePlan() {
         items: [{ index: 0, slotId: 'slot-a', imgId: 'img-a', previewMetadata: {} }],
     };
 }
+
+// Only a definitely unsubmitted mapping may be replaced. Once a POST could
+// have been accepted, a lost reply must never create a second paid job.
+for (const when of ['before-post', 'after-post']) test(`withdrawal ${when} preserves paid request ownership`, async () => {
+    const journal = createFakeJournal();
+    const posts = [];
+    const client = createImageBackendJobsClient({ pollInterval: 1, maxRetryDelay: 1, maxConsecutiveRetries: 1,
+        async fetchImpl(url, options) {
+            if (options.method === 'POST') {
+                posts.push(JSON.parse(options.body));
+                const entry = journal.store.get(posts[0].requestId);
+                assert.ok(entry);
+                entry.items[0].discarded = true;
+                if (posts.length === 1) throw new TypeError('lost create response');
+                return Response.json({ ok: true, job: { id: entry.jobId } });
+            }
+            if (options.method === 'DELETE') return Response.json({ ok: true });
+            return Response.json({ ok: true, job: { id: posts[0].requestId, state: 'completed', items: [] } });
+        } });
+    const result = await submitRecoverableImageJob({ journal, client, provider: 'gemini',
+        request: { items: [{ prompt: 'only image' }] }, plan: basePlan(),
+        commitPlacements: ({ jobId }) => { if (when === 'before-post') journal.store.get(jobId).items[0].discarded = true; },
+        isCreateCurrent: record => !record.items.some(item => item.discarded),
+    });
+    assert.equal(journal.store.size, 0);
+    if (when === 'before-post') {
+        assert.equal(result.notSubmitted, true);
+        assert.deepEqual(posts, []);
+    } else {
+        assert.equal(result.job.state, 'completed');
+        assert.equal(posts.length, 2);
+        assert.deepEqual(posts[1], posts[0]);
+    }
+});
 
 for (const boundary of ['group-request', 'journal-write']) test(`failed cancellation ${boundary} releases delivery ownership without settling an unknown backend job`, async () => {
     const journal = createFakeJournal();

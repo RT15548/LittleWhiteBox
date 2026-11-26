@@ -58,7 +58,7 @@ interface TavernFacade {
 
 interface DrawProviderSettingsFacade {
     openSettings?: () => void | Promise<void>;
-    getGenerationSnapshot?: (input?: Record<string, unknown>) => Record<string, unknown>;
+    getGenerationSnapshot?: (input?: Record<string, unknown>) => Record<string, unknown> | Promise<Record<string, unknown>>;
     getQuickSettings?: () => Record<string, unknown> | Promise<Record<string, unknown>>;
     updateQuickSettings?: (patch: Record<string, unknown>) => Record<string, unknown> | Promise<Record<string, unknown>>;
 }
@@ -68,10 +68,11 @@ declare global {
         xiaobaixTavern?: TavernFacade;
         xiaobaixDraw?: {
             getStatus?: () => Record<string, unknown>;
+            getProviderSettingsFacade?: (provider: string) => DrawProviderSettingsFacade | undefined;
             getProvider?: () => string;
             isEnabled?: () => boolean;
             buildPromptData?: (input: Record<string, unknown>) => Record<string, unknown>;
-            prepareGeneration?: (input: Record<string, unknown>) => Record<string, unknown>;
+            prepareGeneration?: (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
             generateImage?: (input: Record<string, unknown>) => Promise<string | Record<string, unknown>>;
             generateSharedImage?: (input: Record<string, unknown>) => Promise<string>;
             generateImagesFromText?: (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -516,7 +517,7 @@ function getDrawProviderSettingsFacade(provider = ''): DrawProviderSettingsFacad
     if (key === 'comfyui' || key === 'comfy') {
         return window.xiaobaixComfyDraw;
     }
-    return undefined;
+    return window.xiaobaixDraw?.getProviderSettingsFacade?.(key);
 }
 
 async function handleDrawOpenSettings(payload: Record<string, unknown> = {}): Promise<void> {

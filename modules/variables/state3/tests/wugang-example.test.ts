@@ -33,7 +33,6 @@ interface Docket {
     claims: Record<string, { speaker: string; text: string; stance: string }>;
     leads: Record<string, { opened: boolean; title: string }>;
     verdict: { status: string; evidenceUsed: string[] };
-    note: string;
 }
 const docket = (state: Json) => (state as unknown as { docket: Docket }).docket;
 const start = async () => accepted(await initialize(compiled)).state;
@@ -62,6 +61,7 @@ test('the published package round-trips through CardFiles and starts with undisc
     assert.ok(world.every(entry => entry.settings.constant && !entry.settings.disable && entry.body.trim()));
     const state = await start(), d = docket(state);
     assert.deepEqual(Object.keys(state as JsonObject), ['docket']);
+    assert.deepEqual(Object.keys(d).sort(), ['claims', 'clock', 'exhibits', 'leads', 'people', 'verdict']);
     assert.equal(d.clock.minute, 0);
     assert.ok(Object.values(d.exhibits).every(ex => ex.custodian === '' && ex.tested === 'none'));
     assert.ok(Object.values(d.leads).every(lead => !lead.opened && lead.title === ''));
@@ -69,29 +69,28 @@ test('the published package round-trips through CardFiles and starts with undisc
     assert.equal(d.verdict.status, 'ongoing');
 });
 
-test('standard request guides expose before actions and only after note and individual trust fields', async () => {
+test('standard request guides expose before actions and only individual trust fields in after', async () => {
     const state = await start(), before = buildUpdateView(compiled, state, 'before'), after = buildUpdateView(compiled, state, 'after');
     assert.equal(before.actions.length, bundle.definition.actions.length);
     assert.deepEqual(before.writable, []);
     assert.ok(before.fields.filter(field => field.path.at(-1) === 'trust').every(field => field.write.length === 0 && !field.update));
     assert.deepEqual(after.actions, []);
-    const expected = [['docket', 'note'], ...Object.keys(docket(state).people).map(code => ['docket', 'people', code, 'trust'])];
+    const expected = Object.keys(docket(state).people).map(code => ['docket', 'people', code, 'trust']);
     assert.deepEqual(after.writable.map(scope => scope.path), expected);
     const validate = new Ajv({ strict: false }).compile(getInputSchema(compiled, 'after'));
-    const changes = [direct(['note'], '证物已入册，仍待检验。'), direct(['people', 'witness', 'trust'], 6)];
+    const changes = [direct(['people', 'witness', 'trust'], 6)];
     assert.equal(validate(changes), true);
     const task = buildUpdateTask(compiled, state, { target: { floor: 1, swipeId: 0 }, messages: [] }, 'after');
-    const guide = task.messages.find(message => message.role === 'tool' && message.toolName === 'read_writing_guide')!;
-    assert.deepEqual(JSON.parse(String(guide.content)), after);
+    const guide = task.tools!.find(tool => tool.function.name === 'read_writing_guide')!;
+    assert.ok(guide.function.description!.endsWith(JSON.stringify(after)));
     assert.ok(after.fields.filter(field => field.write.includes('direct')).every(field => field.update));
     const facts = buildDescriptionView(compiled, ['case']);
     assert.equal(facts.fields.some(field => Object.hasOwn(field, 'update')), false);
     const changed = docket(await run(state, changes, 'after'));
     assert.equal(changed.people.witness.trust, 6);
-    assert.equal(changed.note, changes[0].value);
 });
 
-test('the guide trial executes as published and after changes only narrative fields', async () => {
+test('the guide trial executes as published and after changes only the witness trust', async () => {
     const guide = readFileSync(new URL('../skill/references/examples/wugang.md', import.meta.url), 'utf8');
     // Parse the documented user input as executable data, not a source-presence assertion.
     const input = JSON.parse(guide.match(/```json\n([\s\S]*?)\n```/)![1]);
@@ -99,22 +98,20 @@ test('the guide trial executes as published and after changes only narrative fie
     const after = accepted(await settle(compiled, before.state, input.after, { stage: 'after' }));
     assert.equal(docket(before.state).exhibits['EX-03'].tested, 'match');
     assert.ok(docket(before.state).claims['C-witness'].text);
-    assert.equal(docket(after.state).people.witness.trust, 6);
     const expected = structuredClone(before.state) as unknown as { docket: Docket };
-    expected.docket.note = input.after[0].value;
-    expected.docket.people.witness.trust = input.after[1].value;
+    expected.docket.people.witness.trust = 6;
     assert.deepEqual(after.state, expected);
 });
 
 test('stage and leaf permissions protect identities, testimony, and mechanical state while validating narrative bounds', async () => {
     const state = await start(), unchanged = structuredClone(state);
     for (const [stage, input] of [
-        ['after', [evidence('discover')]], ['before', [direct(['note'], '纪要')]],
+        ['after', [evidence('discover')]], ['before', [direct(['people', 'witness', 'trust'], 6)]],
         ['after', [direct(['people', 'witness', 'name'], '另一个人')]],
         ['after', [direct(['people', 'witness', 'testified'], true)]],
         ['after', [direct(['clock', 'minute'], 10)]], ['after', [direct(['exhibits', 'EX-03', 'tested'], 'match')]],
         ['after', [direct(['people'], {})]], ['after', [direct(['people', 'witness', 'trust'], 11)]],
-        ['after', [direct(['people', 'witness', 'trust'], -1)]], ['after', [direct(['note'], '字'.repeat(121))]],
+        ['after', [direct(['people', 'witness', 'trust'], -1)]],
     ] as [UpdateStage, JsonObject[]][]) {
         assert.equal((await trial(state, input, stage)).ok, false, JSON.stringify(input));
         assert.deepEqual(state, unchanged);
@@ -222,7 +219,9 @@ test('players can explicitly close without accusing, and every ending stops subs
     assert.equal(docket(state).verdict.status, 'no_accuse');
     assert.equal((await trial(state, [evidence('discover')])).ok, false);
     assert.equal((await trial(state, [action('close_case', { reason: '重复结案' })])).ok, false);
-    assert.ok(await run(state, [direct(['note'], '证据不足，已结案。')], 'after'));
+    const after = docket(await run(state, [direct(['people', 'witness', 'trust'], 6)], 'after'));
+    assert.equal(after.people.witness.trust, 6);
+    assert.deepEqual(after.verdict, docket(state).verdict);
 });
 
 test('testimony text survives in state and the saved before outcome, and cannot be submitted twice', async () => {

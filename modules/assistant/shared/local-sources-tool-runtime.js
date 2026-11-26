@@ -1,4 +1,5 @@
 import {
+    INTERNAL_WORKSPACE_TOOL_NAMES,
     WORKSPACE_KERNEL_VERSION,
     WORKSPACE_SOURCES,
     buildWorkspaceOpMeta,
@@ -7,6 +8,7 @@ import {
 import { getWorkspaceMutationPermissionError } from './workspace-mutation-policy.js';
 import { captureWorkspacePath, workspaceMutationScopes } from './workspace-preconditions.js';
 import { LOOKUP_SCOPE_LOCAL, normalizeLookupScope } from './lookup-scope.js';
+import { stageWorkspaceImageBatch, workspaceImageObservations } from './workspace-images.js';
 
 const MISSING_READ_ERRORS = new Set(['local_file_not_found', 'directory_not_found']);
 
@@ -52,12 +54,24 @@ export function createLocalSourcesToolRuntime(deps) {
             if (permissionError) return { ok: false, error: permissionError };
             if (mutation && meta.opId && recentOpIds.has(meta.opId)) return recentOpIds.get(meta.opId);
 
+            const binaryImport = name === INTERNAL_WORKSPACE_TOOL_NAMES.BATCH_WRITE_FILES
+                && Array.isArray(args.files) && args.files.some(file => file && Object.hasOwn(file, 'blob'));
+            if (binaryImport && meta.source !== WORKSPACE_SOURCES.UI_ACTION) {
+                return { ok: false, error: 'workspace_source_permission_denied' };
+            }
             let result;
             if (mutation) {
                 const saved = await repository.commitWorkspaceMutation({
                     name, args, preconditions: meta.preconditions, signal: options.signal,
                     retryContent: meta.source === WORKSPACE_SOURCES.EDITOR ? meta.retryContent : undefined,
                     execute: async localSources => {
+                        if (binaryImport) {
+                            const staged = stageWorkspaceImageBatch(localSources, args.files);
+                            return {
+                                ...staged,
+                                result: { ok: true, mode: 'batch_write', fileCount: staged.files.length, paths: staged.files.map(file => file.path) },
+                            };
+                        }
                         let nextSources = null;
                         const result = await executeToolCall(name, args, {
                             ...options, localSources, workspaceMeta: meta,
@@ -80,11 +94,17 @@ export function createLocalSourcesToolRuntime(deps) {
                 const readsWorkspace = ['Read', 'Glob', 'Grep'].includes(name)
                     && normalizeLookupScope(args?.scope) === LOOKUP_SCOPE_LOCAL;
                 const localSources = readsWorkspace ? (await repository.readWorkspace()).localSources : getSnapshot();
-                result = await executeToolCall(name, args, { ...options, localSources, workspaceMeta: meta });
+                const lookupSources = name === 'Grep' ? localSources.map(source => ({
+                    ...source, files: source.files.filter(file => file.kind !== 'image'),
+                })) : localSources;
+                result = await executeToolCall(name, args, { ...options, localSources: lookupSources, workspaceMeta: meta });
                 const path = String(result?.path || '').replace(/\/+$/, '');
                 if (name === 'Read' && (path === 'local' || path.startsWith('local/'))) {
                     if (result?.ok !== false) {
-                        options.onWorkspaceObserved?.([{ path, scope: 'entry', expected: captureWorkspacePath(localSources, path) }]);
+                        const expected = captureWorkspacePath(localSources, path);
+                        const observations = expected.file?.kind === 'image'
+                            ? workspaceImageObservations([expected.file]) : [{ path, scope: 'entry', expected }];
+                        options.onWorkspaceObserved?.(observations);
                     } else if (MISSING_READ_ERRORS.has(result.error)) {
                         // Missing ancestors may need recreating too. A parent file's contents
                         // were not returned by this failed read and must remain unobserved.

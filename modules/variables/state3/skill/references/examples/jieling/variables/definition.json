@@ -22,19 +22,19 @@
             "title": "会员名册",
             "additionalProperties": {
               "type": "object",
-              "required": ["age", "job", "kink", "wants", "is", "hates", "control", "status", "room", "note"],
+              "required": ["age", "job", "kink", "wants", "is", "hates", "control", "status", "room", "attitude"],
               "additionalProperties": false,
               "properties": {
                 "age": {"type": "integer", "title": "年龄", "minimum": 18, "maximum": 90},
                 "job": {"type": "string", "title": "职业", "minLength": 1},
-                "kink": {"type": "string", "title": "性癖与处境", "minLength": 1},
+                "kink": {"type": "string", "title": "性癖", "minLength": 1},
                 "wants": {"$ref": "#/$defs/tag", "title": "被什么吸引", "description": "The trait this person is drawn to in someone else."},
                 "is": {"type": "array", "title": "自身特质", "description": "Traits this person shows to others; members who want one of them are drawn to this person.", "items": {"$ref": "#/$defs/tag"}, "uniqueItems": true},
                 "hates": {"type": "array", "title": "受不了", "description": "Traits this person cannot bear in someone else; never the trait in wants.", "items": {"$ref": "#/$defs/tag"}, "uniqueItems": true},
                 "control": {"type": "integer", "title": "自控", "minimum": 0, "maximum": 100},
                 "status": {"enum": ["在读", "结业", "退会"], "title": "状态"},
                 "room": {"$ref": "#/$defs/room", "title": "互助室"},
-                "note": {"type": "string", "title": "近况"}
+                "attitude": {"enum": ["抗拒", "观望", "投入"], "title": "参与态度"}
               }
             }
           },
@@ -43,13 +43,12 @@
             "title": "越界事件",
             "items": {
               "type": "object",
-              "required": ["week", "who", "kind", "summary", "open"],
+              "required": ["week", "who", "kind", "open"],
               "additionalProperties": false,
               "properties": {
                 "week": {"type": "integer"},
                 "who": {"type": "array", "items": {"type": "string"}, "minItems": 1},
                 "kind": {"enum": ["私下越界", "当场冲突", "外泄"]},
-                "summary": {"type": "string"},
                 "open": {"type": "boolean"}
               }
             }
@@ -97,8 +96,8 @@
     {"path": ["club", "reputation"], "direct": false, "description": "Word of mouth among people who need this place, 0 to 100. Next week's interviews are 1 + reputation / 25, rounded down."},
     {"path": ["club", "exposure"], "direct": false, "description": "How much the outside world has noticed, 0 to 100. At 100 the center is exposed and shut down."},
     {"path": ["club", "waiting"], "direct": false, "description": "Applicants still waiting for an interview this week. Each admission or refusal uses one; when a week closes the count is renewed from reputation."},
-    {"path": ["club", "members"], "direct": false, "description": "The member register, keyed by full name. wants is the one thing that draws a member; is lists what the member embodies; hates lists what the member cannot bear. control (0 to 100) is how well the member lives with the fetish; at 80 the member graduates. note is the member's current situation in one or two sentences."},
-    {"path": ["club", "incidents"], "direct": false, "description": "Boundary incidents in order. An open incident adds 10 exposure every time a week closes until the center deals with it."},
+    {"path": ["club", "members"], "direct": false, "description": "The member register, keyed by full name. wants is the one thing that draws a member; is lists what the member embodies; hates lists what the member cannot bear. control (0 to 100) is how well the member lives with the fetish; at 80 the member graduates. attitude is their willingness to take part in peer support, separate from status, room and control."},
+    {"path": ["club", "incidents"], "direct": false, "description": "Boundary incidents in order, with their week, people involved, kind and whether they are still open. An open incident adds 10 exposure every time a week closes until the center deals with it."},
     {"path": ["club", "lastWeek"], "direct": false, "description": "The result of the most recently closed week: which rooms met or stood idle, roomMembers with each room's roster at the start of that week, income and rent, each attending member's actual control change, who graduated, who left and which incidents happened. The roomMembers rosters keep members who later graduated, quit or moved rooms. null before the first week closes."},
     {"path": ["club", "flags"], "direct": false, "description": "Once-only events already claimed."}
   ],
@@ -169,16 +168,16 @@
       "title": "收下新会员",
       "stages": ["after"],
       "description": "Register an applicant the center has just accepted after an interview in the story. Uses one waiting interview and collects the 500 admission fee. The new member starts unassigned.",
-      "parameters": {"type": "object", "required": ["name", "age", "job", "kink", "wants", "is", "hates", "control", "note"], "additionalProperties": false, "properties": {
+      "parameters": {"type": "object", "required": ["name", "age", "job", "kink", "wants", "is", "hates", "control", "attitude"], "additionalProperties": false, "properties": {
         "name": {"type": "string", "title": "姓名", "minLength": 1, "description": "Full name as said in the story."},
         "age": {"type": "integer", "title": "年龄", "minimum": 18, "maximum": 90},
         "job": {"type": "string", "title": "职业", "minLength": 1},
-        "kink": {"type": "string", "title": "性癖与处境", "minLength": 1, "description": "The fetish and what it has done to the person's life, in one or two plain sentences."},
+        "kink": {"type": "string", "title": "性癖", "minLength": 1, "description": "A short label for the applicant's fetish as stated in the interview, such as 制服 or 角色扮演. It can differ from the matching traits."},
         "wants": {"$ref": "#/$defs/tag", "title": "被什么吸引", "description": "The trait this person is drawn to in someone else."},
         "is": {"type": "array", "title": "自身特质", "description": "Traits this person shows to others; members who want one of them are drawn to this person.", "items": {"$ref": "#/$defs/tag"}, "uniqueItems": true},
         "hates": {"type": "array", "title": "受不了", "description": "Traits this person cannot bear in someone else; never the trait in wants.", "items": {"$ref": "#/$defs/tag"}, "uniqueItems": true},
         "control": {"type": "integer", "title": "自控", "minimum": 0, "maximum": 60, "description": "How well the person holds the fetish in check at arrival: about 10 for someone barely holding on, about 50 for someone who manages but is tired."},
-        "note": {"type": "string", "title": "近况", "description": "One sentence about how the person came across in the interview."}
+        "attitude": {"enum": ["抗拒", "观望", "投入"], "title": "参与态度", "description": "Willingness to take part in peer support: 抗拒 pushes back, 观望 is still deciding, 投入 actively takes part. Separate from membership status, room assignment and self-control. Use 观望 when the interview leaves this unclear."}
       }, "$defs": {"tag": {"enum": ["年上", "年下", "支配", "被支配", "足", "露出", "窥视", "制服", "粗暴", "温柔"]}}},
       "conversions": [],
       "requires": {"op": "and", "args": [
@@ -187,7 +186,7 @@
         {"op": "eq", "args": [{"call": "member_field", "args": [{"get": ["club", "members"]}, {"param": ["name"]}, {"literal": "status"}]}, {"literal": null}]}
       ]},
       "effects": [
-        {"path": ["club", "members"], "value": {"call": "add_member", "args": [{"get": ["club", "members"]}, {"param": ["name"]}, {"param": ["age"]}, {"param": ["job"]}, {"param": ["kink"]}, {"param": ["wants"]}, {"param": ["is"]}, {"param": ["hates"]}, {"param": ["control"]}, {"param": ["note"]}]}},
+        {"path": ["club", "members"], "value": {"call": "add_member", "args": [{"get": ["club", "members"]}, {"param": ["name"]}, {"param": ["age"]}, {"param": ["job"]}, {"param": ["kink"]}, {"param": ["wants"]}, {"param": ["is"]}, {"param": ["hates"]}, {"param": ["control"]}, {"param": ["attitude"]}]}},
         {"path": ["club", "waiting"], "value": {"op": "subtract", "args": [{"get": ["club", "waiting"]}, {"literal": 1}]}},
         {"path": ["club", "funds"], "value": {"op": "add", "args": [{"get": ["club", "funds"]}, {"literal": 500}]}}
       ]
@@ -206,17 +205,17 @@
       "effects": [{"path": ["club", "waiting"], "value": {"op": "subtract", "args": [{"get": ["club", "waiting"]}, {"literal": 1}]}}]
     },
     {
-      "id": "note",
-      "title": "记录近况",
+      "id": "attitude",
+      "title": "更新参与态度",
       "stages": ["after"],
-      "description": "Replace a member's note with what the story has just shown about them: a confession, a setback, a change in how they treat someone.",
-      "parameters": {"type": "object", "required": ["member", "note"], "additionalProperties": false, "properties": {
+      "description": "Set a current member's participation attitude when their willingness to take part in peer support has changed in the story.",
+      "parameters": {"type": "object", "required": ["member", "attitude"], "additionalProperties": false, "properties": {
         "member": {"type": "string", "title": "会员", "description": "Full name as registered."},
-        "note": {"type": "string", "title": "近况", "minLength": 1, "description": "One or two sentences that stay true until the next change."}
+        "attitude": {"enum": ["抗拒", "观望", "投入"], "title": "参与态度", "description": "Willingness to take part in peer support: 抗拒 pushes back, 观望 is still deciding, 投入 actively takes part. Separate from membership status, room assignment and self-control."}
       }},
       "conversions": [],
-      "requires": {"op": "ne", "args": [{"call": "member_field", "args": [{"get": ["club", "members"]}, {"param": ["member"]}, {"literal": "status"}]}, {"literal": null}]},
-      "effects": [{"path": ["club", "members"], "value": {"call": "with_field", "args": [{"get": ["club", "members"]}, {"param": ["member"]}, {"literal": "note"}, {"param": ["note"]}]}}]
+      "requires": {"op": "eq", "args": [{"call": "member_field", "args": [{"get": ["club", "members"]}, {"param": ["member"]}, {"literal": "status"}]}, {"literal": "在读"}]},
+      "effects": [{"path": ["club", "members"], "value": {"call": "with_field", "args": [{"get": ["club", "members"]}, {"param": ["member"]}, {"literal": "attitude"}, {"param": ["attitude"]}]}}]
     },
     {
       "id": "leave",
@@ -238,15 +237,14 @@
       "title": "记下越界",
       "stages": ["after"],
       "description": "Record a boundary incident that has just happened in the story outside the weekly sessions: members meeting privately, a fight, or word getting out to family, work or the neighbourhood. Adds 10 exposure, or 25 when word gets out. Incidents produced by closing a week are already recorded.",
-      "parameters": {"type": "object", "required": ["who", "kind", "summary"], "additionalProperties": false, "properties": {
+      "parameters": {"type": "object", "required": ["who", "kind"], "additionalProperties": false, "properties": {
         "who": {"type": "array", "title": "涉及会员", "minItems": 1, "items": {"type": "string"}, "description": "Full names of the members involved."},
-        "kind": {"enum": ["私下越界", "当场冲突", "外泄"], "title": "类型"},
-        "summary": {"type": "string", "title": "经过", "minLength": 1, "description": "One sentence on what happened."}
+        "kind": {"enum": ["私下越界", "当场冲突", "外泄"], "title": "类型"}
       }},
       "conversions": [],
       "requires": {"op": "eq", "args": [{"get": ["club", "phase"]}, {"literal": "运营中"}]},
       "effects": [
-        {"path": ["club", "incidents"], "value": {"call": "add_incident", "args": [{"get": ["club", "incidents"]}, {"get": ["club", "week"]}, {"param": ["who"]}, {"param": ["kind"]}, {"param": ["summary"]}]}},
+        {"path": ["club", "incidents"], "value": {"call": "add_incident", "args": [{"get": ["club", "incidents"]}, {"get": ["club", "week"]}, {"param": ["who"]}, {"param": ["kind"]}]}},
         {"path": ["club", "exposure"], "value": {"op": "add", "args": [{"get": ["club", "exposure"]}, {"op": "if", "args": [{"op": "eq", "args": [{"param": ["kind"]}, {"literal": "外泄"}]}, {"literal": 25}, {"literal": 10}]}]}}
       ]
     }

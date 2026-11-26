@@ -65,7 +65,7 @@ export default defineConfig({
             }
             const hash = createHash('sha256');
             for (const [file, item] of Object.entries(bundle).sort(([a], [b]) => a.localeCompare(b))) hash.update(file).update(item.type === 'chunk' ? item.code : item.source);
-            for (const file of pages) hash.update(fs.readFileSync(path.join(root, file)));
+            for (const file of pages) hash.update(fs.readFileSync(path.join(root, file), 'utf8').replaceAll('\r\n', '\n'));
             manifest.buildId = hash.digest('hex').slice(0, 20);
             fs.mkdirSync(path.join(root, 'output'), { recursive: true });
             fs.writeFileSync(path.join(root, 'output/browser-build-audit.json'), JSON.stringify({ buildId: manifest.buildId, modules: audit }, null, 2));

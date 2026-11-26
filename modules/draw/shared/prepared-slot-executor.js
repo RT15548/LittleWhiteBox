@@ -1,6 +1,7 @@
 import { PreviewStatus, DRAW_SLOT_COPY, DRAW_SLOT_ERRORS } from './image-record.js';
 import { isPendingJobLeaseLost } from './recoverable-image-jobs.js';
 import { deliverPreparedImage } from './prepared-image-delivery.js';
+import { runPreparedImageBatches } from './prepared-image-batches.js';
 import { discardPendingImageSlot } from './pending-image-jobs.js';
 import { ImageRequestOutcome } from './image-request-outcome.js';
 import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
@@ -9,7 +10,7 @@ import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
 // Both prepared scene plans and shorthand tags use this lifecycle. The host owns
 // placement; providers own transport; neither may acknowledge an unstored image.
 export async function executePreparedSlots({ items, backend, store, remove, select, commit,
-    run, resolveTarget, render, activity, signal, classifyError, onStateChange,
+    run, prepareItem, resolveTarget, render, activity, signal, classifyError, onStateChange,
     nativeMessage = false, onPrepared, clearSelection, afterDelivered, manual = false,
     onRenderError = error => console.error(DRAW_SLOT_COPY.renderFailed, error) }) {
     const results = new Map();
@@ -80,7 +81,7 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
     const fail = async (index, error, guard, commitDelivery) => {
         if (results.has(index) || deliveryErrors.has(index)) return;
         const kind = signal?.aborted ? DRAW_SLOT_ERRORS.interrupted : classifyError(error);
-        const unknown = !backend && started.has(index)
+        const unknown = error?.imageRequestOutcome === ImageRequestOutcome.UNKNOWN || !backend && started.has(index)
             && ![ImageRequestOutcome.NOT_SUBMITTED, ImageRequestOutcome.REJECTED].includes(error?.imageRequestOutcome);
         // 结果拿不准时状态记 UNKNOWN；给用户看的只是实际原因（超时、服务不可用……）。
         const problem = unknown && !error?.message ? DRAW_SLOT_ERRORS.unknown : kind;
@@ -101,15 +102,37 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
         }));
         if (!backend || nativeMessage) await commitOnce();
         onPrepared?.();
-        for (const [index, item] of items.entries()) setActivity(item, index, 'queued');
         if (nativeMessage) observeBackgroundTask(scheduleRefresh(), { source: import.meta.url, operation: "executePreparedSlots" });
         else await refreshAfterWrite();
+        const prepared = new Map();
+        const available = item => !item.discarded && Boolean(resolveTarget(item.slotId));
+        const discard = index => {
+            items[index].discarded = true;
+            return deliver(index, {});
+        };
+        if (prepareItem) {
+            // The host has its placements. Online planning can now take its
+            // time; a failed or withdrawn slot never enters the paid batch.
+            for (const [index, item] of items.entries()) {
+                signal?.throwIfAborted();
+                if (!available(item)) { await discard(index); continue; }
+                try { prepared.set(index, await prepareItem(index)); }
+                catch (error) {
+                    signal?.throwIfAborted();
+                    if (available(item)) await fail(index, error);
+                    else await discard(index);
+                }
+            }
+        }
+        for (const index of prepareItem ? prepared.keys() : items.keys()) setActivity(items[index], index, 'queued');
         onStateChange?.('gen', { current: 0, total: items.length });
-        await run({
+        const submit = (indices, isCreateCurrent) => run({
             signal,
+            ...(prepareItem ? { preparedItems: indices.map(index => prepared.get(index)) } : {}),
             // Called by the real provider queue immediately before transport.
             // Queued/unsubmitted inputs remain distinct from possibly billed ones.
             onItemStarting: async ({ index }) => {
+                index = indices[index];
                 if (items[index].discarded) { await deliver(index, {}); return false; }
                 try {
                     await store({ ...items[index], status: PreviewStatus.UNKNOWN,
@@ -126,26 +149,30 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
                 return true;
             },
             recoverable: {
+                isCreateCurrent,
                 plan: {
                     delivery: { ...items[0].delivery, preserveSlotsOnCancel: true },
                     gallery: { chatId: items[0].chatId, messageId: String(items[0].messageId),
                         characterName: items[0].characterName },
-                    items: items.map((item, index) => ({ index, slotId: item.slotId, imgId: item.imgId, discarded: item.discarded,
+                    items: indices.map((sourceIndex, index) => {
+                        const item = items[sourceIndex];
+                        return { index, slotId: item.slotId, imgId: item.imgId, discarded: item.discarded,
                         previewMetadata: { tags: item.tags, title: item.title, positive: item.positive, postPrompt: item.postPrompt, presetId: item.presetId,
-                            orientation: item.orientation ?? null,
+                            orientation: item.orientation ?? null, providerMetadata: item.providerMetadata,
                             characterPrompts: item.characterPrompts, negativePrompt: item.negativePrompt,
                             vibeNames: item.vibeNames || '',
-                            continuityChars: Array.isArray(item.continuityChars) ? item.continuityChars : null } })),
+                            continuityChars: Array.isArray(item.continuityChars) ? item.continuityChars : null } };
+                    }),
                 },
                 commitPlacements: async () => {
                     // Deletion may precede journal creation while this batch waits
                     // in the request queue. Carry it into that newly created record.
-                    for (const item of items) if (item.discarded) await discardPendingImageSlot(item.slotId);
+                    for (const index of indices) if (items[index].discarded) await discardPendingImageSlot(items[index].slotId);
                     return commitOnce();
                 },
                 settlePlacements: async ({ error, deliverItem } = {}) => {
-                    if (error && committed) for (const index of items.keys()) {
-                        await deliverItem(index, ({ guard, commitDelivery }) => fail(index, error, guard, commitDelivery));
+                    if (error && committed) for (const [index, sourceIndex] of indices.entries()) {
+                        await deliverItem(index, ({ guard, commitDelivery }) => fail(sourceIndex, error, guard, commitDelivery));
                     }
                 },
                 resolveSettlement: ({ error } = {}) => error
@@ -154,19 +181,24 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
             },
             onStateChange: (state, data) => {
                 const changedSlots = [];
-                for (const [index, item] of items.entries()) {
+                for (const index of indices) {
+                    const item = items[index];
                     const generating = backend
-                        ? state === 'delivering' || state === 'progress' && data.current === index + 1
+                        ? state === 'delivering' || state === 'progress' && indices[data.current - 1] === index
                         : started.has(index);
                     if (!results.has(index)) {
                         setActivity(item, index, generating ? 'generating' : 'queued');
                         changedSlots.push(item.slotId);
                     }
                 }
-                onStateChange?.(state, data);
+                onStateChange?.(state, prepareItem ? { ...data, total: items.length,
+                    ...(data.current ? { current: indices[data.current - 1] + 1 } : {}),
+                    ...(data.nextIndex ? { nextIndex: indices[data.nextIndex - 1] + 1 } : {}),
+                } : data);
                 observeBackgroundTask(scheduleRefresh(changedSlots), { source: import.meta.url, operation: "onStateChange" });
             },
             onItemReady: async ({ index, base64, guard, commitDelivery }) => {
+                index = indices[index];
                 if (!base64) throw new Error(DRAW_SLOT_COPY.emptyResult);
                 try {
                     await deliver(index, { base64, status: PreviewStatus.SUCCESS, errorType: null, errorMessage: null }, guard, commitDelivery);
@@ -177,9 +209,12 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
                 }
             },
             onItemSettled: async ({ index, state, error, guard, commitDelivery }) => {
-                if (state !== 'ready' && state !== 'consumed') await fail(index, error, guard, commitDelivery);
+                if (state !== 'ready' && state !== 'consumed') await fail(indices[index], error, guard, commitDelivery);
             },
         });
+        if (prepareItem) {
+            await runPreparedImageBatches({ pending: new Set(prepared.keys()), items, available, discard, fail, signal, submit });
+        } else if (items.length) await submit([...items.keys()]);
         if (deliveryErrors.size) throw new Error(DRAW_SLOT_COPY.storageFailed);
         for (const index of items.keys()) {
             if (!results.has(index)) await fail(index, new Error(DRAW_SLOT_COPY.emptyResult));

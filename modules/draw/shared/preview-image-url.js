@@ -1,10 +1,20 @@
 import { normalizeMediaUrl } from './media-url.js';
+import { detectImageMime } from './image-collection.js';
+
+function readImageMime(data) {
+    // All supported signatures fit in the first 12 bytes. Avoid decoding the full image again.
+    const head = data.match(/^(?:\s*[A-Za-z0-9+/=]){1,16}/)?.[0];
+    if (!head) return;
+    try { return detectImageMime(Uint8Array.from(atob(head), c => c.charCodeAt(0))); }
+    catch (error) { if (error.name !== 'InvalidCharacterError') throw error; }
+}
 
 export function parseBase64Image(value) {
     const raw = String(value || '').trim();
     if (!raw) return null;
     const match = raw.match(/^data:([^;]+);base64,(.*)$/i);
-    return { mime: match?.[1] || 'image/png', data: match ? match[2] : raw };
+    const data = match ? match[2] : raw;
+    return { mime: readImageMime(data) || match?.[1] || 'image/png', data };
 }
 
 export function base64ToBlob(base64, mime) {

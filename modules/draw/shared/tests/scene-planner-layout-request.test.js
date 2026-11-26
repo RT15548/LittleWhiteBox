@@ -9,10 +9,12 @@ import { getLastDrawAgentDiagnostic, resetDrawAgentRuntimeForTests } from '../dr
 import { addBlock, createCustomBlock, createDefaultLayout, reorderBlocks } from '../scene-planner-layout.js';
 import { buildScenePlannerChainPreview } from '../scene-planner-frame.js';
 
+import { SCENE_PLANNER_HANDOFF_NAMES } from '../scene-planner-handoff.js';
+
 const PROMPTS = { topSystem: 'OPEN', tagGuideContent: 'GUIDE', sceneRules: 'RULES', fieldDescriptions: '' };
 const NARRATIVE = '雨声停了。阿璃推开门。';
 const ORDER = ['opening', 'frame', 'guide', 'rules', 'tools', 'worldInfo', 'content', 'limits'];
-const ROLES = ['system', 'user', 'assistant', 'tool', 'assistant', 'tool', 'assistant', 'tool'];
+const ROLES = ['system', 'user', 'assistant', 'tool', 'assistant', 'tool', 'assistant', 'tool', 'assistant', 'tool'];
 let idCounter = 0;
 const custom = (role, content, options = {}) => createCustomBlock({ role, content, ...options }, [], () => ++idCounter / 36 ** 6);
 function layoutOf(order = ORDER, customs = {}) {
@@ -34,8 +36,25 @@ async function build(layout, options = {}) {
         customPrompts: layout === undefined ? null : { layout }, expansionOptions: { runtime: recorder.runtime }, ...options });
     return { task, ...recorder };
 }
+test('prepared receipt-only snapshots cannot lose their reference tool definitions or manuscript', async () => {
+    const prepared = await prepareScenePlannerInput({ messageText: NARRATIVE, maxImages: 1, promptDefaults: PROMPTS,
+        expansionOptions: { runtime: createRuntime().runtime }, agentCaller: true });
+    assert.ok(createPreparedScenePlannerTask(prepared).tools.length > 1);
+    for (const mutate of [
+        planner => { delete planner.handoffTools; },
+        planner => { delete planner.handoffTools[0].function.parameters.properties.manuscript; },
+    ]) {
+        const incomplete = structuredClone(prepared);
+        mutate(incomplete.planner);
+        assert.throws(() => createPreparedScenePlannerTask(incomplete), { code: 'PREPARED_INPUT_INVALID' });
+    }
+});
+
 const receipts = task => task.messages.filter(message => message.role === 'tool');
-const documents = task => receipts(task).map(message => JSON.parse(message.content));
+const receiptData = task => receipts(task).map(message => JSON.parse(message.content));
+const documents = task => task.tools.slice(1, 5).map(tool => ({
+    content: Object.values(tool.function.parameters.properties).map(field => field.description).join('\n\n'),
+}));
 // Cost: dropping continuity here silently changes a later paid image request.
 test('continuity reaches planner materials once and an empty snapshot leaves the request unchanged', async () => {
     const baseline = await build();
@@ -61,12 +80,12 @@ test('default, absent and disabled-only layouts produce the same completed hando
     assert.equal(baseline.task.systemPrompt, '');
     assert.equal(baseline.task.toolChoice, 'auto');
     assert.deepEqual(baseline.task.messages.map(message => message.role), ROLES);
-    assert.equal(documents(baseline.task).at(-1).approved, true);
+    assert.equal(receiptData(baseline.task).at(-1).approved, true);
     assert.deepEqual(baseline.emits[0].chat.map(message => message.role), ROLES);
     assert.equal(JSON.stringify(baseline.emits).includes(M), false);
 });
 
-test('materials and requirements move into separate JSON results without duplicate data', async () => {
+test('materials and guidance live in tool descriptions without duplicate data', async () => {
     const world = '世界资料："雨城"\n\\街道 $& $1 $$';
     const character = { name: '阿璃', type: 'girl', appearance: 'silver hair', outfits: [{ name: '外套', tags: 'red coat' }] };
     const { task } = await build(undefined, { worldbookEntries: world, presentCharacters: [character],
@@ -78,7 +97,7 @@ test('materials and requirements move into separate JSON results without duplica
     assert.ok(materials.content.includes('【插图点 1】'));
     assert.ok(guide.content.includes(PROMPTS.tagGuideContent));
     assert.ok(guide.content.includes(PROMPTS.sceneRules));
-    const data = task.messages.map(message => message.role === 'tool' ? JSON.parse(message.content).content : message.content).join('\n');
+    const data = [...task.messages.map(message => message.content), ...documents(task).map(item => item.content)].join('\n');
     for (const token of [world, character.appearance, '独一无二的正文', PROMPTS.tagGuideContent, PROMPTS.sceneRules]) {
         assert.equal(data.split(token).length - 1, 1, token);
     }
@@ -107,6 +126,21 @@ test('dynamic macros expand once before JSON serialization and custom blocks can
     assert.equal(runtime.calls.filter(text => text.includes('角色{{nested}}')).length, 1);
 });
 
+test('moving documents to descriptions preserves stateful macro evaluation order', async () => {
+    const evaluated = [];
+    const layout = addBlock(createDefaultLayout(), custom('user', '{{stage:between}}'), 5);
+    const { task } = await build(layout, {
+        promptDefaults: { ...PROMPTS, topSystem: '{{stage:opening}}', tagGuideContent: '{{stage:guide}}' },
+        expansionOptions: { runtime: { substituteParams: text => text.replace(/\{\{stage:(\w+)\}\}/g, (_match, name) => {
+            evaluated.push(name);
+            return `fixture-${name}`;
+        }) } },
+    });
+    assert.deepEqual(evaluated, ['opening', 'between', 'guide']);
+    assert.ok(task.messages.some(message => message.content === 'fixture-between'));
+    assert.ok(documents(task)[1].content.includes('fixture-guide'));
+});
+
 test('custom messages keep roles, order and enabled state, followed by the final approval', async () => {
     const layout = layoutOf(ORDER, { 1: custom('system', 'EXTRA-S'), 7: custom('user', 'EXTRA-U'),
         99: custom('assistant', 'TAIL {{user}}'), 100: custom('user', 'GHOST', { enabled: false }) });
@@ -119,7 +153,7 @@ test('custom messages keep roles, order and enabled state, followed by the final
     });
     assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
     assert.equal(JSON.stringify(task).includes('GHOST'), false);
-    assert.equal(documents(task).at(-1).approved, true);
+    assert.equal(receiptData(task).at(-1).approved, true);
     assertScenePlannerMessages(task.messages.map(({ toolProtocolMarker: _marker, ...message }) => message));
 });
 
@@ -128,7 +162,7 @@ test('messages that expand to empty disappear without dropping an empty guide to
     const { task } = await build(layout, { promptDefaults: { ...PROMPTS, tagGuideContent: '', sceneRules: '' },
         expansionOptions: { runtime: { substituteParams: text => text.replace('{{empty}}', '') } } });
     assert.deepEqual(task.messages.map(message => message.role), ROLES);
-    assert.equal(receipts(task).length, 3);
+    assert.equal(receipts(task).length, 4);
     assert.ok(task.messages.every(message => message.content.trim()));
 });
 
@@ -149,7 +183,7 @@ for (const toolMode of ['native', 'tagged-json']) {
         const calls = task.messages.flatMap(message => message.tool_calls || []);
         if (toolMode === 'native') {
             assert.equal(body.tool_choice, 'auto');
-            assert.deepEqual(body.tools.map(tool => tool.function.name), ['submit_scene_plan']);
+            assert.deepEqual(body.tools.map(tool => tool.function.name), ['submit_scene_plan', ...SCENE_PLANNER_HANDOFF_NAMES]);
             assert.deepEqual(body.messages, emits[0].chat.map(({ providerPayload: _provider, ...message }) => message));
             assert.deepEqual(body.messages.filter(message => message.role === 'tool').map(message => message.tool_call_id), calls.map(call => call.id));
         } else {
@@ -159,7 +193,7 @@ for (const toolMode of ['native', 'tagged-json']) {
             assert.deepEqual(replayCalls.map(call => call.name), calls.map(call => call.function.name));
             assert.deepEqual(replayCalls.map(call => call.id), calls.map(call => call.id));
             const outputs = body.messages.filter(message => message.role === 'user' && message.content.startsWith('<tool_result>'));
-            assert.deepEqual(outputs.map(message => JSON.parse(message.content.split('content:\n')[1].split('\n</tool_result>')[0])), documents(task));
+            assert.deepEqual(outputs.map(message => JSON.parse(message.content.split('content:\n')[1].split('\n</tool_result>')[0])), receiptData(task));
         }
     });
 }
@@ -187,16 +221,54 @@ test('prepared prompt survives JSON transfer and replays the same paired message
     const task = createPreparedScenePlannerTask(transferred);
     assert.equal(task.toolChoice, 'auto');
     assert.deepEqual(task.messages.map(({ toolProtocolMarker: _marker, ...message }) => message), transferred.planner.prompt.messages);
-    assert.deepEqual(task.tools.map(tool => tool.function.name), ['submit_scene_plan']);
+    assert.deepEqual(task.tools.map(tool => tool.function.name), ['submit_scene_plan', ...SCENE_PLANNER_HANDOFF_NAMES]);
 });
 
-test('default structure preview locates editable sections in their actual message stages', async () => {
-    const { task } = await build();
-    const preview = buildScenePlannerChainPreview();
-    assert.deepEqual(preview.filter(item => item.role !== 'tools').map(item => item.role), task.messages.map(message => message.role));
-    assert.equal(preview.find(item => item.sections?.some(section => section.key === 'topSystem')).role, 'system');
-    assert.equal(preview.find(item => item.sections?.some(section => section.key === 'tagGuide')).role, 'tool');
-    assert.equal(preview.find(item => item.sections?.some(section => section.key === 'content')).role, 'tool');
+test('request preview shows actual handoff messages and each tool description and document once', async () => {
+    const { task } = await build(undefined, { worldbookEntries: 'WORLD DATA' });
+    const [submit, materials, guide, requirements] = task.tools.map(tool => tool.function);
+    const parameterOf = (tool, field) => tool.parameters.properties[field].description;
+    const bodyOf = (tool, field) => {
+        const description = parameterOf(tool, field);
+        return description.slice(description.indexOf('\n\n') + 2);
+    };
+    const builtinTexts = {
+        frame: 'FRAME PREVIEW',
+        worldInfo: bodyOf(materials, 'world_info'),
+        content: bodyOf(materials, 'manuscript'),
+        limits: bodyOf(guide, 'limits'),
+        guide: PROMPTS.tagGuideContent,
+        rules: PROMPTS.sceneRules,
+    };
+    const preview = buildScenePlannerChainPreview({ builtinTexts });
+    const messages = preview.filter(item => item.role !== 'tools');
+    assert.deepEqual(messages.map(item => item.role), task.messages.map(message => message.role));
+    assert.deepEqual(messages.flatMap(item => item.tool_calls || []), task.messages.flatMap(message => message.tool_calls || []));
+    assert.deepEqual(messages.filter(item => item.role === 'tool').map(item => [item.tool_call_id, item.sections[0].content]),
+        receipts(task).map(message => [message.tool_call_id, message.content]));
+    const rowFor = key => messages.find(item => item.sections?.some(section => section.key === key));
+    assert.equal(rowFor('topSystem').role, 'system');
+    assert.equal(rowFor('frame').sections.find(section => section.key === 'frame').content, builtinTexts.frame);
+    const [submission, handoffs] = preview.filter(item => item.role === 'tools');
+    assert.equal(submission.name, submit.name);
+    assert.ok(submission.fields.length > 0);
+    assert.deepEqual([submission, handoffs].flatMap(item => item.sections).filter(section => !section.parameter)
+        .map(section => [section.key, section.content]), task.tools.map(({ function: tool }) => [tool.name, tool.description]));
+    assert.deepEqual(handoffs.sections.filter(section => section.parameter).map(section => [section.parameter, section.content]), [
+        ['world_info', parameterOf(materials, 'world_info')], ['manuscript', parameterOf(materials, 'manuscript')],
+        ['guidance', parameterOf(guide, 'guidance')], ['scene_rules', parameterOf(guide, 'scene_rules')],
+        ['limits', parameterOf(guide, 'limits')], ['requirements', parameterOf(requirements, 'requirements')],
+    ]);
+    assert.equal(handoffs.sections.filter(section => section.content?.includes('WORLD DATA')).length, 1);
+});
+
+test('request preview omits explicitly empty documents without dropping their tools', () => {
+    const [submission, handoffs] = buildScenePlannerChainPreview({
+        builtinTexts: { worldInfo: '', content: 'Story', guide: '', rules: '', limits: 'Limits' },
+    }).filter(item => item.role === 'tools');
+    assert.equal(submission.sections.filter(section => !section.parameter).length, 1);
+    assert.deepEqual(handoffs.sections.filter(section => !section.parameter).map(section => section.key), SCENE_PLANNER_HANDOFF_NAMES);
+    assert.deepEqual(handoffs.sections.filter(section => section.parameter).map(section => section.parameter), ['manuscript', 'limits', 'requirements']);
 });
 
 test('current-draft preview follows actual assembly after custom insertion, disabling and legacy reordering', async () => {

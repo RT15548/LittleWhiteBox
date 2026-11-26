@@ -22,6 +22,7 @@ export function normalizeScenePlannerProfile(profile) {
     const imageModelName = String(source.imageModelName || '').trim() || DEFAULT_PROFILE.imageModelName;
     return Object.freeze({
         imageModelName,
+        ...(source.promptStyle === 'natural' ? { promptStyle: 'natural' } : {}),
         centerMode: CENTER_MODES.has(source.centerMode) ? source.centerMode : DEFAULT_PROFILE.centerMode,
         interactSyntax: INTERACT_SYNTAXES.has(source.interactSyntax)
             ? source.interactSyntax

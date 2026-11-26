@@ -13,14 +13,15 @@ import { compileDefinition } from './compile.js';
 import { checkOpenings, initialize, settle } from '../engine/settle.js';
 import { diagnostic, reject } from '../engine/diagnostics.js';
 
-export async function openDraft() {
+export async function openDraft(): Promise<Draft> {
     const opened = await runCardFiles({ action: 'open' });
     if (!('root' in opened)) {reject('definition-missing');}
-    const files = (await readFiles()).filter(file => file.path?.startsWith(`${opened.root}variables/`));
-    return { ...opened, files } as Draft;
+    const files = (await readFiles()).filter(file => file.kind !== 'image')
+        .filter(file => file.path.startsWith(`${opened.root}variables/`));
+    return { ...opened, files };
 }
 
-export async function saveDraft(draft: Draft, updates: CardFile[]) {
+export async function saveDraft(draft: Draft, updates: CardFile[]): Promise<Draft> {
     if (currentCard().avatar !== draft.avatar) {reject('stale-target');}
     const args = { path: `${draft.root}variables/` };
     const sources = (await workspaceRepository.readWorkspace()).localSources;
@@ -32,6 +33,7 @@ export async function saveDraft(draft: Draft, updates: CardFile[]) {
     for (const file of [...updates, ...removed]) {
         if (!file.path.startsWith(args.path)) {reject('draft-conflict', { path: file.path });}
         const current = currentFiles.get(file.path);
+        if (current?.kind === 'image') {reject('draft-conflict', { path: file.path });}
         const original = draft.files.find(item => item.path === file.path);
         if ((current?.content ?? null) !== (original?.content ?? null) && current?.content !== file.content) {reject('draft-conflict', { path: file.path });}
     }

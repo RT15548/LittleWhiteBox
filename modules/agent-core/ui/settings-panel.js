@@ -233,6 +233,7 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateReasoningEffort: reasoningFields.reasoningEffort,
             delegateReasoningBudgetTokens: reasoningFields.reasoningBudgetTokens,
             delegateToolMode: delegateProviderConfig.toolMode || 'native',
+            delegateImageInput: delegateProviderConfig.imageInput,
             delegateSampling: normalizeSampling(delegateProviderConfig.sampling),
         };
     }
@@ -251,6 +252,7 @@ export function createAgentSettingsPanel(deps = {}) {
             sendTemperature: shouldSendTemperature(providerConfig),
             ...reasoningFields,
             toolMode: providerConfig.toolMode || 'native',
+            imageInput: providerConfig.imageInput,
             sampling: normalizeSampling(providerConfig.sampling),
         };
     }
@@ -328,6 +330,7 @@ export function createAgentSettingsPanel(deps = {}) {
             sendTemperature: root.querySelector('#xb-assistant-send-temperature')?.checked ?? Boolean(draft.sendTemperature ?? true),
             reasoning,
             toolMode: root.querySelector('#xb-assistant-tool-mode')?.value || draft.toolMode,
+            imageInput: root.querySelector('#xb-assistant-model-image-input')?.checked ?? draft.imageInput !== false,
             sampling: readSamplingForm(root, provider, draft.sampling),
         };
         const delegateProviderConfig = {
@@ -341,6 +344,7 @@ export function createAgentSettingsPanel(deps = {}) {
             sendTemperature: root.querySelector('#xb-assistant-delegate-send-temperature')?.checked ?? Boolean(draft.delegateSendTemperature ?? true),
             reasoning: delegateReasoning,
             toolMode: root.querySelector('#xb-assistant-delegate-tool-mode')?.value || draft.delegateToolMode,
+            imageInput: root.querySelector('#xb-assistant-delegate-model-image-input')?.checked ?? draft.delegateImageInput !== false,
             sampling: readSamplingForm(root, delegateProvider, draft.delegateSampling, 'delegate'),
         };
         return {
@@ -360,6 +364,7 @@ export function createAgentSettingsPanel(deps = {}) {
             reasoningEffort: providerConfig.reasoning.effort || '',
             reasoningBudgetTokens: providerConfig.reasoning.budgetTokens,
             toolMode: providerConfig.toolMode || draft.toolMode || 'native',
+            imageInput: providerConfig.imageInput,
             sampling: providerConfig.sampling,
             ...readWebSettingsForm(root, draft),
             permissionMode: normalizePermissionMode(root.querySelector('#xb-assistant-permission-mode')?.value || draft.permissionMode),
@@ -378,6 +383,7 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateReasoningEffort: delegateProviderConfig.reasoning.effort || '',
             delegateReasoningBudgetTokens: delegateProviderConfig.reasoning.budgetTokens,
             delegateToolMode: delegateProviderConfig.toolMode || draft.delegateToolMode || 'native',
+            delegateImageInput: delegateProviderConfig.imageInput,
             delegateSampling: delegateProviderConfig.sampling,
         };
     }
@@ -404,6 +410,7 @@ export function createAgentSettingsPanel(deps = {}) {
                 budgetTokens: draft.reasoningBudgetTokens,
             }),
             toolMode: draft.toolMode,
+            imageInput: draft.imageInput !== false,
             sampling: normalizeSampling(draft.sampling),
         };
     }
@@ -424,6 +431,7 @@ export function createAgentSettingsPanel(deps = {}) {
                 budgetTokens: draft.delegateReasoningBudgetTokens,
             }),
             toolMode: draft.delegateToolMode,
+            imageInput: draft.delegateImageInput !== false,
             sampling: normalizeSampling(draft.delegateSampling),
         };
     }
@@ -499,6 +507,23 @@ export function createAgentSettingsPanel(deps = {}) {
         return options.role === 'delegate'
             ? buildDelegateRuntimeProviderConfigFromDraft(draft)
             : buildRuntimeProviderConfigFromDraft(draft);
+    }
+
+    const imageBindings = new Set();
+    function imagePolicy(role) {
+        const draft = ensureConfigDraft(), delegate = role === 'delegate';
+        const { provider, baseUrl, model, apiKey, vertex } = getActiveProviderConfig({ role });
+        return { recipient: JSON.stringify([delegate ? draft.delegatePresetName : draft.currentPresetName,
+            provider, baseUrl, model, apiKey, vertex]), enabled: (delegate ? draft.delegateImageInput : draft.imageInput) !== false };
+    }
+
+    function bindImageInput({ role }) {
+        const policy = imagePolicy(role);
+        const changed = (scope, current) => {
+            if (scope === role && current.recipient === policy.recipient) policy.enabled = current.enabled;
+        };
+        imageBindings.add(changed);
+        return { enabled: () => policy.enabled, release: () => imageBindings.delete(changed) };
     }
 
     function syncPresetDraftName(root) {
@@ -703,6 +728,8 @@ export function createAgentSettingsPanel(deps = {}) {
             refillSelect(toolModeSelect, TOOL_MODE_OPTIONS);
             toolModeSelect.value = draft.toolMode || 'native';
         }
+        const imageInputToggle = root.querySelector('#xb-assistant-model-image-input');
+        if (imageInputToggle) imageInputToggle.checked = draft.imageInput !== false;
         if (permissionModeSelect) {
             refillSelect(permissionModeSelect, AGENT_PERMISSION_MODE_OPTIONS);
             permissionModeSelect.value = normalizePermissionMode(draft.permissionMode);
@@ -731,6 +758,8 @@ export function createAgentSettingsPanel(deps = {}) {
             refillSelect(delegateToolModeSelect, TOOL_MODE_OPTIONS);
             delegateToolModeSelect.value = draft.delegateToolMode || 'native';
         }
+        const delegateImageInputToggle = root.querySelector('#xb-assistant-delegate-model-image-input');
+        if (delegateImageInputToggle) delegateImageInputToggle.checked = draft.delegateImageInput !== false;
         syncReasoningControls(root, 'delegate');
         if (delegatePulledSelect) {
             refillSelect(delegatePulledSelect, delegatePulledModels.map((model) => ({ value: model, label: model })), '手动填写');
@@ -1313,6 +1342,16 @@ export function createAgentSettingsPanel(deps = {}) {
             syncConfigDraft(root);
         });
 
+        for (const selector of ['#xb-assistant-model-image-input', '#xb-assistant-delegate-model-image-input']) {
+            root.querySelector(selector)?.addEventListener('change', () => {
+                syncConfigDraft(root);
+                const role = selector.includes('-delegate-') ? 'delegate' : 'main';
+                const policy = imagePolicy(role);
+                for (const update of imageBindings) update(role, policy);
+                render?.();
+            });
+        }
+
         root.querySelector('#xb-assistant-permission-mode')?.addEventListener('change', () => {
             syncConfigDraft(root);
         });
@@ -1425,6 +1464,12 @@ export function createAgentSettingsPanel(deps = {}) {
 
     return {
         getActiveProviderConfig,
+        bindImageInput,
+        // Image input is an Assistant request policy, not a provider protocol field.
+        isImageInputEnabled(options = {}) {
+            const draft = ensureConfigDraft();
+            return (options.role === 'delegate' ? draft.delegateImageInput : draft.imageInput) !== false;
+        },
         getActiveProviderConfigFromForm(root, options = {}) {
             state.configDraft = readDraftFromForm(root);
             return getActiveProviderConfig(options);

@@ -222,8 +222,9 @@ export function createSettlementService<S extends Snapshot>(adapter: HostAdapter
             const history: History = { format: 3, roots, version: digest(compiled.bundle), revision: 0, checkpoints: [],
                 openingMode: opening ? 'per-swipe' : 'common' };
             const records = clone(snapshot.records);
-            if (opening) {records[0].entries.push(makeReceipt({ before: base, result, source: OPENING_SOURCE, revision: 1 }));}
-            return publish(snapshot, history, records, { ...result, version: history.version }, false);
+            const receipt = opening ? makeReceipt({ before: base, result, source: OPENING_SOURCE, revision: 1 }) : undefined;
+            if (receipt) {records[0].entries.push(receipt);}
+            return publish(snapshot, history, records, { ...result, version: history.version, ...(receipt ? { receipt } : {}) }, false);
         },
         async initializeOpening({ signal }: RunOptions = {}): Promise<Result | undefined> {
             const snapshot = adapter.capture(0), history = snapshot.history;

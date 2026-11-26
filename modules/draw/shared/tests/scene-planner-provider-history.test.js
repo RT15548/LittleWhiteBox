@@ -13,8 +13,10 @@ import { GOOGLE_SYNTHETIC_HISTORY_SIGNATURE } from '../scene-planner-messages.js
 import { addBlock, createCustomBlock, createDefaultLayout } from '../scene-planner-layout.js';
 import { ScenePlannerError } from '../scene-plan-contract.js';
 
+import { SCENE_PLANNER_HANDOFF_NAMES, scenePlannerHandoffReceipt } from '../scene-planner-handoff.js';
+
 // Completed setup exchanges must survive provider conversion without losing documents or
-// turning the three historical reads/approval into three additional model requests.
+// turning the four historical reads/approval into four additional model requests.
 const WORLD = 'The library is called "星灯馆". Its sign contains \\ and $&.';
 const NARRATIVE = 'Aster opens the "blue" door.';
 const APPEARANCE = 'silver hair, green eyes';
@@ -42,12 +44,29 @@ function expectedHistory(task) {
     const results = task.messages.filter(message => message.role === 'tool').map(message => ({
         id: message.tool_call_id, result: JSON.parse(message.content),
     }));
-    assert.deepEqual(calls.map(call => call.name), ['read_scene_materials', 'read_drawing_guide', 'request_draw_approval']);
-    assert.equal(results.length, 3);
-    for (const value of [WORLD, NARRATIVE, APPEARANCE]) assert.ok(results[0].result.content.includes(value));
-    for (const value of [GUIDE, RULES]) assert.ok(results[1].result.content.includes(value));
-    assert.equal(results[2].result.approved, true);
+    assert.deepEqual(calls.map(call => call.name), SCENE_PLANNER_HANDOFF_NAMES);
+    assert.equal(results.length, 4);
+    const reference = index => Object.values(task.tools[index].function.parameters.properties).map(field => field.description).join('\n');
+    for (const value of [WORLD, NARRATIVE, APPEARANCE]) assert.ok(reference(1).includes(value));
+    for (const value of [GUIDE, RULES]) assert.ok(reference(2).includes(value));
+    results.forEach((result, index) => assert.deepEqual(result.result, scenePlannerHandoffReceipt(calls[index].name)));
+    assert.equal(results[3].result.approved, true);
     return { calls, results };
+}
+
+function assertReferenceDefinitions(definitions, task) {
+    for (const { function: original } of task.tools.slice(1, 5)) {
+        const actual = definitions.find(tool => tool.name === original.name);
+        assert.ok(actual);
+        assert.equal(actual.description, original.description);
+        assert.ok(actual.description.length <= 1024);
+        const parameters = actual.parametersJsonSchema || actual.input_schema || actual.parameters;
+        assert.deepEqual(parameters.required || [], []);
+        assert.deepEqual(Object.keys(parameters.properties), Object.keys(original.parameters.properties));
+        for (const [name, field] of Object.entries(original.parameters.properties)) {
+            assert.equal(parameters.properties[name].description, field.description);
+        }
+    }
 }
 
 function assertHistory(actual, expected) {
@@ -59,7 +78,7 @@ function forbidNetwork(t) {
     t.mock.method(globalThis, 'fetch', () => { throw new Error('Unexpected network access in provider history test'); });
 }
 
-test('Anthropic receives all three completed exchanges and submits with one SDK request', async t => {
+test('Anthropic receives all four completed exchanges and submits with one SDK request', async t => {
     forbidNetwork(t);
     t.mock.method(console, 'info', () => {});
     const task = await buildTask();
@@ -80,7 +99,8 @@ test('Anthropic receives all three completed exchanges and submits with one SDK 
         calls: blocks.filter(block => block.type === 'tool_use').map(block => ({ id: block.id, name: block.name, arguments: block.input })),
         results: blocks.filter(block => block.type === 'tool_result').map(block => ({ id: block.tool_use_id, result: JSON.parse(block.content) })),
     }, expected);
-    assert.deepEqual(body.tools.map(tool => tool.name), [SUBMIT.name]);
+    assert.deepEqual(body.tools.map(tool => tool.name), [SUBMIT.name, ...SCENE_PLANNER_HANDOFF_NAMES]);
+    assertReferenceDefinitions(body.tools, task);
     assert.deepEqual(body.tool_choice, { type: 'auto' });
     assert.deepEqual(result.toolCalls, [SUBMIT]);
 });
@@ -104,7 +124,8 @@ test('Responses receives paired function calls and complete outputs in one SDK r
         calls: body.input.filter(item => item.type === 'function_call').map(item => ({ id: item.call_id, name: item.name, arguments: JSON.parse(item.arguments) })),
         results: body.input.filter(item => item.type === 'function_call_output').map(item => ({ id: item.call_id, result: JSON.parse(item.output) })),
     }, expected);
-    assert.deepEqual(body.tools.map(tool => tool.name), [SUBMIT.name]);
+    assert.deepEqual(body.tools.map(tool => tool.name), [SUBMIT.name, ...SCENE_PLANNER_HANDOFF_NAMES]);
+    assertReferenceDefinitions(body.tools, task);
     assert.equal(body.tool_choice, 'auto');
     assert.deepEqual(result.toolCalls, [SUBMIT]);
     assert.equal(result.requestInspection.requestCount, 1);
@@ -124,7 +145,7 @@ test('Google Gemini 3 receives signed synthetic history and sends only the appro
             sendMessage: async request => {
                 // Gemini 3 validates every manually supplied function-call part in this turn.
                 const historicalCalls = payload.history.flatMap(message => message.parts).filter(part => part.functionCall);
-                assert.equal(historicalCalls.length, 3);
+                assert.equal(historicalCalls.length, 4);
                 for (const part of historicalCalls) assert.equal(part.thoughtSignature, GOOGLE_SYNTHETIC_HISTORY_SIGNATURE);
                 sends.push(structuredClone(request));
                 return { candidates: [{ finishReason: 'STOP', content: { role: 'model', parts: [
@@ -141,9 +162,10 @@ test('Google Gemini 3 receives signed synthetic history and sends only the appro
     const responses = parts.filter(part => part.functionResponse).map(part => part.functionResponse);
     assertHistory({ calls, results: responses.map(response => ({ id: response.id, result: response.response })) }, expected);
     assert.deepEqual(responses.map(response => response.name), expected.calls.map(call => call.name));
-    assert.deepEqual(sends[0].message.map(part => part.functionResponse.id), [expected.calls[2].id]);
+    assert.deepEqual(sends[0].message.map(part => part.functionResponse.id), [expected.calls[3].id]);
     assert.equal(sends[0].message[0].functionResponse.response.approved, true);
-    assert.deepEqual(creates[0].config.tools.flatMap(tool => tool.functionDeclarations.map(declaration => declaration.name)), [SUBMIT.name]);
+    assert.deepEqual(creates[0].config.tools.flatMap(tool => tool.functionDeclarations.map(declaration => declaration.name)), [SUBMIT.name, ...SCENE_PLANNER_HANDOFF_NAMES]);
+    assertReferenceDefinitions(creates[0].config.tools.flatMap(tool => tool.functionDeclarations), task);
     assert.equal(creates[0].config.toolConfig.functionCallingConfig.mode, 'AUTO');
     assert.equal(result.toolCalls.length, 1);
     assert.equal(result.toolCalls[0].name, SUBMIT.name);
@@ -180,8 +202,9 @@ for (const [model, toolMode, signed, reasoningMode = 'inherit'] of [
         assert.equal(requests.length, 1);
         const body = requests[0];
         if (toolMode === 'native') {
+            assertReferenceDefinitions(body.tools.map(tool => tool.function), task);
             const calls = body.messages.flatMap(message => message.tool_calls || []);
-            assert.equal(calls.length, 3);
+            assert.equal(calls.length, 4);
             for (const message of body.messages.filter(message => message.tool_calls)) {
                 if (/deepseek/i.test(model)) {
                     assert.equal(message.reasoning_content, reasoningMode === 'off' ? '' : message.content);
@@ -234,7 +257,7 @@ for (const mode of ['inherit', 'on']) {
         t.mock.method(adapter.client.chat.completions, 'create', async body => {
             requests.push(structuredClone(body));
             const synthetic = body.messages.filter(message => message.tool_calls?.[0]?.id.startsWith('draw_'));
-            assert.equal(synthetic.length, 3);
+            assert.equal(synthetic.length, 4);
             for (const message of synthetic) {
                 assert.ok(message.reasoning_content.trim().length > 0);
                 assert.equal(message.reasoning_content, message.content);
@@ -268,7 +291,7 @@ for (const mode of ['inherit', 'on']) {
     });
 }
 
-test('hosted Google keeps the canonical three exchanges in its host conversion input', async t => {
+test('hosted Google keeps the canonical four exchanges in its host conversion input', async t => {
     forbidNetwork(t);
     const task = await buildTask();
     const expected = expectedHistory(task);
@@ -277,13 +300,13 @@ test('hosted Google keeps the canonical three exchanges in its host conversion i
     const replayCalls = body.messages.flatMap(message => message.tool_calls
         || (Array.isArray(message.content) ? message.content.flatMap(part => part.tool_calls || []) : []));
     assert.deepEqual(body.messages.filter(message => message.role === 'tool'), task.messages.filter(message => message.role === 'tool'));
-    assert.equal(replayCalls.length, 3);
+    assert.equal(replayCalls.length, 4);
     for (const call of replayCalls) assert.equal(call.signature, GOOGLE_SYNTHETIC_HISTORY_SIGNATURE);
     assertHistory({
         calls: replayCalls.map(call => ({ id: call.id, name: call.function.name, arguments: JSON.parse(call.function.arguments) })),
         results: body.messages.filter(message => message.role === 'tool').map(message => ({ id: message.tool_call_id, result: JSON.parse(message.content) })),
     }, expected);
-    assert.deepEqual(body.tools.map(tool => tool.function.name), [SUBMIT.name]);
+    assert.deepEqual(body.tools.map(tool => tool.function.name), [SUBMIT.name, ...SCENE_PLANNER_HANDOFF_NAMES]);
     assert.equal(body.tool_choice, 'auto');
 });
 
@@ -338,14 +361,14 @@ for (const mode of ['on', 'off', 'inherit']) {
         assertHistory({
             calls: blocks.filter(block => block.type === 'tool_use').map(block => ({ id: block.id, name: block.name, arguments: block.input })),
             results: body.messages.filter(message => message.role === 'tool').map(message => ({ id: message.tool_call_id, result: JSON.parse(message.content) })),
-        }, { calls: expected.calls.slice(0, 2), results: expected.results.slice(0, 2) });
+        }, { calls: expected.calls.slice(0, 3), results: expected.results.slice(0, 3) });
         assert.deepEqual(assistantText(body.messages), assistantText(task.messages));
         assert.deepEqual(body.messages.at(-2), { role: 'assistant', content: task.messages.at(-2).content });
-        assert.deepEqual(body.messages.at(-1), { role: 'user', content: expected.results[2].result.content });
+        assert.deepEqual(body.messages.at(-1), { role: 'user', content: expected.results[3].result.content });
         assert.deepEqual(body.messages.filter(message => message.role === 'user').slice(0, -1), task.messages.filter(message => message.role === 'user'));
         assert.equal(body.messages.some(message => message.content === 'disabled fixture'), false);
         assert.equal(body.tool_choice, 'auto');
-        assert.deepEqual(body.tools.map(tool => tool.function.name), [SUBMIT.name]);
+        assert.deepEqual(body.tools.map(tool => tool.function.name), [SUBMIT.name, ...SCENE_PLANNER_HANDOFF_NAMES]);
         assert.equal(body.max_tokens, config.maxTokens);
         assert.equal(body.reasoning_effort, mode === 'on' ? 'high' : 'auto');
         assert.equal(result.diagnostic.snapshot().reasoningEffectiveMode, mode);
@@ -431,13 +454,13 @@ test('hosted Claude keeps plain approval when an outer protocol retry appends an
     assert.ok(retry.messages.every(message => !Object.hasOwn(message, 'tool_calls')));
     const calls = retry.messages.flatMap(message => Array.isArray(message.content)
         ? message.content.filter(block => block.type === 'tool_use') : []);
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 3);
     assert.deepEqual(retry.messages.filter(message => message.role === 'tool').map(message => message.tool_call_id), calls.map(call => call.id));
     assert.equal(retry.reasoning_effort, 'high');
     assert.deepEqual(prepared, original);
 });
 
-test('Claude projection leaves other providers on their canonical three-exchange history', async t => {
+test('Claude projection leaves other providers on their canonical four-exchange history', async t => {
     forbidNetwork(t);
     t.mock.method(console, 'log', () => {});
     const task = await buildTask();

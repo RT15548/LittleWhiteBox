@@ -1,5 +1,6 @@
 import { EVENT_MEMORY_ROLES } from './data/events.js';
-import { getArchiveCharacters, relationGraph } from './data/relation-graph.js';
+import { buildDossierModel } from './dossier-model.js';
+import { DOSSIER_COPY } from './dossier-copy.js';
 
 export const ARCHIVE_COPY = Object.freeze({
     allEvents: '全部剧情', allSubjects: '全部对象', unknownRole: '未标注',
@@ -15,7 +16,7 @@ export const ARCHIVE_COPY = Object.freeze({
 });
 
 export function getArchiveStateFacts(data) {
-    return data.facts.filter(fact => !fact.retracted && !/^对.+的/.test(fact.p));
+    return buildDossierModel(data).worldFacts;
 }
 
 // Presentation state belongs to this iframe. Data and all writes remain owned by story-summary-ui.
@@ -32,6 +33,7 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
     let detailEventId = null;
     let profileInDialog = false;
     let restoreFocus = null;
+    let graphVisible = false;
     const matches = (...values) => values.join(' ').toLocaleLowerCase().includes(searchQuery);
 
     function setSearchQuery(value) {
@@ -118,19 +120,14 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
         if (subject && !subjects.includes(subject)) subject = '';
         setHtml($('archive-world-index'), ['', ...subjects].map(item => `<button class="archive-index-button" data-archive-subject="${h(item)}" aria-pressed="${item === subject}">${h(item || ARCHIVE_COPY.allSubjects)}<span>${item ? facts.filter(f => f.s === item).length : facts.length}</span></button>`).join(''));
         $('archive-world-count').textContent = facts.length;
-        $('archive-people-count').textContent = relationGraph(data).people.length;
+        $('archive-people-count').textContent = buildDossierModel(data).people.length;
     }
 
     function refreshRoster() {
         const data = getData();
-        const characters = getArchiveCharacters(data);
-        const selector = $('archive-person-select');
-        setHtml(selector, characters.map(c => `<option value="${h(c.id)}">${h(c.name)}</option>`).join(''));
-        selector.value = getSelectedCharacter() || '';
-        selector.disabled = characters.length === 0;
-        const visible = relationGraph(data).people;
-        const chars = visible.filter(c => view !== 'people' || matches(c.name, ...data.characterAliases.filter(a => a.to === c.name).map(a => a.from)));
-        setHtml($('archive-roster'), chars.length ? chars.map(c => `<button class="archive-person" data-archive-person="${h(c.id)}" aria-pressed="${getSelectedCharacter() === c.id}"><span class="archive-avatar" aria-hidden="true">${h(Array.from(c.name)[0])}</span><span>${h(c.name)}</span></button>`).join('') : `<p class="archive-empty">${visible.length ? ARCHIVE_COPY.noResults : ARCHIVE_COPY.noGraphPeople}</p>`);
+        const model = buildDossierModel(data);
+        const chars = model.people.filter(c => view !== 'people' || matches(c.name, ...model.aliases(c.name).map(a => a.from)));
+        setHtml($('archive-roster'), chars.length ? chars.map(c => `<button class="archive-person" data-archive-person="${h(c.id)}" aria-pressed="${getSelectedCharacter() === c.id}"><span class="dossier-roster-name">${h(c.name)}${c.protagonist ? `<small>${DOSSIER_COPY.protagonist}</small>` : ''}</span><span class="dossier-roster-arrow" aria-hidden="true">›</span></button>`).join('') : `<p class="archive-empty">${model.people.length ? ARCHIVE_COPY.noResults : ARCHIVE_COPY.noPeople}</p>`);
     }
 
     function switchView(next) {
@@ -147,7 +144,7 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
         onTimelineChange();
         onFactsChange();
         refreshRoster();
-        if (view === 'people') onPeopleVisible();
+        if (view === 'people' && graphVisible) onPeopleVisible();
     }
 
     function reset() {
@@ -155,6 +152,9 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
         role = '';
         subject = '';
         descending = true;
+        graphVisible = false;
+        $('archive-graph').hidden = true;
+        $('archive-graph-toggle').setAttribute('aria-expanded', 'false');
         setSearchQuery('');
     }
 
@@ -182,9 +182,12 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
         onTimelineChange({ page: 0 });
     });
     $('archive-close').addEventListener('click', () => postMsg('CLOSE_PANEL'));
-    $('archive-person-select').addEventListener('change', event => onSelectCharacter(event.target.value));
-    $('archive-profile-open').textContent = ARCHIVE_COPY.personDetail;
-    $('archive-profile-open').addEventListener('click', showPerson);
+    $('archive-graph-toggle').addEventListener('click', () => {
+        graphVisible = !graphVisible;
+        $('archive-graph').hidden = !graphVisible;
+        $('archive-graph-toggle').setAttribute('aria-expanded', String(graphVisible));
+        if (graphVisible) onPeopleVisible();
+    });
     document.querySelectorAll('[data-close-archive]').forEach(button => button.addEventListener('click', closeDialogs));
     for (const dialog of [detail]) {
         dialog.addEventListener('cancel', event => { event.preventDefault(); closeDialogs(); });
@@ -203,7 +206,8 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
         if (button.dataset.archivePerson != null) {
             if (detail.open && !profileInDialog) closeDialogs();
             const name = button.dataset.archivePerson;
-            const character = getArchiveCharacters(getData()).find(c => c.id === name || c.name === name);
+            const model = buildDossierModel(getData());
+            const character = model.people.find(c => c.id === name || model.key(c.name) === model.key(name));
             if (character) { if (view !== 'people') switchView('people'); onSelectCharacter(character.id); showPerson(); }
         }
         if (button.dataset.archiveEdit) { closeDialogs(); onEdit(button.dataset.archiveEdit); }
@@ -219,6 +223,7 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
         closeDialogs, reset, timelineEvents, timelineItem, refreshIndexes, refreshRoster, showPerson,
         hasTimelineFilter: () => !!role || (view === 'story' && !!searchQuery),
         isPeopleVisible: () => view === 'people',
+        isGraphVisible: () => view === 'people' && graphVisible,
         isStoryVisible: () => view === 'story',
         filteredFacts: () => getArchiveStateFacts(getData()).filter(f => (!subject || f.s === subject) && (view !== 'world' || matches(f.s, f.p, f.o))),
         refresh() {

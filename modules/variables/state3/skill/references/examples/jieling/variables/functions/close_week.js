@@ -29,7 +29,7 @@
       if (kind === '相融') {
         gain[a] += 4; gain[b] += 4;
         if (Math.min(members[a].control, members[b].control) < 50 && roll() === 1) {
-          week.incidents.push({ week: club.week, who: [a, b], kind: '私下越界', summary: '课后私下见面，越过了互助的界线。', open: true });
+          week.incidents.push({ week: club.week, who: [a, b], kind: '私下越界', open: true });
         }
       } else if (kind === '同类') { gain[a] += 3; gain[b] += 3; }
       else if (kind === '平淡') { gain[a] += 1; gain[b] += 1; }
@@ -39,7 +39,7 @@
         gain[a] += delta; gain[b] += delta;
         if (die === 1) {
           erupted++;
-          week.incidents.push({ week: club.week, who: [a, b], kind: '当场冲突', summary: '课上吵到动手，其他会员都看见了。', open: true });
+          week.incidents.push({ week: club.week, who: [a, b], kind: '当场冲突', open: true });
         }
       }
     }

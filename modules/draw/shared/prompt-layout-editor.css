@@ -84,8 +84,7 @@
    竖线向右带一点同色的渐变（约 64px 淡出）；右边的行不再另外加底色（行与行之间仍是细分隔线）。不支持 color-mix 时只有粗竖线。 */
 .lwb-ple-group { --lwb-ple-grp-c: var(--border-focus, rgba(212, 165, 116, 0.5)); display: grid; grid-template-columns: 2.7em minmax(0, 1fr); gap: 0; align-items: stretch; }
 .lwb-ple-group.alt { --lwb-ple-grp-c: #8f7fe0; }
-/* 行少的组（如“提交确认”只有两行）比竖排的组名还矮，组会被组名撑高，最后一行下面就多出一截空白。
-   让最后一行吃掉多出来的高度（内容在里面居中），最后一行的分隔线就总是贴着组的底边，和别的组一样。 */
+/* 最后一行吃掉竖排组名可能撑出的高度，分隔线总是贴着组的底边。 */
 .lwb-ple-group-rows { min-width: 0; display: flex; flex-direction: column; }
 .lwb-ple-group-rows > :last-child { flex: 1 0 auto; display: flex; flex-direction: column; justify-content: center; }
 @supports (background: color-mix(in srgb, red, blue)) {
@@ -183,6 +182,7 @@ body.lwb-ple-dragging, body.lwb-ple-dragging * { cursor: grabbing !important; us
 .lwb-ple-role.user { background: var(--role-user-bg); color: var(--role-user-fg); border-color: var(--role-user-line); }
 .lwb-ple-role.assistant { background: var(--role-assistant-bg); color: var(--role-assistant-fg); border-color: var(--role-assistant-line); }
 .lwb-ple-role.tool { background: var(--role-tool-bg); color: var(--role-tool-fg); border-color: var(--role-tool-line); }
+.lwb-ple-role.tools { color: var(--text-primary, #e6edf3); border-color: var(--border-focus, #3d7c83); }
 
 .lwb-ple-label { font-size: 13px; font-weight: 400; color: var(--text-primary, #e6edf3); overflow-wrap: anywhere; }
 /* 粗体只用来强调带笔形按钮的可编辑内置行；自定义消息和不可编辑的行（固定消息、只有预览 / 设置的内置行）都是常规字重。

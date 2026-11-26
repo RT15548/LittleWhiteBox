@@ -20,7 +20,7 @@ export async function runPublicImageJob(client, request, { signal, onProgress })
                 }
             }
         },
-        onItemSettled: item => { if (item.state !== 'ready') failure ||= createBackendItemError(item); },
+        onItemSettled: item => { if (item.state !== 'ready') failure ||= createBackendItemError(item, request.context); },
     }); } catch (error) {
         if (images?.length) error.partialResult = { images };
         else if (failure?.partialResult) error.partialResult = failure.partialResult;

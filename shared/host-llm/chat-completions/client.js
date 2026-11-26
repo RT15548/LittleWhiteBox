@@ -349,6 +349,7 @@ async function createCompletion(payload = {}, options = {}, dependencies = {}) {
     } catch (error) {
         const parseError = new Error(`酒馆后端生成失败：${normalizeHostFailureMessage(rawText, String(error?.message || error), response)}`);
         parseError.status = response.status;
+        parseError.headers = response.headers;
         parseError.body = rawText;
         throw parseError;
     }
@@ -361,6 +362,7 @@ async function createCompletion(payload = {}, options = {}, dependencies = {}) {
         );
         const error = new Error(`酒馆后端生成失败：${message}`);
         error.status = response.status;
+        error.headers = response.headers;
         error.error = data?.error;
         throw error;
     }
@@ -395,7 +397,14 @@ async function streamCompletion(payload = {}, onEvent, options = {}, dependencie
             response,
         ));
         error.status = response.status;
+        error.headers = response.headers;
         error.body = text;
+        try {
+            error.error = JSON.parse(text)?.error;
+        } catch (parseError) {
+            if (!(parseError instanceof SyntaxError)) throw parseError;
+            // Non-JSON failures retain their original body and HTTP metadata.
+        }
         throw error;
     }
     if (typeof options.onResponseAccepted === 'function') {
@@ -408,7 +417,11 @@ async function streamCompletion(payload = {}, onEvent, options = {}, dependencie
                 event.error?.message || event.message || JSON.stringify(event.error),
                 '酒馆后端流式生成失败',
             );
-            throw new Error(message);
+            const error = new Error(message);
+            error.status = response.status;
+            error.headers = response.headers;
+            error.error = event.error;
+            throw error;
         }
         onEvent(event);
     });

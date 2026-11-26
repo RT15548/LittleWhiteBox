@@ -35,8 +35,9 @@ const SILLYTAVERN_CLAUDE_FALLBACK_MODELS = Object.freeze([
 ]);
 
 
-function filterModels(models = []) {
+function filterModels(models = [], filter = 'chat') {
     const normalized = [...new Set(models.filter(Boolean).map((model) => String(model).trim()).filter(Boolean))];
+    if (filter === 'all') return normalized;
     const rule = MODEL_FILTERS.chat;
     const filtered = normalized.filter((modelId) => {
         const lower = modelId.toLowerCase();
@@ -110,8 +111,8 @@ async function fetchJsonWithDiagnostics(url, options = {}) {
     };
 }
 
-function extractOpenAIModels(data) {
-    return filterModels((data?.data || []).map((item) => String(item?.id || '').trim()).filter(Boolean));
+function extractOpenAIModels(data, filter) {
+    return filterModels((data?.data || []).map((item) => item?.id), filter);
 }
 
 function extractAnthropicModels(data) {
@@ -269,6 +270,12 @@ export async function pullModelsForProvider(providerConfig, options = {}) {
         return await pullAnthropicModels(baseUrl, providerConfig, options);
     }
 
+    if (provider === 'openai-responses' && options.viaHost) {
+        return filterModels(await fetchHostChatCompletionsModels({
+            ...providerConfig, baseUrl: options.baseUrlResolved ? baseUrl : resolveApiBaseUrl(baseUrl, '/v1'),
+        }, HOST_CHAT_COMPLETIONS_SOURCE_OPENAI, { signal: options.signal }), options.filter);
+    }
+
     return await tryCandidateFetches({
         urls: buildVersionedCandidateUrls(baseUrl, '/v1', options.baseUrlResolved),
         requestOptionsList: [{
@@ -278,7 +285,7 @@ export async function pullModelsForProvider(providerConfig, options = {}) {
             },
             signal: options.signal,
         }],
-        extractModels: extractOpenAIModels,
+        extractModels: data => extractOpenAIModels(data, options.filter),
         providerLabel: provider === 'openai-responses' ? 'OpenAI Responses' : 'OpenAI-Compatible',
     });
 }

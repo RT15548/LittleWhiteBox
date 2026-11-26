@@ -22,7 +22,7 @@ import {
     buildScenePlannerWorldInfoBlock,
 } from './scene-planner-frame.js';
 import { planScenePlannerMessages } from './scene-planner-assembly.js';
-import { renderScenePlannerMessage } from './scene-planner-handoff.js';
+import { createScenePlannerHandoffTools, renderScenePlannerMessage } from './scene-planner-handoff.js';
 import { normalizeLayout } from './scene-planner-layout.js';
 import { TOOL_PROTOCOL_MARKER, markToolProtocolMessages, stripToolProtocolMarker } from '../../agent-core/adapters/tool-protocol-marker.js';
 import { resolveCustomToolDefinitions, snapshotCustomToolSources } from './custom-tools.js';
@@ -239,7 +239,7 @@ async function buildScenePlannerRequest(options = {}) {
         continuityText = '',
     } = options;
     const profile = normalizeScenePlannerProfile(plannerProfile);
-    const centerMode = profile.centerMode === 'normalized' ? 'normalized' : 'grid';
+    const centerMode = profile.promptStyle === 'natural' ? 'none' : profile.centerMode === 'normalized' ? 'normalized' : 'grid';
     const sceneSource = providedSceneSource || createSceneSource(messageText);
     if (!String(sceneSource.content || '').trim()) {
         throw new ScenePlannerError('消息内容为空。', 'EMPTY_MESSAGE');
@@ -263,7 +263,9 @@ async function buildScenePlannerRequest(options = {}) {
     );
     const promptConfig = getEffectivePromptConfig(customPrompts, promptDefaults);
     const fieldDescriptions = parseFieldDescriptions(promptConfig.fieldDescriptions);
-    const runtime = await resolveExpansionRuntime(options.expansionOptions);
+    // A template preview neither executes host macros nor initializes user tools.
+    const preview = options.preview === true;
+    const runtime = preview ? {} : await resolveExpansionRuntime(options.expansionOptions);
     const slots = createPromptSlots(['worldInfo', 'characterInfo', 'continuity', 'lastMessage']);
 
     try {
@@ -274,7 +276,7 @@ async function buildScenePlannerRequest(options = {}) {
         // is locked, while the placement map stays anchored to the unexpanded source snapshot.
         const expandedMessageText = await expandScenePromptText(sceneSource.numberedContent, runtime);
         const expandedContent = stripScenePointMarkers(expandedMessageText);
-        const nativeWorldInfo = useWorldInfo
+        const nativeWorldInfo = useWorldInfo && !preview
             ? await buildNativeWorldInfoForDraw(expandedContent, presentCharacters, options.worldInfoResolver)
             : '';
         const expandedWorldInfo = await expandScenePromptText(
@@ -286,7 +288,9 @@ async function buildScenePlannerRequest(options = {}) {
         );
         const continuityBlock = String(continuityText || '').trim();
         const expandedCharacterInfo = await expandScenePromptText(
-            buildCharacterInfoForLLM(presentCharacters, { hasContinuity: Boolean(continuityBlock) }),
+            profile.promptStyle === 'natural'
+                ? JSON.stringify({ characters: presentCharacters })
+                : buildCharacterInfoForLLM(presentCharacters, { hasContinuity: Boolean(continuityBlock) }),
             runtime,
         );
         const expandedContinuity = continuityBlock
@@ -300,7 +304,7 @@ async function buildScenePlannerRequest(options = {}) {
         const { layout } = normalizeLayout(customPrompts?.layout);
         // 后台只捕获源码；工具初始化由实际执行任务的沙盒负责。
         const customToolSources = options.executionTarget === 'server' ? snapshotCustomToolSources(layout) : [];
-        const customTools = options.executionTarget === 'server' ? []
+        const customTools = options.executionTarget === 'server' || preview ? []
             : await resolveCustomToolDefinitions(layout, options.customToolHost, { signal: options.signal });
         const plan = planScenePlannerMessages({
             layout,
@@ -329,10 +333,20 @@ async function buildScenePlannerRequest(options = {}) {
             [slots.continuity]: withoutMarker(expandedContinuity),
             [slots.lastMessage]: withoutMarker(expandedMessageText),
         };
-        // Expand raw templates before JSON encoding, so quotes/newlines and macros inside
-        // documents survive both native tool results and the existing tagged-JSON adapter.
+        // Expand documents at their original layout positions, then insert narrative slots
+        // literally. Moving data to descriptions must not reorder stateful macro evaluation.
+        const documents = {};
+        const documentByStage = new Map(plan.documents.map(item => [item.kind, item]));
         const messages = [];
         for (const item of plan.templates) {
+            const document = item.role === 'tool' ? documentByStage.get(item.stageId) : null;
+            if (document) {
+                for (const block of document.blocks) {
+                    documents[block.id] = applyPromptSlots(
+                        await expandScenePromptText(block.template, runtime), slotValues,
+                    ).trim();
+                }
+            }
             const expanded = applyPromptSlots(
                 await expandScenePromptText(item.template, runtime),
                 slotValues,
@@ -340,11 +354,13 @@ async function buildScenePlannerRequest(options = {}) {
             if (!expanded && item.role !== 'tool') continue;
             messages.push(renderScenePlannerMessage(item, expanded));
         }
-        const prompt = { systemPrompt: '', messages };
+        const handoffTools = createScenePlannerHandoffTools({ documents });
+        const prompt = { systemPrompt: String(options.systemInstruction || ''), messages };
         const readyMessages = stripToolProtocolMarker(markToolProtocolMessages(messages));
-        await emitScenePromptReady(runtime, readyMessages);
+        if (!preview) await emitScenePromptReady(runtime, readyMessages);
         return {
             prompt,
+            handoffTools,
             tool: createSubmitScenePlanTool({
                 maxImages: effectiveMaxImages,
                 maxPlanImages: effectiveMaxPlanImages,
@@ -359,6 +375,7 @@ async function buildScenePlannerRequest(options = {}) {
                 maxPlanImages: effectiveMaxPlanImages,
                 effectiveMaxCharactersPerImage,
                 centerMode,
+                ...(profile.promptStyle === 'natural' ? { promptStyle: 'natural' } : {}),
             },
             customTools,
             customToolSources,
@@ -377,6 +394,7 @@ export async function buildScenePlannerTask(options = {}) {
         planner: {
             prompt: request.prompt,
             tool: request.tool,
+            handoffTools: request.handoffTools,
             validationContext: request.validationContext,
             presentCharacters: Array.isArray(options.presentCharacters) ? options.presentCharacters : [],
             ...(request.customTools.length ? { customTools: request.customTools } : {}),
@@ -418,6 +436,7 @@ export async function prepareScenePlannerInput(options = {}) {
         planner: {
             prompt: request.prompt,
             tool: request.tool,
+            handoffTools: request.handoffTools,
             validationContext: request.validationContext,
             presentCharacters: Array.isArray(options.presentCharacters) ? options.presentCharacters : [],
             ...(request.customTools.length ? { customTools: request.customTools } : {}),
@@ -445,6 +464,7 @@ export async function generateAndParseScenePlan(options = {}) {
             signal: options.signal,
             diagnostic,
             onDiagnosticUpdate: options.onDiagnosticUpdate,
+            onAgentRequest: options.onAgentRequest,
             agentCaller: options.agentCaller || callDrawScenePlannerAgent,
             agentOptions: options.agentOptions,
             agentCore: options.agentCore,

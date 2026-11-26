@@ -192,6 +192,7 @@ test('partial paid results follow autosave without changing the generation error
     await assert.rejects(h.publicApi.generate({ prompt: 'partial' }), error => {
         assert.equal(error.code, 'partial_result');
         assert.equal(error.partialResult.images, h.images);
+        assert.deepEqual(error.partialResult.gallery, [{ saved: true }, { saved: true }, { saved: true }]);
         return true;
     });
     await h.settle();
@@ -199,7 +200,7 @@ test('partial paid results follow autosave without changing the generation error
     assert.equal(calls, 1);
 });
 
-test('one failed gallery write still returns the entire paid batch and persists later images', async t => {
+for (const partial of [false, true]) test(`one failed gallery write preserves all received images and their outcomes (partial: ${partial})`, async t => {
     const h = await setup(t);
     const put = IDBObjectStore.prototype.put;
     let attempted = 0;
@@ -211,9 +212,26 @@ test('one failed gallery write still returns the entire paid batch and persists 
         return put.call(this, record, ...args);
     };
     t.after(() => { IDBObjectStore.prototype.put = put; });
-    const result = await h.publicApi.generate({ prompt: 'paid batch' });
+    let calls = h.calls;
+    if (partial) {
+        let generated = 0;
+        h.adapter.generate = async () => {
+            generated++;
+            throw new h.api.MediaApiError('partial_result', { partialResult: { images: h.images } });
+        };
+        calls = () => generated;
+    }
+    const run = h.publicApi.generate({ prompt: 'paid batch' });
+    let result;
+    if (partial) await assert.rejects(run, error => {
+        assert.equal(error.code, 'partial_result');
+        result = error.partialResult;
+        return true;
+    });
+    else result = await run;
     assert.equal(result.images, h.images);
-    assert.equal(h.calls(), 1);
+    assert.deepEqual(result.gallery, [{ saved: true }, { saved: false }, { saved: true }]);
+    assert.equal(calls(), 1);
     assert.equal(attempted, 3);
     assert.equal((await h.api.getGalleryMetadata()).length, 2);
     assert.equal(h.counters.errors.length, 2); // One diagnostic and one visible notification, not a generation error.

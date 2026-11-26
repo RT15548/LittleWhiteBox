@@ -3,6 +3,8 @@ export const FACTS_LIMIT_PER_SUBJECT = 10;
 
 export const factKey = fact => `${fact.s}::${fact.p}`;
 
+export const relationPredicate = target => `对${target}的看法`;
+
 export function parseRelationTarget(predicate) {
     const match = String(predicate || '').trim().match(/^对(.+)的/);
     return match?.[1]?.trim() || null;

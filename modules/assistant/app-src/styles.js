@@ -370,6 +370,13 @@ export function injectAssistantStyles(rootId) {
             grid-template-columns: minmax(0, 1fr) auto;
             align-items: center;
         }
+        .xb-assistant-checkbox-row small {
+            display: block;
+            margin-top: 2px;
+            color: #7d7468;
+            font-size: 12px;
+            line-height: 1.5;
+        }
         .xb-assistant-checkbox-control {
             display: inline-flex;
             align-items: center;
@@ -1004,6 +1011,23 @@ export function injectAssistantStyles(rootId) {
             overflow: auto;
             padding: 0 0 16px;
         }
+        .xb-assistant-workspace-image-preview {
+            display: grid;
+            place-items: center;
+            min-width: 0;
+            min-height: 0;
+            overflow: auto;
+            padding: 16px;
+            color: var(--xb-assistant-text);
+        }
+        .xb-assistant-workspace-image-preview img:not([hidden]) {
+            display: block;
+            width: 100%;
+            height: 100%;
+            min-width: 0;
+            min-height: 0;
+            object-fit: contain;
+        }
         .xb-assistant-workspace-code {
             min-width: max-content;
             padding: 8px 0 0;
@@ -1161,6 +1185,10 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-compaction > div { margin: 6px 0 0 1em; white-space: pre-wrap; }
         .xb-assistant-history-gate {
             align-self: center;
+            border: 0;
+            background: none;
+            font-family: inherit;
+            cursor: pointer;
             color: rgba(111, 103, 93, 0.72);
             font-size: 12px;
             line-height: 1;
@@ -1521,6 +1549,12 @@ export function injectAssistantStyles(rootId) {
             gap: 10px;
             margin-top: 12px;
         }
+        .xb-assistant-attachment-notice {
+            flex-basis: 100%;
+            font-size: 12px;
+            line-height: 1.5;
+            color: var(--xb-assistant-accent-strong);
+        }
         .xb-assistant-local-path-link {
             display: inline;
             border: none;
@@ -1564,6 +1598,19 @@ export function injectAssistantStyles(rootId) {
             line-height: 1.4;
             word-break: break-word;
         }
+        .xb-assistant-image-results .xb-assistant-attachment-card {
+            width: min(280px, 100%);
+            display: grid;
+            gap: 8px;
+        }
+        .xb-assistant-image-results .xb-assistant-attachment-image {
+            height: 180px;
+            object-fit: contain;
+        }
+        .xb-assistant-image-results .xb-assistant-local-path-link {
+            text-align: left;
+            font-size: 12px;
+        }
         .xb-assistant-attachment-remove {
             position: absolute;
             top: 6px;
@@ -1600,7 +1647,11 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-process-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
         .xb-assistant-process-toggle:focus-visible { outline: 2px solid var(--xb-assistant-accent); outline-offset: 3px; }
         .xb-assistant-process-toggle[hidden], .xb-assistant-process-body[hidden],
-        .xb-assistant-operation-note[hidden] { display: none; }
+        .xb-assistant-operation-note[hidden], .xb-assistant-operation-actions[hidden] { display: none; }
+        .xb-assistant-operation-actions { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+        .xb-assistant-operation-actions button { font: inherit; color: var(--xb-assistant-text); background: var(--xb-assistant-surface-soft); border: 1px solid var(--xb-assistant-border); border-radius: 6px; padding: 4px 9px; cursor: pointer; }
+        .xb-assistant-operation-actions button:disabled { opacity: .65; cursor: default; }
+        .xb-assistant-operation-actions button:focus-visible { outline: 2px solid var(--xb-assistant-accent); outline-offset: 2px; }
         .xb-assistant-process-body { border-left: 2px solid var(--xb-assistant-border); padding-left: 12px; }
         .xb-assistant-process.is-running .xb-assistant-process-body { border: 0; padding: 0; }
         .xb-assistant-process-text { line-height: 1.7; margin: 14px 0 8px; }
@@ -1619,6 +1670,7 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-operation-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .xb-assistant-operation-note { grid-column: 2 / -1; overflow-wrap: anywhere; color: #a34236; font: inherit; }
         .xb-assistant-operation[data-status="succeeded"] .xb-assistant-operation-dot { color: #277866; }
+        .xb-assistant-operation[data-status="succeeded"] .xb-assistant-operation-note { color: var(--xb-assistant-text-soft); }
         .xb-assistant-operation[data-status="failed"] .xb-assistant-operation-dot { color: #a34236; }
         .xb-assistant-operation[data-status="unconfirmed"] .xb-assistant-operation-dot,
         .xb-assistant-operation[data-status="partial"] .xb-assistant-operation-dot { color: #966317; }
@@ -1926,6 +1978,10 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-compose button.is-busy { background: #8d442b; }
         .xb-assistant-toast {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            max-height: 25vh;
+            overflow-y: auto;
             min-height: 22px;
             color: #8a5a41;
             font-size: 12px;

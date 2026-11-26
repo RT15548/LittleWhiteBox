@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import Dexie from '../../libs/dexie.mjs';
 import { migrateCardDocuments } from './migrations/named-documents.js';
 import { flattenLocalSourceFiles, upsertLocalSourceFile } from '../assistant/shared/local-workspace-kernel.js';
@@ -11,6 +12,24 @@ import { readableCardWorkspacePath, storedCardWorkspacePath } from './paths.js';
 import { itemEditorProjection } from './editor.js';
 import { COPY } from './copy.js';
 import { createLocalSourcesManager } from '../assistant/app-src/workspace/local-sources.js';
+
+// Acceptance: authors can copy a complete worldbook example without adding missing delimiters.
+// Execute the documented file as input; prose and formatting outside the file are not asserted.
+test('complete worldbook examples are accepted verbatim and preserve their saved fields', async () => {
+    const document = await readFile(new URL('./skill/references/prompt-organization.md', import.meta.url), 'utf8');
+    const examples = [...document.matchAll(/```markdown\r?\n([\s\S]*?)```/g)].map(match => match[1]);
+    assert.ok(examples.length > 0);
+    for (const content of examples) {
+        const parsed = parseItemDocument('world', content);
+        const saved = itemDocumentValue('world', content);
+        assert.equal(saved.uid, parsed.id);
+        assert.equal(saved.comment, parsed.name);
+        assert.equal(saved.content, parsed.body);
+        assert.ok(saved.content.trim());
+        for (const [key, value] of Object.entries(parsed.settings)) assert.deepEqual(saved[key], value);
+        assert.deepEqual(itemDocumentValue('world', serializeItemDocument('world', saved)), saved);
+    }
+});
 
 // Acceptance: one named document per item preserves body, settings and identity,
 // including same-name items and separators (wrong-target writes / lost data).

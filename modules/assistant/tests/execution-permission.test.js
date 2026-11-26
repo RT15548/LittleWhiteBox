@@ -43,12 +43,12 @@ function harness(t, { mode, enabled, role = 'main', approve = true, nextMode }) 
         normalizeSlashCommand, shouldRequireSlashCommandApproval: command => shouldRequireSlashCommandApproval(command, state.config.permissionMode),
         buildSlashApprovalResult: (_command, approved) => ({ ok: approved, approved, skipped: !approved }),
         buildJsApiApprovalResult: (_args, approved) => ({ ok: approved, approved, skipped: !approved }),
-        getActiveProviderConfig: () => ({ provider: 'openai-compatible' }), getDelegateProviderConfig: () => ({ provider: 'openai-compatible' }),
+        getActiveProviderConfig: () => ({ provider: 'openai-compatible' }), getDelegateProviderConfig: () => ({ provider: 'openai-compatible', model: 'delegate-fixture' }),
         getToolDefinitions: options => getAssistantToolDefinitions({ ...options, jsApiEnabled: enabled }), isJsApiEnabled: () => enabled,
         SYSTEM_PROMPT: '', MAX_CONTEXT_TOKENS: 100000, SUMMARY_TRIGGER_TOKENS: 90000, REQUEST_TIMEOUT_MS: 1000,
         isAbortError: error => error.name === 'AbortError',
         createAdapter: config => {
-            const target = config ? 'delegate' : 'main';
+            const target = config.model === 'delegate-fixture' ? 'delegate' : 'main';
             return { async chat(request) {
                 requests.push({ role: target, messages: structuredClone(request.messages || []) });
                 if (nextMode && queues[target].length === 3) state.config.permissionMode = nextMode;

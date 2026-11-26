@@ -63,6 +63,16 @@ test('discovery is credential-free and caller-owned', async () => {
     presets.params[0].name = 'changed';
     assert.equal(h.saved.presets[0].name, 'One');
 });
+test('gallery save failure exposes received images for independent storage without regenerating', async () => {
+    const h = harness();
+    const api = createDrawPublicApi({ isEnabled: () => true, getProvider: () => 'sdwebui', providers: { sdwebui: h.adapter },
+        captureGallery: () => async () => { throw new Error('storage quota'); } });
+    await assert.rejects(api.generate({ prompt: 'x' }), error => {
+        assert.equal(error.code, 'collection_failed'); assert.equal(error.partialResult.images.length, 2); return true;
+    });
+    assert.equal(h.calls.length, 1);
+});
+
 test('failure and cancellation never resend', async () => {
     const h = harness(); let calls = 0;
     h.adapter.generate = async () => { calls++; throw new Error('secret provider response'); };

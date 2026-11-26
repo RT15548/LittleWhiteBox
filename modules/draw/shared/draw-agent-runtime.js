@@ -8,7 +8,12 @@ import {
     isScenePlannerCorrectionError,
 } from './scene-plan-contract.js';
 import { redactRequestSecrets } from '../../agent-core/adapters/request-inspection.js';
-import { projectScenePlannerHostClaudeHistory } from './scene-planner-handoff.js';
+import {
+    SCENE_PLANNER_HANDOFF_NAMES,
+    assertScenePlannerHandoffContext,
+    projectScenePlannerHostClaudeHistory,
+    scenePlannerHandoffReceipt,
+} from './scene-planner-handoff.js';
 import {
     MAX_CUSTOM_TOOL_CALLS,
     TOOL_RECORD_MAX_CHARS,
@@ -141,8 +146,13 @@ function buildToolResultTurn({ result, toolCalls, attempt, respond }) {
     };
 }
 
-// customNames：与 submit_scene_plan 同一批返回的自定义工具调用没有执行，回一条说明，别让它们收到纠错文本。
-function buildCorrectionTurn({ result, providerConfig, error, attempt, sessionLoop, customNames = new Set() }) {
+function buildHandoffToolResponse(name) {
+    const response = scenePlannerHandoffReceipt(name);
+    return { content: JSON.stringify(response), response };
+}
+
+// 同批自定义工具没有执行；已预填的交接工具仍返回本地回执。
+function buildCorrectionTurn({ result, providerConfig, error, attempt, sessionLoop, customNames, handoffNames }) {
     // Feedback acknowledges rejected calls; only actual execution uses the strict
     // argument gate. Keep their identities and native provider payload for replay.
     const toolCalls = normalizeToolCalls(resolveValidationToolCalls(result, providerConfig, attempt), {
@@ -172,9 +182,11 @@ function buildCorrectionTurn({ result, providerConfig, error, attempt, sessionLo
         result,
         toolCalls,
         attempt,
-        respond: (toolCall) => (customNames.has(toolCall.name)
-            ? { content: JSON.stringify(skipped), response: skipped }
-            : { content, response: feedback }),
+        respond: (toolCall) => {
+            if (handoffNames.has(toolCall.name)) return buildHandoffToolResponse(toolCall.name);
+            if (customNames.has(toolCall.name)) return { content: JSON.stringify(skipped), response: skipped };
+            return { content, response: feedback };
+        },
     });
 }
 
@@ -444,19 +456,30 @@ export function beginDrawScenePlannerDiagnostic(initial = {}, onDiagnosticUpdate
     };
 }
 
-// 工具表 = submit_scene_plan + 与 customTools 一一对应的自定义工具（没有宿主就不允许有自定义工具）。
+// 工具表 = 提交工具 + 可选的四个交接工具 + 与 customTools 一一对应的自定义工具。
 export function assertDrawScenePlannerTask(task, diagnostic, { customTools = [] } = {}) {
-    const names = (Array.isArray(task?.tools) ? task.tools : []).map(tool => tool?.function?.name);
-    if (names.length === customTools.length + 1
-        && names[0] === SUBMIT_SCENE_PLAN_TOOL_NAME
-        && customTools.every((tool, index) => tool?.name === names[index + 1])) {
-        return;
+    const tools = Array.isArray(task?.tools) ? task.tools : [];
+    const customOffset = tools.length - customTools.length;
+    const handoffTools = tools.slice(1, customOffset);
+    let cause;
+    if (customOffset >= 1
+        && tools[0]?.function?.name === SUBMIT_SCENE_PLAN_TOOL_NAME
+        && customTools.every((tool, index) => tool?.name
+            && tool.name !== SUBMIT_SCENE_PLAN_TOOL_NAME
+            && !SCENE_PLANNER_HANDOFF_NAMES.includes(tool.name)
+            && tool.name === tools[customOffset + index]?.function?.name)) {
+        try {
+            assertScenePlannerHandoffContext(task?.messages, handoffTools.length ? handoffTools : undefined);
+            return new Set(handoffTools.map(tool => tool.function.name));
+        } catch (error) {
+            cause = error;
+        }
     }
     const error = new ScenePlannerError(
-        customTools.length
-            ? 'Scene Planner 的工具表必须是 submit_scene_plan 加上已启用的自定义工具。'
-            : 'Scene Planner 必须且只能注册 submit_scene_plan。',
+        'Scene Planner 的工具表必须依次注册提交工具、完整的交接工具组（如有）和已启用的自定义工具。',
         'TOOL_CONTRACT_INVALID',
+        null,
+        { cause },
     );
     diagnostic?.fail(error, { stage: 'config' });
     throw error;
@@ -523,8 +546,9 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
     const task = options.task || {};
     const diagnostic = options.diagnostic
         || beginDrawScenePlannerDiagnostic({}, options.onDiagnosticUpdate);
+    diagnostic.update({ toolsCount: Array.isArray(task.tools) ? task.tools.length : 0 });
     const customTools = resolveRunCustomTools(options, diagnostic);
-    assertDrawScenePlannerTask(task, diagnostic, { customTools });
+    const handoffNames = assertDrawScenePlannerTask(task, diagnostic, { customTools });
     if (options.diagnosticConfigStarted !== true) {
         diagnostic.update({ stage: 'config' });
     }
@@ -588,13 +612,15 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
     let pendingToolResponses = null;
     let pendingFinalAnswerReminderText = '';
     let previousCorrectionSignature = '';
-    // 自定义工具：模型只调了工具、没提交规划的那一轮不占纠错次数（toolRounds 把循环上限顺延），总调用次数另设上限。
+    // 只调用辅助工具的轮次不占纠错次数，共用的调用上限独立计算。
     const customHost = options.customToolHost;
     const customByName = new Map(customTools.map(tool => [tool.name, tool]));
+    const isAuxiliaryCall = (toolCall) => customByName.has(toolCall?.name) || handoffNames.has(toolCall?.name);
     const customRecords = [];
+    let auxiliaryCallsUsed = 0;
     let customCallsUsed = 0;
     let toolRounds = 0;
-    if (customTools.length) diagnostic.update({ toolsCount: 1 + customTools.length, customToolCalls: [], customToolCallCount: 0 });
+    if (customTools.length) diagnostic.update({ customToolCalls: [], customToolCallCount: 0 });
     try {
         for (let attempt = 1; attempt <= MAX_SCENE_PLANNER_ATTEMPTS + toolRounds; attempt += 1) {
             const agentTask = { ...baseAgentTask };
@@ -694,28 +720,29 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
                 attempts,
             });
 
-            // 自定义工具调用：只调了工具 → 执行后把结果接回对话，让模型继续；和 submit_scene_plan 同批 → 不执行，只校验提交。
-            const customCalls = customByName.size
-                ? validationToolCalls.filter(toolCall => customByName.has(toolCall?.name))
-                : [];
-            const customNamesInReply = new Set(customCalls.map(toolCall => toolCall.name));
-            if (customCalls.length) {
-                const toolOnly = !validationToolCalls.some(toolCall => !customByName.has(toolCall?.name));
-                if (toolOnly && customCallsUsed + customCalls.length > MAX_CUSTOM_TOOL_CALLS) {
+            // 辅助工具独占一轮时接回结果；有提交或陌生工具时不执行用户代码。
+            const auxiliaryCalls = validationToolCalls.filter(isAuxiliaryCall);
+            const customNamesInReply = new Set(auxiliaryCalls.filter(toolCall => customByName.has(toolCall.name)).map(toolCall => toolCall.name));
+            if (auxiliaryCalls.length && auxiliaryCalls.length === validationToolCalls.length) {
+                if (auxiliaryCallsUsed + auxiliaryCalls.length > MAX_CUSTOM_TOOL_CALLS) {
+                    const onlyCustomCalls = auxiliaryCallsUsed === customCallsUsed && auxiliaryCalls.every(toolCall => customByName.has(toolCall.name));
                     const limitError = new ScenePlannerError(
-                        `模型只调用了自定义工具（${Array.from(customNamesInReply).join('、')}），没有提交 submit_scene_plan，调用次数已超过上限（${MAX_CUSTOM_TOOL_CALLS} 次），已停止。`,
+                        onlyCustomCalls
+                            ? `模型只调用了自定义工具（${Array.from(customNamesInReply).join('、')}），没有提交 submit_scene_plan，调用次数已超过上限（${MAX_CUSTOM_TOOL_CALLS} 次），已停止。`
+                            : `模型没有提交 submit_scene_plan，交接工具与自定义工具的调用总数已超过上限（${MAX_CUSTOM_TOOL_CALLS} 次）。`,
                         'CUSTOM_TOOL_LIMIT_EXCEEDED',
                     );
                     diagnostic.fail(limitError, { stage: 'request', terminationReason: 'custom_tool_limit' });
                     throw limitError;
                 }
-                if (toolOnly) {
+                auxiliaryCallsUsed += auxiliaryCalls.length;
+                const resolvedCalls = resolveAttemptToolCalls(result, providerConfig, attempt).filter(isAuxiliaryCall);
+                const customCalls = resolvedCalls.filter(toolCall => customByName.has(toolCall.name));
+                let ran;
+                if (customCalls.length) {
                     customCallsUsed += customCalls.length;
-                    const resolvedCalls = resolveAttemptToolCalls(result, providerConfig, attempt)
-                        .filter(toolCall => customByName.has(toolCall?.name));
-                    let ran;
                     try {
-                        ran = await runCustomToolCalls({ host: customHost, calls: resolvedCalls, attempt, signal: abortScope.signal });
+                        ran = await runCustomToolCalls({ host: customHost, calls: customCalls, attempt, signal: abortScope.signal });
                     } catch (rawError) {
                         const error = mapProviderError(rawError, abortScope, options.signal);
                         diagnostic.fail(error, {
@@ -728,22 +755,25 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
                         if (!customByName.get(record.name)?.stealth) customRecords.push(record);
                     }
                     diagnostic.update({ customToolCalls: customRecords, customToolCallCount: customCallsUsed });
-                    const turn = buildToolResultTurn({
-                        result,
-                        toolCalls: resolvedCalls,
-                        attempt,
-                        respond: (toolCall) => {
-                            const content = ran.outputs.get(toolCall.id) ?? '';
-                            return { content, response: toToolResponseObject(content) };
-                        },
-                    });
-                    messages.push(...turn.messages);
-                    pendingToolResponses = turn.toolResponses;
-                    pendingFinalAnswerReminderText = '';
-                    toolRounds += 1;
-                    continue;
                 }
-                validationResult = { ...validationResult, toolCalls: validationToolCalls.filter(toolCall => !customByName.has(toolCall?.name)) };
+                const turn = buildToolResultTurn({
+                    result,
+                    toolCalls: resolvedCalls,
+                    attempt,
+                    respond: (toolCall) => {
+                        if (handoffNames.has(toolCall.name)) return buildHandoffToolResponse(toolCall.name);
+                        const content = ran.outputs.get(toolCall.id) ?? '';
+                        return { content, response: toToolResponseObject(content) };
+                    },
+                });
+                messages.push(...turn.messages);
+                pendingToolResponses = turn.toolResponses;
+                pendingFinalAnswerReminderText = '';
+                toolRounds += 1;
+                continue;
+            }
+            if (auxiliaryCalls.length) {
+                validationResult = { ...validationResult, toolCalls: validationToolCalls.filter(toolCall => !isAuxiliaryCall(toolCall)) };
             }
 
             if (typeof options.validateResult !== 'function') {
@@ -812,6 +842,7 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
                     attempt,
                     sessionLoop: adapter?.supportsSessionToolLoop === true,
                     customNames: customNamesInReply,
+                    handoffNames,
                 });
                 messages.push(...correction.messages);
                 pendingToolResponses = correction.toolResponses;

@@ -7,6 +7,9 @@ import { createDefaultLayout, createCustomBlock } from '../scene-planner-layout.
 import { createScenePlannerEnvelope } from '../draw-run-coordinator.js';
 import { submitProviderDrawRun } from '../draw-run-production.js';
 import { DRAW_RUN_PLANNER_LAYOUT_CAPABILITY } from '../draw-run-client.js';
+import { createGenerationRecipe, compileOpenAi } from '../../providers/multimodal/compiler.js';
+import { createDefaultSettings } from '../../providers/multimodal/settings-model.js';
+import { naturalPlannerOptions } from '../../providers/multimodal/planning-input.js';
 
 const require = createRequire(import.meta.url);
 const runtime = require('../../../../server-plugin/littlewhitebox-server/tests/runtime-fixture.js').bundle.drawRuntime;
@@ -35,11 +38,12 @@ const backendStatus = { ready: true, runtimeHostAbi: 1, version: '3.0.0', capabi
     DRAW_RUN_PLANNER_LAYOUT_CAPABILITY,
 ] };
 
-async function preparedFor(provider, sampling = {}) {
+async function preparedFor(provider, sampling = {}, plannerOptions = {}) {
     const providerConfig = resolveActiveProviderConfig({ provider, model: 'offline-model', baseUrl: 'https://model.invalid', apiKey: 'offline-fixture', sampling });
     assert.equal(providerConfig.provider, provider);
     assert.equal(providerConfig.model, 'offline-model');
     return prepareScenePlannerInput({
+        ...plannerOptions,
         messageText: source, maxImages: 1, maxPlanImages: 1, maxCharactersPerImage: 1,
         agentOptions: { providerConfig }, expansionOptions: { runtime: {} },
     });
@@ -64,6 +68,22 @@ function envelopeFor(prepared, imageProvider = 'novelai') {
     return createScenePlannerEnvelope({ runId: 'run-contract-fixture', imageProvider, prepared,
         generationRecipe: recipeFor(imageProvider) });
 }
+
+test('background GPT Image floors keep the selected Responses calling model separate from the scene Agent', async () => {
+    const settings = { ...createDefaultSettings('openai'), apiKey: 'offline-key', imageApi: 'responses', responsesModel: 'fixture-caller' };
+    const prepared = await preparedFor('openai-compatible', {}, naturalPlannerOptions('openai', settings));
+    const envelope = createScenePlannerEnvelope({ runId: 'responses-floor', imageProvider: 'openai', prepared,
+        generationRecipe: createGenerationRecipe('openai', settings) });
+    const accepted = validate(envelope).envelope;
+    assert.equal(accepted.agent.providerConfig.model, 'offline-model');
+    const { context, items, artifacts } = compileOpenAi([{ scene: source }], accepted.generationRecipe);
+    assert.equal(context.imageApi, 'responses');
+    assert.equal(context.responsesModel, 'fixture-caller');
+    assert.equal(items[0].request.payload.model, settings.paramsPresets[0].params.model);
+    assert.deepEqual(artifacts[0].providerMetadata, { imageApi: 'responses', responsesModel: 'fixture-caller', requestedOutputFormat: 'jpeg' });
+    envelope.generationRecipe.responsesModel = '';
+    assert.throws(() => validate(envelope), { code: 'invalid_draw_run' });
+});
 
 // Acceptance (protocol mismatch / lost paid reference): background requests carry
 // the same Vibe encodings and preset provenance as direct generation.
